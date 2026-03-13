@@ -372,6 +372,92 @@ Refactor storage layer to use JSON serialization
 
 ---
 
+## Feature Backlog
+
+Features to implement, in rough priority order. Pick from the top when starting new work.
+
+---
+
+### BACKLOG-1 — Today folder with task creation
+
+**Description:**
+- A built-in folder called **Today** is the default view on launch
+- Tasks have two fields: a short **title** (one line) and an optional **notes** section (multi-line)
+- New tasks are added to the **top** of the Today list
+- Task order in Today persists between sessions (user-defined order is preserved)
+- When a task is marked complete it is moved to the **Logbook** folder
+
+**Acceptance criteria:**
+- [ ] Opening the app shows the Today folder
+- [ ] `o` adds a new task at the top of the list and opens INSERT mode for the title
+- [ ] Pressing `Esc` from title entry opens the notes field (or saves if notes skipped)
+- [ ] Completed tasks disappear from Today and appear in Logbook with a completion timestamp
+- [ ] Task order survives app restart
+
+**Data model sketch:**
+```python
+@dataclass
+class Task:
+    id: str              # uuid
+    title: str
+    notes: str           # may be empty
+    folder_id: str
+    position: int        # explicit ordering within folder
+    completed_at: datetime | None
+    scheduled_date: date | None
+```
+
+---
+
+### BACKLOG-2 — Scheduled task dates (snooze to a date)
+
+**Description:**
+- A task can have an optional **date** attached to it
+- When a date is set, the task is removed from Today and held until that date arrives
+- On the scheduled date the task reappears at the top of Today automatically
+- Date can be set or cleared from the task edit view
+
+**Acceptance criteria:**
+- [ ] Task edit view has a date field (keyboard-entry, e.g. `2026-03-20` or relative `+3d`)
+- [ ] Tasks with a future date do not appear in Today
+- [ ] On the scheduled date, tasks reappear in Today (checked at app launch)
+- [ ] Clearing a date returns the task to Today immediately
+
+---
+
+### BACKLOG-3 — Waiting On folder
+
+**Description:**
+- A built-in folder called **Waiting On** holds tasks that are blocked on someone else
+- Tasks in Waiting On behave like scheduled tasks: they have an optional date
+- When the date arrives, the task surfaces in Today automatically
+- Tasks without a date stay in Waiting On until manually moved
+
+**Acceptance criteria:**
+- [ ] Waiting On appears in the sidebar
+- [ ] Tasks can be created in or moved to Waiting On
+- [ ] Date-triggered surfacing works identically to BACKLOG-2
+- [ ] Surfaced tasks are visually distinguishable as coming from Waiting On (e.g. a tag or indicator)
+
+---
+
+### BACKLOG-4 — User-created folders
+
+**Description:**
+- Users can create custom folders through the TUI (beyond the built-ins: Today, Waiting On, Logbook)
+- Folders appear in the sidebar
+- Tasks can be created in or moved to any folder
+- Folders can be renamed and deleted (deleting a non-empty folder requires confirmation)
+
+**Acceptance criteria:**
+- [ ] Keybinding to create a new folder from the sidebar (e.g. `N` while sidebar is focused)
+- [ ] Folder name entry uses INSERT mode
+- [ ] New folder appears in sidebar immediately and persists across restarts
+- [ ] Tasks can be moved between folders (`m` to move, then select destination)
+- [ ] Deleting a folder with tasks inside prompts: delete tasks too, or move to Inbox
+
+---
+
 ## Notes for AI Assistants
 
 - This project is in its **initialization phase** — no source code exists yet. When asked to implement features, scaffold the Python project structure first (`pyproject.toml`, `gtd_tui/__main__.py`).
