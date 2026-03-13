@@ -2,10 +2,11 @@
 
 ## Project Overview
 
-**Gtd_tui** is a terminal user interface (TUI) application implementing the GTD (Getting Things Done) productivity methodology. The project is written in Rust and is currently in its early initialization stage.
+**Gtd_tui** is a terminal user interface (TUI) application implementing the GTD (Getting Things Done) productivity methodology. It is written in Python and modeled after the Things iPhone app, adapted for a TUI environment.
 
-- **Language:** Rust
+- **Language:** Python
 - **Paradigm:** TUI (Terminal User Interface)
+- **Inspiration:** Things app (iPhone) — core GTD feature set adapted for the terminal
 - **Methodology:** GTD (Getting Things Done) task/project management
 - **Repository:** toddclaw/Gtd_tui
 
@@ -13,7 +14,7 @@
 
 ## Repository Status
 
-This project was recently initialized. As of the initial commit, only a `README.md` exists. There is no source code, Cargo manifest, or build configuration yet. When implementing features, follow the conventions below from the start.
+This project was recently initialized. As of the initial commit, only a `README.md` exists. There is no source code or configuration yet. When implementing features, follow the conventions below from the start.
 
 ---
 
@@ -21,8 +22,8 @@ This project was recently initialized. As of the initial commit, only a `README.
 
 ### Prerequisites
 
-- Rust toolchain (stable channel recommended): install via [rustup](https://rustup.rs/)
-- Cargo (bundled with Rust)
+- Python 3.11+
+- `pip` or `uv` for dependency management
 
 ### Getting Started
 
@@ -31,52 +32,58 @@ This project was recently initialized. As of the initial commit, only a `README.
 git clone <repo-url>
 cd Gtd_tui
 
-# Build (once Cargo.toml exists)
-cargo build
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate  # on Windows: .venv\Scripts\activate
 
-# Run
-cargo run
+# Install dependencies (once requirements.txt / pyproject.toml exists)
+pip install -e ".[dev]"
+
+# Run the application
+python -m gtd_tui
 
 # Run tests
-cargo test
-
-# Check for issues without building
-cargo check
+pytest
 
 # Format code
-cargo fmt
+black .
 
 # Lint
-cargo clippy -- -D warnings
+ruff check .
+
+# Type check
+mypy .
 ```
 
 ---
 
 ## Expected Project Structure
 
-When source code is added, follow this conventional Rust project layout:
+When source code is added, follow this conventional Python project layout:
 
 ```
 Gtd_tui/
 ├── CLAUDE.md               # This file
 ├── README.md               # User-facing documentation
-├── Cargo.toml              # Package manifest and dependencies
-├── Cargo.lock              # Locked dependency versions (commit this)
-├── .gitignore              # Rust gitignore (target/, etc.)
-├── src/
-│   ├── main.rs             # Application entry point
-│   ├── app.rs              # Core application state and event loop
-│   ├── ui.rs               # TUI rendering logic
+├── pyproject.toml          # Package metadata and dependencies
+├── .gitignore              # Python gitignore (__pycache__, .venv, etc.)
+├── gtd_tui/                # Main package
+│   ├── __init__.py
+│   ├── __main__.py         # Entry point: python -m gtd_tui
+│   ├── app.py              # Application state and event loop
+│   ├── ui.py               # TUI rendering logic
 │   ├── gtd/                # GTD domain logic
-│   │   ├── mod.rs
-│   │   ├── task.rs         # Task data structures
-│   │   ├── project.rs      # Project groupings
-│   │   └── context.rs      # GTD contexts (@home, @work, etc.)
+│   │   ├── __init__.py
+│   │   ├── task.py         # Task data structures
+│   │   ├── project.py      # Project groupings
+│   │   └── context.py      # GTD contexts (@home, @work, etc.)
 │   └── storage/            # Persistence layer
-│       ├── mod.rs
-│       └── file.rs         # File-based storage (JSON/TOML/SQLite)
-└── tests/                  # Integration tests
-    └── integration_test.rs
+│       ├── __init__.py
+│       └── file.py         # File-based storage (JSON/SQLite)
+└── tests/                  # Tests
+    ├── __init__.py
+    ├── test_gtd.py
+    └── test_storage.py
 ```
 
 ---
@@ -85,47 +92,49 @@ Gtd_tui/
 
 ### TUI Framework
 
-Prefer **[ratatui](https://github.com/ratatui-org/ratatui)** — the actively maintained fork of tui-rs. It provides a retained-mode widget system with a crossterm backend.
+Prefer **[Textual](https://github.com/Textualize/textual)** — a modern Python TUI framework with a CSS-like styling system and reactive state management. Alternatively, **[urwid](https://github.com/urwid/urwid)** or raw **[curses](https://docs.python.org/3/library/curses.html)** are lighter options.
 
 ```toml
-[dependencies]
-ratatui = "0.29"
-crossterm = "0.28"
+# pyproject.toml
+[project]
+dependencies = [
+    "textual>=0.70",
+]
 ```
-
-### Event Handling
-
-Use **crossterm** for keyboard/mouse event polling, paired with ratatui's rendering loop.
 
 ### Storage
 
-Start with a simple file-based approach (JSON or TOML) using **serde**:
+Start with JSON for simplicity, upgrade to SQLite if querying complexity grows:
 
 ```toml
-[dependencies]
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-# or
-toml = "0.8"
+# JSON (stdlib) — no extra dependency needed
+# SQLite — use stdlib sqlite3 or:
+dependencies = [
+    "textual>=0.70",
+]
 ```
 
-Consider **SQLite via rusqlite** if relational querying of tasks/projects is needed.
+### Things App Feature Alignment
 
-### Error Handling
+Core features to implement (aligned with Things iPhone app):
 
-Use **[anyhow](https://github.com/dtolnay/anyhow)** for application-level errors and **[thiserror](https://github.com/dtolnay/thiserror)** for library/domain errors.
-
-```toml
-[dependencies]
-anyhow = "1"
-thiserror = "2"
-```
+| Feature | Description |
+|---|---|
+| **Inbox** | Quick capture, processed later |
+| **Today** | Tasks scheduled or flagged for today |
+| **Upcoming** | Scheduled tasks in the near future |
+| **Anytime** | Active tasks with no specific schedule |
+| **Someday** | Low-priority, parked tasks |
+| **Projects** | Multi-step outcomes with sub-tasks |
+| **Areas** | High-level responsibility areas (not time-bound) |
+| **Logbook** | Completed tasks archive |
+| **Tags** | Flexible labels across tasks/projects |
+| **Deadlines** | Hard due dates on tasks/projects |
+| **Checklists** | Sub-steps within a single task |
 
 ---
 
 ## GTD Domain Concepts
-
-When implementing the GTD methodology, respect these core concepts:
 
 | Concept | Description |
 |---|---|
@@ -142,52 +151,50 @@ When implementing the GTD methodology, respect these core concepts:
 
 ## Code Conventions
 
-### General Rust Style
+### General Python Style
 
-- Follow standard Rust formatting (`cargo fmt` enforced)
-- No `clippy` warnings (`cargo clippy -- -D warnings`)
+- Format with **black** (line length 88)
+- Lint with **ruff**
+- Type-annotate all function signatures; use `mypy` for static checking
 - Use `snake_case` for functions, variables, modules
-- Use `PascalCase` for types, traits, enums
-- Use `SCREAMING_SNAKE_CASE` for constants
-- Prefer `Result<T, E>` over `unwrap()`/`expect()` in library code; `expect()` is acceptable in `main` for unrecoverable startup failures
+- Use `PascalCase` for classes
+- Use `UPPER_CASE` for constants
+- Prefer `dataclasses` or `pydantic` models for domain objects
 
 ### Error Handling
 
-- Domain errors: define with `thiserror`
-- Application/glue code: propagate with `anyhow`
-- Never silently swallow errors with `let _ = ...` unless explicitly intentional and commented
-
-### Modules
-
-- Keep modules focused and single-purpose
-- Prefer `mod.rs` files to re-export a clean public API from submodules
-- Mark internal types/functions as `pub(crate)` rather than `pub` when not part of the public API
+- Use specific exception types; avoid bare `except:`
+- Raise exceptions at boundaries, handle them at the appropriate layer
+- Never silently swallow exceptions without a comment explaining why
 
 ### TUI Architecture Pattern
 
-Follow the **Elm Architecture** (Model-Update-View) pattern common in ratatui apps:
+Follow a **Model-View-Controller** or **Elm-like** pattern:
 
-```rust
-// State
-struct App { /* ... */ }
+```python
+# State (model)
+@dataclass
+class AppState:
+    tasks: list[Task]
+    selected_index: int
+    current_view: View
 
-// Event handling → state mutation
-impl App {
-    fn handle_event(&mut self, event: Event) -> anyhow::Result<()> { /* ... */ }
-}
+# Pure rendering from state (view)
+def render(app: AppState) -> ...:
+    ...
 
-// Pure rendering from state
-fn ui(frame: &mut Frame, app: &App) { /* ... */ }
+# Event handling → state mutation (controller)
+def handle_key(app: AppState, key: str) -> AppState:
+    ...
 ```
 
-Keep rendering (`ui`) and state mutation (`handle_event`) strictly separated.
+Keep rendering and state mutation strictly separated.
 
 ### Testing
 
-- Unit test domain logic (GTD data structures, filtering, sorting)
-- Integration test storage layer
-- TUI rendering tests are optional but welcome (ratatui provides test utilities)
-- Run `cargo test` before every commit
+- Unit test domain logic (task creation, filtering, sorting, state transitions)
+- Integration test the storage layer (read/write round-trips)
+- Run `pytest` before every commit
 
 ---
 
@@ -205,15 +212,15 @@ Use clear, imperative commit messages:
 ```
 Add inbox task capture with keyboard shortcut
 Fix project deletion leaving orphaned tasks
-Refactor storage layer to use serde traits
+Refactor storage layer to use JSON serialization
 ```
 
 ### Pre-commit Checklist
 
-- [ ] `cargo fmt` — code is formatted
-- [ ] `cargo clippy -- -D warnings` — no lint warnings
-- [ ] `cargo test` — all tests pass
-- [ ] `cargo check` — project compiles
+- [ ] `black .` — code is formatted
+- [ ] `ruff check .` — no lint warnings
+- [ ] `mypy .` — no type errors
+- [ ] `pytest` — all tests pass
 
 ---
 
@@ -223,18 +230,18 @@ Refactor storage layer to use serde traits
 |---|---|
 | `README.md` | User-facing project description |
 | `CLAUDE.md` | This file — AI assistant conventions |
-| `Cargo.toml` | Rust package manifest (add here) |
-| `src/main.rs` | Entry point — keep thin, delegate to `app.rs` |
-| `src/app.rs` | Application state, event loop |
-| `src/ui.rs` | All ratatui rendering logic |
+| `pyproject.toml` | Package metadata and dependencies |
+| `gtd_tui/__main__.py` | Entry point — keep thin |
+| `gtd_tui/app.py` | Application state, event loop |
+| `gtd_tui/ui.py` | All TUI rendering logic |
 
 ---
 
 ## Notes for AI Assistants
 
-- This project is in its **initialization phase** — no source code exists yet. When asked to implement features, scaffold the Rust project structure first (`Cargo.toml`, `src/main.rs`).
-- Always run `cargo check` (or suggest it) after adding/modifying Rust source files.
+- This project is in its **initialization phase** — no source code exists yet. When asked to implement features, scaffold the Python project structure first (`pyproject.toml`, `gtd_tui/__main__.py`).
+- Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
-- When adding dependencies to `Cargo.toml`, check that versions are recent and the crates are actively maintained.
-- Storage format decisions (JSON vs TOML vs SQLite) should be confirmed with the user before implementation, as they affect migration complexity later.
-- Default data directory should follow XDG conventions (`~/.local/share/gtd_tui/` on Linux, platform-appropriate on macOS/Windows) using the `dirs` crate.
+- The UI should be modeled after the **Things iPhone app** — reference its information architecture (Inbox, Today, Upcoming, Anytime, Someday, Projects, Areas, Logbook) when making design decisions.
+- Storage format decisions (JSON vs SQLite) should be confirmed with the user before implementation, as they affect migration complexity later.
+- Default data directory should follow XDG conventions (`~/.local/share/gtd_tui/` on Linux) using the `platformdirs` package.
