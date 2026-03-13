@@ -160,6 +160,128 @@ Core features to implement (aligned with Things iPhone app):
 
 ---
 
+## Development Process
+
+### Test-Driven Development (TDD)
+
+This project uses TDD. Write tests before or alongside implementation — never after.
+
+**Workflow:**
+1. Write a failing test that describes the desired behaviour
+2. Write the minimum code to make it pass
+3. Refactor, keeping tests green
+
+**What to test:**
+- All GTD domain logic: task creation, completion, scheduling, filtering, sorting, state transitions
+- Storage layer: read/write round-trips, corrupt/missing file handling
+- Keybinding dispatch: modal state transitions (normal → insert → normal, etc.)
+- Do **not** test Textual internals or pure rendering — test the logic that drives rendering
+
+**Test location:** `tests/` mirroring the package structure (`tests/gtd/test_task.py`, `tests/storage/test_file.py`, etc.)
+
+```bash
+pytest                        # run all tests
+pytest tests/gtd/             # run a subset
+pytest --tb=short -q          # concise output
+```
+
+Tests must pass before every commit. A failing test suite blocks merging.
+
+---
+
+## UI Design Principles
+
+### General
+
+- **Clarity over cleverness.** Every screen should be immediately legible — what list am I in, what is selected, what actions are available.
+- **Keyboard-first.** Every action reachable without a mouse. Mouse support is a bonus.
+- **Minimal chrome.** Borders, status bars, and decorations should aid navigation, not fill space.
+- **Fast.** Interactions should feel instant. No perceptible lag on a task list of hundreds of items.
+- **Consistent.** Same key does the same thing everywhere possible. Surprises are bugs.
+
+### Vi Keybindings
+
+The UI **must** support vi-style navigation and editing throughout. This is a first-class requirement, not an optional mode.
+
+**Modal editing:**
+
+| Mode | Indicator | Purpose |
+|---|---|---|
+| `NORMAL` | Default | Navigation and commands |
+| `INSERT` | Visible indicator in status bar | Text entry (task titles, notes) |
+
+**Navigation (NORMAL mode):**
+
+| Key | Action |
+|---|---|
+| `j` / `k` | Move selection down / up |
+| `g g` | Jump to top of list |
+| `G` | Jump to bottom of list |
+| `Ctrl-d` / `Ctrl-u` | Half-page down / up |
+| `h` / `l` | Navigate left/right (e.g. between sidebar and task list) |
+
+**Actions (NORMAL mode):**
+
+| Key | Action |
+|---|---|
+| `o` | Add new task below current (opens INSERT mode) |
+| `O` | Add new task above current (opens INSERT mode) |
+| `i` or `Enter` | Edit selected task (opens INSERT mode) |
+| `x` or `Space` | Toggle task complete |
+| `d d` | Delete selected task (with confirmation) |
+| `u` | Undo last action |
+| `/` | Search/filter tasks |
+| `n` / `N` | Next / previous search match |
+| `q` | Quit / close current view |
+
+**INSERT mode:**
+
+| Key | Action |
+|---|---|
+| `Esc` | Return to NORMAL mode |
+| `Ctrl-c` | Cancel edit without saving |
+| Standard text editing keys apply |
+
+**Sidebar navigation:**
+
+| Key | Action |
+|---|---|
+| `1`–`9` | Jump to nth sidebar item (Inbox, Today, etc.) |
+| `Tab` / `Shift-Tab` | Cycle focus between sidebar and task list |
+
+These bindings must be implemented in a dedicated keybinding module so they can be tested independently of the TUI framework.
+
+---
+
+## Security
+
+This is a local personal productivity tool, but it should not be a security nightmare. Follow these rules:
+
+### Data
+
+- **Never** transmit task data over the network unless the user explicitly configures sync. No telemetry, no analytics, no silent outbound connections.
+- Store data only in the user's own data directory (`~/.local/share/gtd_tui/`). Never write outside it without prompting.
+- Do not log task content (titles, notes) to any log file — task data is private.
+
+### File Handling
+
+- Validate and sanitise any file path derived from user input before using it in filesystem operations (no path traversal: `../../etc/passwd`).
+- When writing the JSON data file, write to a temp file and atomically rename — prevents data corruption on crash.
+- Set file permissions to `600` (owner read/write only) on the data file.
+
+### Input
+
+- Task titles and notes are plain text. Do not interpret them as shell commands, HTML, or markup at any point.
+- If the app ever spawns subprocesses (e.g., to open a URL), use a list-form `subprocess` call (never `shell=True`) and validate the input first.
+
+### Dependencies
+
+- Minimise third-party dependencies. Every dependency is an attack surface.
+- Pin dependency versions in `pyproject.toml` and commit `requirements.lock` / use `uv lock`.
+- Review changelogs before upgrading dependencies.
+
+---
+
 ## Code Conventions
 
 ### General Python Style
@@ -203,9 +325,11 @@ Keep rendering and state mutation strictly separated.
 
 ### Testing
 
+- This project uses **TDD** — write tests before or alongside implementation (see Development Process above)
 - Unit test domain logic (task creation, filtering, sorting, state transitions)
+- Unit test keybinding dispatch and modal state machine
 - Integration test the storage layer (read/write round-trips)
-- Run `pytest` before every commit
+- Run `pytest` before every commit; a failing suite blocks merging
 
 ---
 
@@ -251,8 +375,11 @@ Refactor storage layer to use JSON serialization
 ## Notes for AI Assistants
 
 - This project is in its **initialization phase** — no source code exists yet. When asked to implement features, scaffold the Python project structure first (`pyproject.toml`, `gtd_tui/__main__.py`).
+- **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
 - The UI should be modeled after the **Things iPhone app** — reference its information architecture (Inbox, Today, Upcoming, Anytime, Someday, Projects, Areas, Logbook) when making design decisions.
+- **Vi keybindings are a first-class requirement.** All navigation and editing actions must be reachable via vi-style keys. Implement modal state (NORMAL/INSERT) from the start — do not retrofit it later.
 - Storage format decisions (JSON vs SQLite) should be confirmed with the user before implementation, as they affect migration complexity later.
 - Default data directory should follow XDG conventions (`~/.local/share/gtd_tui/` on Linux) using the `platformdirs` package.
+- Follow the security rules in the Security section — especially: no network calls, atomic file writes, `600` permissions on the data file, no `shell=True`.
