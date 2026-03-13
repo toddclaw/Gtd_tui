@@ -12,6 +12,17 @@
 
 ---
 
+## Architectural Decisions (Settled — Do Not Re-litigate)
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| **App type** | TUI (interactive terminal app) | Session-based "open, use, close" workflow; Things-style navigation requires a rendered interface |
+| **Not** | CLI file utility (todo.txt style) | One-shot commands and file-per-task patterns optimize for scripting, not for the intended UX |
+| **TUI framework** | Textual | Best modern Python TUI library; CSS-like styling; built-in keyboard navigation |
+| **Storage** | Single JSON file (`~/.local/share/gtd_tui/data.json`) | Simple, inspectable, easy to back up; no schema migrations early on |
+
+---
+
 ## Repository Status
 
 This project was recently initialized. As of the initial commit, only a `README.md` exists. There is no source code or configuration yet. When implementing features, follow the conventions below from the start.
