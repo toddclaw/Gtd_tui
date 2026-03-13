@@ -162,6 +162,31 @@ Core features to implement (aligned with Things iPhone app):
 
 ## Development Process
 
+### Code Craftsmanship
+
+This project follows code craftsmanship practices. Every piece of code should be written with care for the people (and AI assistants) who will read and maintain it next.
+
+**Core principles:**
+
+- **TDD** — tests are written before or alongside implementation, never after
+- **SOLID** — apply SOLID principles throughout:
+  - *Single Responsibility:* each class/function does one thing well
+  - *Open/Closed:* extend behaviour without modifying existing code
+  - *Liskov Substitution:* subtypes behave correctly wherever the base type is expected
+  - *Interface Segregation:* small, focused interfaces over large general ones
+  - *Dependency Inversion:* depend on abstractions, not concrete implementations
+- **Readability** — code is read far more often than it is written; optimise for the reader
+- **Testability** — if something is hard to test, that is a design smell; restructure until it is easy
+- **Modularity** — keep modules small, focused, and loosely coupled; changes in one module should not ripple unexpectedly through others
+
+**In practice this means:**
+- Pure functions for all domain logic (no hidden state, no side effects)
+- Side effects (storage, TUI) isolated at the edges of the system
+- Short functions with clear names over long functions with comments explaining what they do
+- No premature abstraction, but no copy-paste either — extract when a pattern appears twice
+
+---
+
 ### Test-Driven Development (TDD)
 
 This project uses TDD. Write tests before or alongside implementation — never after.
