@@ -458,6 +458,87 @@ class Task:
 
 ---
 
+### BACKLOG-5 — Repeating tasks (time-based, independent of completion)
+
+**Description:**
+- A task can be marked as **repeating** with an interval: every N days / weeks / months / years
+- On each due date, a **new task** with the same title, notes, and folder is created automatically
+- This happens regardless of whether the previous instance was completed — the schedule is fixed to the calendar, not to completion
+- The original task is not modified; a fresh copy appears in Today on the repeat date
+
+**Acceptance criteria:**
+- [ ] Task edit view has a repeat field: interval + unit (e.g. `7 days`, `1 month`)
+- [ ] On app launch, any repeat tasks whose next due date has arrived generate a new task in Today
+- [ ] The new task is a full copy (same title, notes, folder) with no repeat setting of its own (or repeat setting preserved, depending on user preference — clarify before implementing)
+- [ ] Repeat schedule is stored on the source task and survives restarts
+- [ ] Completing or deleting a repeating task does not cancel future instances
+
+**Data model addition:**
+```python
+@dataclass
+class RepeatRule:
+    interval: int
+    unit: Literal["days", "weeks", "months", "years"]
+    next_due: date
+```
+
+---
+
+### BACKLOG-6 — Recurring tasks (completion-relative scheduling)
+
+**Description:**
+- A task can be marked as **recurring** with an offset: N days / weeks / months / years after completion
+- When the task is marked complete, a **new task** with the same details is created, with its scheduled date set to `completion_date + offset`
+- Unlike repeating (BACKLOG-5), the next instance's date floats relative to when the current one was done
+
+**Acceptance criteria:**
+- [ ] Task edit view allows selecting recurring mode distinct from repeating mode
+- [ ] On task completion, a new task is automatically created with the computed scheduled date
+- [ ] The new task appears in Today on its scheduled date (same mechanism as BACKLOG-2)
+- [ ] Recurring setting is preserved on each generated task
+
+**Distinction from BACKLOG-5:**
+
+| | Repeating | Recurring |
+|---|---|---|
+| Schedule anchor | Fixed calendar date | Completion date |
+| Missed instance | New task still appears on schedule | Deferred until you actually complete it |
+| Example | "Pay rent — 1st of every month" | "Floss — 1 day after last done" |
+
+---
+
+### BACKLOG-7 — Someday folder
+
+**Description:**
+- A built-in folder called **Someday** for tasks with no specific date or urgency
+- Tasks in Someday do not appear in Today unless explicitly moved there
+- Someday is a standard GTD holding area — tasks live here until the user promotes them
+
+**Acceptance criteria:**
+- [ ] Someday appears in the sidebar as a built-in folder (below Today, above user-created folders)
+- [ ] Tasks can be created directly in Someday or moved there from any other folder
+- [ ] Tasks in Someday never surface in Today automatically (no date-based promotion)
+- [ ] Tasks can be moved from Someday to Today or any other folder manually
+
+---
+
+### BACKLOG-8 — Global search across all folders
+
+**Description:**
+- A search mode that matches tasks by title or notes text across every folder simultaneously
+- Results are ordered: active folders first (Today, Waiting On, Someday, user folders), Logbook results last
+- Within each group, results are ordered by relevance (title match > notes match) then by recency
+
+**Acceptance criteria:**
+- [ ] `/` from any view opens a search prompt
+- [ ] Results update incrementally as the user types (filter-as-you-type)
+- [ ] Results are grouped: active folders first, Logbook last — with a visible separator
+- [ ] Selecting a result navigates to that task in its folder and closes search
+- [ ] `Esc` cancels search and returns to the previous view
+- [ ] Search is case-insensitive; matches are highlighted in results
+
+---
+
 ## Notes for AI Assistants
 
 - This project is in its **initialization phase** — no source code exists yet. When asked to implement features, scaffold the Python project structure first (`pyproject.toml`, `gtd_tui/__main__.py`).
