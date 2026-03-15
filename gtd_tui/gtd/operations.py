@@ -426,6 +426,37 @@ def delete_folder(folders: list[Folder], folder_id: str) -> list[Folder]:
     return [f for f in folders if f.id != folder_id]
 
 
+def move_folder_up(folders: list[Folder], folder_id: str) -> list[Folder]:
+    """Swap a user folder with the one above it (lower position). No-op at top."""
+    ordered = sorted(folders, key=lambda f: f.position)
+    idx = next((i for i, f in enumerate(ordered) if f.id == folder_id), None)
+    if idx is None or idx == 0:
+        return folders
+    ordered[idx].position, ordered[idx - 1].position = (
+        ordered[idx - 1].position,
+        ordered[idx].position,
+    )
+    return folders
+
+
+def move_folder_down(folders: list[Folder], folder_id: str) -> list[Folder]:
+    """Swap a user folder with the one below it (higher position). No-op at bottom."""
+    ordered = sorted(folders, key=lambda f: f.position)
+    idx = next((i for i, f in enumerate(ordered) if f.id == folder_id), None)
+    if idx is None or idx == len(ordered) - 1:
+        return folders
+    ordered[idx].position, ordered[idx + 1].position = (
+        ordered[idx + 1].position,
+        ordered[idx].position,
+    )
+    return folders
+
+
+def purge_logbook_task(tasks: list[Task], task_id: str) -> list[Task]:
+    """Permanently remove a logbook entry. No-op if the task is not in the logbook."""
+    return [t for t in tasks if not (t.id == task_id and t.folder_id == "logbook")]
+
+
 def folder_tasks(tasks: list[Task], folder_id: str) -> list[Task]:
     """Return tasks belonging to the given folder, sorted by position."""
     return sorted(

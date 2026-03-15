@@ -31,12 +31,15 @@ from gtd_tui.gtd.operations import (
     logbook_tasks,
     make_repeat_rule,
     move_folder_tasks_to_today,
+    move_folder_down,
+    move_folder_up,
     move_task_down,
     move_task_to_folder,
     move_task_up,
     move_to_today,
     move_to_waiting_on,
     parse_repeat_input,
+    purge_logbook_task,
     rename_folder,
     schedule_task,
     search_tasks,
@@ -863,6 +866,12 @@ class GtdApp(App[None]):
         elif event.key == "k":
             event.prevent_default()
             sidebar.action_cursor_up()
+        elif event.key == "J":
+            event.prevent_default()
+            self._move_selected_folder_down()
+        elif event.key == "K":
+            event.prevent_default()
+            self._move_selected_folder_up()
         elif event.key in ("l", "enter"):
             event.prevent_default()
             self.query_one("#task-list", ListView).focus()
@@ -983,7 +992,10 @@ class GtdApp(App[None]):
             self._complete_selected()
         elif event.key == "d":
             event.prevent_default()
-            self._delete_selected()
+            if self._current_view == "logbook":
+                self._purge_logbook_entry()
+            else:
+                self._delete_selected()
         elif event.key == "slash":
             event.prevent_default()
             self._open_search()
@@ -1469,6 +1481,32 @@ class GtdApp(App[None]):
                 f"'{name}' has {n} task(s). [d]elete all  [m]ove to Today  [Esc] cancel"
             )
 
+    def _move_selected_folder_up(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        folder_id = view_ids[idx]
+        if folder_id in BUILTIN_FOLDER_IDS:
+            return
+        self._all_folders = move_folder_up(self._all_folders, folder_id)
+        self._save()
+        self._rebuild_sidebar()
+
+    def _move_selected_folder_down(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        folder_id = view_ids[idx]
+        if folder_id in BUILTIN_FOLDER_IDS:
+            return
+        self._all_folders = move_folder_down(self._all_folders, folder_id)
+        self._save()
+        self._rebuild_sidebar()
+
     def _handle_delete_confirm_key(self, event: events.Key) -> None:
         folder_id = self._delete_confirm_folder_id
         if event.key == "d":
@@ -1517,6 +1555,16 @@ class GtdApp(App[None]):
             return
         self._push_undo()
         self._all_tasks = delete_task(self._all_tasks, task.id)
+        self._save()
+        self._refresh_list()
+
+    def _purge_logbook_entry(self) -> None:
+        """Permanently remove the selected logbook entry (no undo)."""
+        task = self._get_selected_task()
+        if task is None:
+            return
+        self._all_tasks = purge_logbook_task(self._all_tasks, task.id)
+        self._rebuild_sidebar()
         self._save()
         self._refresh_list()
 

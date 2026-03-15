@@ -213,6 +213,23 @@ async def test_deleted_task_persists_to_data_file(tmp_path: Path) -> None:
     assert loaded[0].folder_id == "logbook"
 
 
+async def test_d_in_logbook_purges_entry(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Done task")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("x")        # complete → logbook
+        await pilot.pause()
+        # Switch to logbook view directly via app state
+        app._current_view = "logbook"
+        app._refresh_list()
+        await pilot.pause()
+        await pilot.press("d")        # purge
+        await pilot.pause()
+        logbook = [t for t in app._all_tasks if t.folder_id == "logbook"]
+        assert len(logbook) == 0
+
+
 # ---------------------------------------------------------------------------
 # Task detail modal (BACKLOG-11)
 # ---------------------------------------------------------------------------
@@ -382,6 +399,41 @@ async def test_l_from_sidebar_focuses_task_list(tmp_path: Path) -> None:
         await pilot.pause()
         task_list = app.query_one("#task-list", ListView)
         assert task_list.has_focus
+
+
+async def test_J_K_reorders_folders_in_sidebar(tmp_path: Path) -> None:
+    from gtd_tui.gtd.operations import create_folder
+
+    data_file = tmp_path / "data.json"
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Pre-populate two folders directly
+        app._all_folders = create_folder(app._all_folders, "Alpha")
+        app._all_folders = create_folder(app._all_folders, "Beta")
+        app._rebuild_sidebar()
+        await pilot.pause()
+
+        # Focus sidebar and navigate to the Beta entry
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        # built-ins: Today, Upcoming, Waiting On, Alpha, Beta, Someday, Logbook
+        # Alpha is at index 3, Beta at index 4
+        beta_idx = next(
+            i for i, fid in enumerate(app._sidebar_view_ids)
+            if fid != "today" and fid != "upcoming" and fid != "waiting_on"
+            and fid != "someday" and fid != "logbook"
+            and next((f for f in app._all_folders if f.id == fid and f.name == "Beta"), None)
+        )
+        sidebar.index = beta_idx
+        await pilot.pause()
+        await pilot.press("K")   # move Beta above Alpha
+        await pilot.pause()
+
+        ordered = sorted(app._all_folders, key=lambda f: f.position)
+        names = [f.name for f in ordered]
+        assert names.index("Beta") < names.index("Alpha")
 
 
 async def test_o_in_sidebar_creates_folder(tmp_path: Path) -> None:

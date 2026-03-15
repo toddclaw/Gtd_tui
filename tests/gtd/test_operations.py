@@ -17,6 +17,7 @@ from gtd_tui.gtd.operations import (
     move_to_today,
     move_to_waiting_on,
     parse_repeat_input,
+    purge_logbook_task,
     schedule_task,
     scheduled_tasks,
     search_tasks,
@@ -176,6 +177,34 @@ def test_delete_task_unknown_id_is_noop():
     tasks = add_task([], "Task")
     result = delete_task(tasks, "nonexistent-id")
     assert len(today_tasks(result)) == 1
+
+
+# ------------------------------------------------------------------ #
+# purge_logbook_task                                                   #
+# ------------------------------------------------------------------ #
+
+
+def test_purge_logbook_task_removes_entry():
+    tasks = add_task([], "Done task")
+    task_id = tasks[0].id
+    tasks = delete_task(tasks, task_id)   # moves to logbook
+    tasks = purge_logbook_task(tasks, task_id)
+    assert logbook_tasks(tasks) == []
+
+
+def test_purge_logbook_task_does_not_remove_live_task():
+    tasks = add_task([], "Active task")
+    task_id = tasks[0].id
+    result = purge_logbook_task(tasks, task_id)
+    assert len(today_tasks(result)) == 1
+
+
+def test_purge_logbook_task_unknown_id_is_noop():
+    tasks = add_task([], "Task")
+    task_id = tasks[0].id
+    tasks = delete_task(tasks, task_id)
+    result = purge_logbook_task(tasks, "nonexistent-id")
+    assert len(logbook_tasks(result)) == 1
 
 
 # ------------------------------------------------------------------ #

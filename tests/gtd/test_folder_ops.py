@@ -10,7 +10,9 @@ from gtd_tui.gtd.operations import (
     delete_folder,
     discard_folder_tasks,
     folder_tasks,
+    move_folder_down,
     move_folder_tasks_to_today,
+    move_folder_up,
     move_task_to_folder,
     rename_folder,
     today_tasks,
@@ -220,3 +222,50 @@ def test_move_folder_tasks_to_today_appends_after_existing():
     custom_pos = next(t.position for t in today if t.title == "Custom task")
     today_pos = next(t.position for t in today if t.title == "Today task")
     assert custom_pos > today_pos
+
+
+# ---------------------------------------------------------------------------
+# move_folder_up / move_folder_down
+# ---------------------------------------------------------------------------
+
+
+def _two_folders() -> list[Folder]:
+    folders = create_folder([], "Alpha")
+    folders = create_folder(folders, "Beta")
+    return folders
+
+
+def test_move_folder_up_swaps_positions():
+    folders = _two_folders()
+    beta_id = next(f.id for f in folders if f.name == "Beta")
+    folders = move_folder_up(folders, beta_id)
+    ordered = sorted(folders, key=lambda f: f.position)
+    assert ordered[0].name == "Beta"
+    assert ordered[1].name == "Alpha"
+
+
+def test_move_folder_up_at_top_is_noop():
+    folders = _two_folders()
+    alpha_id = next(f.id for f in folders if f.name == "Alpha")
+    original = sorted(folders, key=lambda f: f.position)
+    folders = move_folder_up(folders, alpha_id)
+    result = sorted(folders, key=lambda f: f.position)
+    assert [f.name for f in result] == [f.name for f in original]
+
+
+def test_move_folder_down_swaps_positions():
+    folders = _two_folders()
+    alpha_id = next(f.id for f in folders if f.name == "Alpha")
+    folders = move_folder_down(folders, alpha_id)
+    ordered = sorted(folders, key=lambda f: f.position)
+    assert ordered[0].name == "Beta"
+    assert ordered[1].name == "Alpha"
+
+
+def test_move_folder_down_at_bottom_is_noop():
+    folders = _two_folders()
+    beta_id = next(f.id for f in folders if f.name == "Beta")
+    original = sorted(folders, key=lambda f: f.position)
+    folders = move_folder_down(folders, beta_id)
+    result = sorted(folders, key=lambda f: f.position)
+    assert [f.name for f in result] == [f.name for f in original]
