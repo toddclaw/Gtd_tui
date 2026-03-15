@@ -866,7 +866,7 @@ class GtdApp(App[None]):
         elif event.key in ("l", "enter"):
             event.prevent_default()
             self.query_one("#task-list", ListView).focus()
-        elif event.key == "N":
+        elif event.key in ("o", "O", "N"):
             event.prevent_default()
             self._start_create_folder()
         elif event.key == "r":

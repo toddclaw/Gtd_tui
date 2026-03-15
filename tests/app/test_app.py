@@ -384,6 +384,20 @@ async def test_l_from_sidebar_focuses_task_list(tmp_path: Path) -> None:
         assert task_list.has_focus
 
 
+async def test_o_in_sidebar_creates_folder(tmp_path: Path) -> None:
+    app = _make_app(tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("h")   # focus sidebar
+        await pilot.pause()
+        await pilot.press("o")   # open folder creation
+        await pilot.pause()
+        await pilot.press("W", "o", "r", "k")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert any(f.name == "Work" for f in app._all_folders)
+
+
 # ---------------------------------------------------------------------------
 # Undo
 # ---------------------------------------------------------------------------
