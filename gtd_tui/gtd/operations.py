@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+import calendar
+import re
+from datetime import date, datetime, timedelta
 
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
-from gtd_tui.gtd.task import Task
+from gtd_tui.gtd.task import RepeatRule, Task
 
 # Folders whose tasks never auto-surface in Today or Upcoming smart views.
 _EXCLUDED_FROM_SMART_VIEWS: frozenset[str] = frozenset({"someday", "logbook"})
@@ -424,6 +426,100 @@ def move_folder_tasks_to_today(tasks: list[Task], folder_id: str) -> list[Task]:
 
 
 # ---------------------------------------------------------------------------
+# Repeat rule parsing
+# ---------------------------------------------------------------------------
+
+_UNIT_ALIASES: dict[str, str] = {
+    "d": "days", "day": "days", "days": "days",
+    "w": "weeks", "week": "weeks", "weeks": "weeks",
+    "m": "months", "month": "months", "months": "months",
+    "y": "years", "year": "years", "years": "years",
+}
+
+
+class InvalidRepeatError(ValueError):
+    """Raised when a repeat input string cannot be parsed."""
+
+
+def parse_repeat_input(text: str) -> tuple[int, str] | None:
+    """Parse a repeat interval string into (interval, unit).
+
+    Accepted formats: '7 days', '7d', '2 weeks', '2w', '1 month', '1 year'.
+    Returns None for empty input.  Raises InvalidRepeatError for bad input.
+    """
+    text = text.strip().lower()
+    if not text:
+        return None
+    m = re.match(r"^(\d+)\s*([a-z]+)$", text)
+    if not m:
+        raise InvalidRepeatError(f"Cannot parse repeat: {text!r}")
+    interval = int(m.group(1))
+    unit = _UNIT_ALIASES.get(m.group(2))
+    if unit is None or interval <= 0:
+        raise InvalidRepeatError(f"Cannot parse repeat: {text!r}")
+    return interval, unit
+
+
+def make_repeat_rule(
+    interval: int, unit: str, from_date: date | None = None
+) -> RepeatRule:
+    """Create a RepeatRule whose next_due is one interval after from_date (default: today)."""
+    base = from_date or date.today()
+    return RepeatRule(interval=interval, unit=unit, next_due=_advance_date(base, interval, unit))
+
+
+def set_repeat_rule(
+    tasks: list[Task], task_id: str, rule: RepeatRule | None
+) -> list[Task]:
+    """Set or clear the repeat rule on a task. No-op for unknown task_id."""
+    for task in tasks:
+        if task.id == task_id:
+            task.repeat_rule = rule
+    return tasks
+
+
+# ---------------------------------------------------------------------------
+# Repeating task spawning
+# ---------------------------------------------------------------------------
+
+
+def spawn_repeating_tasks(
+    tasks: list[Task], as_of: date | None = None
+) -> list[Task]:
+    """Spawn copies of repeating tasks whose next_due has arrived.
+
+    For each task with a repeat_rule where next_due <= today:
+    - Creates one copy in Today (no repeat rule on the copy).
+    - Advances next_due on the original past today, skipping any missed periods.
+
+    If the app was not opened for multiple intervals, only one copy is spawned
+    (the current/most-recent due instance) to avoid flooding Today.
+    """
+    ref = as_of or date.today()
+    spawned: list[Task] = []
+
+    for task in tasks:
+        if task.repeat_rule is None or task.repeat_rule.next_due > ref:
+            continue
+        rule = task.repeat_rule
+        spawned.append(Task(title=task.title, notes=task.notes, folder_id="today"))
+        while rule.next_due <= ref:
+            rule.next_due = _advance_date(rule.next_due, rule.interval, rule.unit)
+
+    if not spawned:
+        return tasks
+
+    n = len(spawned)
+    for task in tasks:
+        if task.folder_id == "today":
+            task.position += n
+    for i, task in enumerate(spawned):
+        task.position = i
+
+    return tasks + spawned
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -440,3 +536,22 @@ def _today_folder_active(tasks: list[Task], as_of: date | None = None) -> list[T
         ],
         key=lambda t: t.position,
     )
+
+
+def _advance_date(d: date, interval: int, unit: str) -> date:
+    """Advance a date by one repeat interval."""
+    if unit == "days":
+        return d + timedelta(days=interval)
+    if unit == "weeks":
+        return d + timedelta(weeks=interval)
+    if unit == "months":
+        month = d.month + interval
+        year = d.year + (month - 1) // 12
+        month = ((month - 1) % 12) + 1
+        day = min(d.day, calendar.monthrange(year, month)[1])
+        return date(year, month, day)
+    # years
+    try:
+        return date(d.year + interval, d.month, d.day)
+    except ValueError:  # Feb 29 in non-leap year
+        return date(d.year + interval, d.month, 28)

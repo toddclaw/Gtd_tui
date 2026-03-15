@@ -10,9 +10,25 @@ from typing import Any
 from platformdirs import user_data_dir
 
 from gtd_tui.gtd.folder import Folder
-from gtd_tui.gtd.task import Task
+from gtd_tui.gtd.task import RepeatRule, Task
 
 _DEFAULT_DATA_FILE = Path(user_data_dir("gtd_tui")) / "data.json"
+
+
+def _repeat_rule_to_dict(rule: RepeatRule) -> dict[str, Any]:
+    return {
+        "interval": rule.interval,
+        "unit": rule.unit,
+        "next_due": rule.next_due.isoformat(),
+    }
+
+
+def _repeat_rule_from_dict(data: dict[str, Any]) -> RepeatRule:
+    return RepeatRule(
+        interval=data["interval"],
+        unit=data["unit"],
+        next_due=date.fromisoformat(data["next_due"]),
+    )
 
 
 def _task_to_dict(task: Task) -> dict[str, Any]:
@@ -26,10 +42,14 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         "scheduled_date": (
             task.scheduled_date.isoformat() if task.scheduled_date else None
         ),
+        "repeat_rule": (
+            _repeat_rule_to_dict(task.repeat_rule) if task.repeat_rule else None
+        ),
     }
 
 
 def _task_from_dict(data: dict[str, Any]) -> Task:
+    raw_rule = data.get("repeat_rule")
     return Task(
         id=data["id"],
         title=data["title"],
@@ -46,6 +66,7 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
             if data.get("scheduled_date")
             else None
         ),
+        repeat_rule=_repeat_rule_from_dict(raw_rule) if raw_rule else None,
     )
 
 

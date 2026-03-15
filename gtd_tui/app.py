@@ -24,20 +24,27 @@ from gtd_tui.gtd.operations import (
     folder_tasks,
     insert_task_after,
     insert_task_before,
+    InvalidRepeatError,
+    logbook_tasks,
+    make_repeat_rule,
     move_folder_tasks_to_today,
     move_task_down,
     move_task_to_folder,
     move_task_up,
     move_to_today,
     move_to_waiting_on,
+    parse_repeat_input,
     rename_folder,
     schedule_task,
+    set_repeat_rule,
     someday_tasks,
+    spawn_repeating_tasks,
     today_tasks,
     unschedule_task,
     upcoming_tasks,
     waiting_on_tasks,
 )
+from gtd_tui.gtd.task import RepeatRule
 from gtd_tui.gtd.task import Task
 from gtd_tui.storage.file import load_folders, load_tasks, save_data
 
@@ -104,16 +111,15 @@ class HelpScreen(ModalScreen[None]):
             self.dismiss()
 
 
-class TaskDetailScreen(ModalScreen[tuple[str, str] | None]):
+class TaskDetailScreen(ModalScreen[tuple[str, str, str] | None]):
     """Detail and edit view for a single task.
 
     Opens directly in edit mode with inputs pre-filled.
-    Enter on the title field advances focus to notes.
-    Enter on the notes field saves and closes.
+    Enter on each field advances to the next; Enter on Repeat saves and closes.
     Esc always saves and closes (priority binding fires before any widget).
 
-    Note: we use call_after_refresh when advancing focus to avoid Textual
-    replaying the Enter key on the newly focused Input.
+    Dismissed value: (title, notes, repeat_text) or None if title was cleared.
+    repeat_text is the raw string from the Repeat field (e.g. '7 days', empty = clear).
     """
 
     BINDINGS = [
@@ -148,6 +154,10 @@ class TaskDetailScreen(ModalScreen[tuple[str, str] | None]):
         margin-bottom: 1;
     }
 
+    #detail-notes-input {
+        margin-bottom: 1;
+    }
+
     #detail-status {
         color: $text-muted;
         margin-top: 1;
@@ -157,6 +167,13 @@ class TaskDetailScreen(ModalScreen[tuple[str, str] | None]):
     def __init__(self, task: Task) -> None:
         super().__init__()
         self._task = task
+
+    @staticmethod
+    def _rule_to_str(rule: RepeatRule | None) -> str:
+        if rule is None:
+            return ""
+        unit = rule.unit if rule.interval != 1 else rule.unit.rstrip("s")
+        return f"{rule.interval} {unit}"
 
     def compose(self) -> ComposeResult:
         with Vertical(id="detail-panel"):
@@ -169,6 +186,13 @@ class TaskDetailScreen(ModalScreen[tuple[str, str] | None]):
                 placeholder="(optional)",
                 id="detail-notes-input",
             )
+            yield Label("Repeat  (e.g. 7 days, 2 weeks, 1 month — empty to clear)",
+                        classes="field-label")
+            yield Input(
+                value=self._rule_to_str(self._task.repeat_rule),
+                placeholder="(none)",
+                id="detail-repeat-input",
+            )
             yield Label(
                 "Enter: next field  Esc: save & close", id="detail-status"
             )
@@ -179,14 +203,13 @@ class TaskDetailScreen(ModalScreen[tuple[str, str] | None]):
     def action_save_and_close(self) -> None:
         title = self.query_one("#detail-title-input", Input).value.strip()
         notes = self.query_one("#detail-notes-input", Input).value.strip()
-        self.dismiss((title, notes) if title else None)
+        repeat = self.query_one("#detail-repeat-input", Input).value.strip()
+        self.dismiss((title, notes, repeat) if title else None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id == "detail-title-input":
-            # Use Textual's built-in focus_next() — advances without generating
-            # any key event, so there is no Enter replay on the notes Input.
+        if event.input.id in ("detail-title-input", "detail-notes-input"):
             self.focus_next()
-        elif event.input.id == "detail-notes-input":
+        elif event.input.id == "detail-repeat-input":
             self.action_save_and_close()
 
 
@@ -284,7 +307,7 @@ class GtdApp(App[None]):
         return (
             ["today", "upcoming", "waiting_on"]
             + [f.id for f in sorted(self._all_folders, key=lambda f: f.position)]
-            + ["someday"]
+            + ["someday", "logbook"]
         )
 
     def _view_label(self, view_id: str) -> str:
@@ -296,6 +319,8 @@ class GtdApp(App[None]):
             return "Waiting On"
         if view_id == "someday":
             return "Someday"
+        if view_id == "logbook":
+            return "Logbook"
         for folder in self._all_folders:
             if folder.id == view_id:
                 return folder.name
@@ -313,6 +338,10 @@ class GtdApp(App[None]):
 
     def on_mount(self) -> None:
         self._normalize_folder_positions()
+        old_len = len(self._all_tasks)
+        self._all_tasks = spawn_repeating_tasks(self._all_tasks)
+        if len(self._all_tasks) != old_len:
+            self._save()
         self._rebuild_sidebar()
         self._refresh_list()
         self.query_one("#task-list", ListView).focus()
@@ -354,6 +383,7 @@ class GtdApp(App[None]):
         for folder in sorted(self._all_folders, key=lambda f: f.position):
             sidebar.append(ListItem(Label(folder.name)))
         sidebar.append(ListItem(Label("Someday")))
+        sidebar.append(ListItem(Label("Logbook")))
         view_ids = self._sidebar_view_ids
         try:
             idx = view_ids.index(self._current_view)
@@ -389,6 +419,8 @@ class GtdApp(App[None]):
             self._render_waiting_on_view(list_view)
         elif self._current_view == "someday":
             self._render_someday_view(list_view)
+        elif self._current_view == "logbook":
+            self._render_logbook_view(list_view)
         else:
             self._render_folder_view(list_view, self._current_view)
 
@@ -477,6 +509,18 @@ class GtdApp(App[None]):
         for task in tasks:
             self._list_entries.append(task)
             list_view.append(ListItem(Label(task.title)))
+
+    def _render_logbook_view(self, list_view: ListView) -> None:
+        tasks = logbook_tasks(self._all_tasks)
+        self.query_one("#header", Label).update(f"Logbook ({len(tasks)})")
+        for task in tasks:
+            completed_str = (
+                task.completed_at.strftime("%Y-%m-%d %H:%M")
+                if task.completed_at
+                else "unknown"
+            )
+            self._list_entries.append(task)
+            list_view.append(ListItem(Label(f"{task.title}  [{completed_str}]")))
 
     def _render_folder_view(self, list_view: ListView, folder_id: str) -> None:
         label = self._view_label(folder_id)
@@ -618,6 +662,12 @@ class GtdApp(App[None]):
         elif event.key.isdigit() and event.key != "0":
             event.prevent_default()
             self._jump_to_view(int(event.key) - 1)
+        elif event.key == "u":
+            event.prevent_default()
+            self._undo()
+        elif event.key == "ctrl+r":
+            event.prevent_default()
+            self._redo()
         elif event.key == "q":
             event.prevent_default()
             self.exit()
@@ -979,15 +1029,41 @@ class GtdApp(App[None]):
         if task is None:
             return
         task_id = task.id
+        old_rule = task.repeat_rule
 
-        def _on_detail_close(result: tuple[str, str] | None) -> None:
+        def _on_detail_close(result: tuple[str, str, str] | None) -> None:
             if result is None:
                 return
-            new_title, new_notes = result
-            if new_title == task.title and new_notes == task.notes:
-                return  # nothing changed — skip write
+            new_title, new_notes, repeat_text = result
+
+            # Parse repeat field; show status message on bad input.
+            new_rule: RepeatRule | None = old_rule  # default: keep existing
+            try:
+                parsed = parse_repeat_input(repeat_text)
+                if parsed is None:
+                    new_rule = None  # explicitly cleared
+                else:
+                    interval, unit = parsed
+                    if old_rule and old_rule.interval == interval and old_rule.unit == unit:
+                        # Same interval+unit — preserve next_due so the
+                        # schedule is not reset just by opening the edit view.
+                        new_rule = old_rule
+                    else:
+                        new_rule = make_repeat_rule(interval, unit)
+            except InvalidRepeatError:
+                self._update_status("(invalid repeat — changes saved, repeat unchanged)")
+                new_rule = old_rule
+
+            title_changed = new_title != task.title or new_notes != task.notes
+            rule_changed = new_rule != old_rule
+            if not title_changed and not rule_changed:
+                return
+
             self._push_undo()
-            self._all_tasks = edit_task(self._all_tasks, task_id, new_title, new_notes)
+            if title_changed:
+                self._all_tasks = edit_task(self._all_tasks, task_id, new_title, new_notes)
+            if rule_changed:
+                self._all_tasks = set_repeat_rule(self._all_tasks, task_id, new_rule)
             self._save()
             self._refresh_list(select_task_id=task_id)
 

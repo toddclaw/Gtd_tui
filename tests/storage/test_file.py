@@ -1,6 +1,8 @@
+from datetime import date
 from pathlib import Path
 
-from gtd_tui.gtd.operations import add_task, complete_task, create_folder
+from gtd_tui.gtd.operations import add_task, complete_task, create_folder, set_repeat_rule
+from gtd_tui.gtd.task import RepeatRule
 from gtd_tui.storage.file import load_folders, load_tasks, save_data, save_tasks
 
 
@@ -167,3 +169,24 @@ def test_folder_position_persists(tmp_path: Path) -> None:
     by_id = {f.id: f for f in loaded}
     assert by_id["f1"].position == 0
     assert by_id["f2"].position == 1
+
+
+def test_repeat_rule_round_trip(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Weekly task")
+    rule = RepeatRule(interval=7, unit="days", next_due=date(2026, 4, 1))
+    tasks = set_repeat_rule(tasks, tasks[0].id, rule)
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].repeat_rule is not None
+    assert loaded[0].repeat_rule.interval == 7
+    assert loaded[0].repeat_rule.unit == "days"
+    assert loaded[0].repeat_rule.next_due == date(2026, 4, 1)
+
+
+def test_no_repeat_rule_round_trip(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Plain task")
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].repeat_rule is None
