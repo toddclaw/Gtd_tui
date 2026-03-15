@@ -53,6 +53,7 @@ class HelpScreen(ModalScreen[None]):
   s            Schedule selected task
   J / K        Move selected task down / up
   u            Undo last action
+  Ctrl+R       Redo last undone action
 
 [bold]INSERT Mode[/bold]
   Enter        Confirm input / advance to next field
@@ -130,6 +131,7 @@ class GtdApp(App[None]):
         # Parallel to ListView children: Task for task rows, None for separators
         self._list_entries: list[Task | None] = []
         self._undo_stack: list[list[Task]] = []
+        self._redo_stack: list[list[Task]] = []
         self._pending_anchor_id: str = ""
         self._pending_insert_position: str = "after"  # "after" or "before"
         # Placeholder row shown in the list while a new task is being typed
@@ -263,6 +265,7 @@ class GtdApp(App[None]):
 
     def _push_undo(self) -> None:
         self._undo_stack.append(copy.deepcopy(self._all_tasks))
+        self._redo_stack.clear()
 
     def _update_status(self, message: str = "") -> None:
         mode = "INSERT" if self._mode == "INSERT" else "NORMAL"
@@ -335,6 +338,9 @@ class GtdApp(App[None]):
         elif event.key == "u":
             event.prevent_default()
             self._undo()
+        elif event.key == "ctrl+r":
+            event.prevent_default()
+            self._redo()
         elif event.key == "x" or event.key == "space":
             event.prevent_default()
             self._complete_selected()
@@ -529,6 +535,16 @@ class GtdApp(App[None]):
         if not self._undo_stack:
             self._update_status("(nothing to undo)")
             return
+        self._redo_stack.append(copy.deepcopy(self._all_tasks))
         self._all_tasks = self._undo_stack.pop()
+        save_tasks(self._all_tasks)
+        self._refresh_list()
+
+    def _redo(self) -> None:
+        if not self._redo_stack:
+            self._update_status("(nothing to redo)")
+            return
+        self._undo_stack.append(copy.deepcopy(self._all_tasks))
+        self._all_tasks = self._redo_stack.pop()
         save_tasks(self._all_tasks)
         self._refresh_list()
