@@ -438,3 +438,116 @@ async def test_tasks_persist_across_app_restarts(tmp_path: Path) -> None:
         await pilot.pause()
         today = [t for t in app2._all_tasks if t.folder_id == "today"]
         assert any(t.title == "Meditate" for t in today)
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-17: Recurrence marker in task labels
+# ---------------------------------------------------------------------------
+
+
+async def test_recurring_task_shows_recurrence_marker(tmp_path: Path) -> None:
+    """Tasks with a repeat_rule should display a ↻ marker in the list."""
+    data_file = _prepopulate(tmp_path, "foo")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Open detail, advance to repeat field, set 7 days
+        await pilot.press("enter")
+        await pilot.pause()
+        await pilot.press("enter")   # title → notes
+        await pilot.pause()
+        await pilot.press("enter")   # notes → repeat
+        await pilot.pause()
+        await pilot.press("7", " ", "d", "a", "y", "s")
+        await pilot.press("enter")   # repeat → recur
+        await pilot.pause()
+        await pilot.press("escape")  # save and close
+        await pilot.pause()
+
+        task_list = app.query_one("#task-list", ListView)
+        labels = [str(item.query_one(Label).render()) for item in task_list.children]
+        assert any("↻" in lbl for lbl in labels)
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-17: H/M/L navigation
+# ---------------------------------------------------------------------------
+
+
+async def test_H_jumps_to_top(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Task 1", "Task 2", "Task 3")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        task_list = app.query_one("#task-list", ListView)
+        # Move to last item first
+        await pilot.press("G")
+        await pilot.pause()
+        assert task_list.index == 2
+        # H should jump back to top
+        await pilot.press("H")
+        await pilot.pause()
+        assert task_list.index == 0
+
+
+async def test_L_jumps_to_bottom(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Task 1", "Task 2", "Task 3")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        task_list = app.query_one("#task-list", ListView)
+        await pilot.press("L")
+        await pilot.pause()
+        assert task_list.index == 2
+
+
+async def test_M_jumps_to_middle(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Task 1", "Task 2", "Task 3", "Task 4", "Task 5")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        task_list = app.query_one("#task-list", ListView)
+        await pilot.press("M")
+        await pilot.pause()
+        # n=5, n//2=2 → index 2
+        assert task_list.index == 2
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-17: "someday" date keyword
+# ---------------------------------------------------------------------------
+
+
+async def test_someday_keyword_moves_task_to_someday_folder(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Low priority task")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Press 's' to open schedule input
+        await pilot.press("s")
+        await pilot.pause()
+        # Type "someday" and confirm
+        await pilot.press("s", "o", "m", "e", "d", "a", "y")
+        await pilot.press("enter")
+        await pilot.pause()
+        someday = [t for t in app._all_tasks if t.folder_id == "someday"]
+        assert any(t.title == "Low priority task" for t in someday)
+        today = [t for t in app._all_tasks if t.folder_id == "today"]
+        assert not any(t.title == "Low priority task" for t in today)
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-17: Sidebar task counts
+# ---------------------------------------------------------------------------
+
+
+async def test_sidebar_shows_today_count(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Task A", "Task B")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        first_item = sidebar.children[0]
+        label_text = str(first_item.query_one(Label).render())
+        assert "Today" in label_text
+        assert "(2)" in label_text

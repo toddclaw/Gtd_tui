@@ -578,13 +578,18 @@ class GtdApp(App[None]):
         self._rebuilding_sidebar = True
         sidebar = self.query_one("#sidebar", ListView)
         sidebar.clear()
-        sidebar.append(ListItem(Label("Today")))
-        sidebar.append(ListItem(Label("Upcoming")))
-        sidebar.append(ListItem(Label("Waiting On")))
+
+        def _n(count: int) -> str:
+            return f" ({count})"
+
+        sidebar.append(ListItem(Label(f"Today{_n(len(today_tasks(self._all_tasks)))}")))
+        sidebar.append(ListItem(Label(f"Upcoming{_n(len(upcoming_tasks(self._all_tasks)))}")))
+        sidebar.append(ListItem(Label(f"Waiting On{_n(len(waiting_on_tasks(self._all_tasks)))}")))
         for folder in sorted(self._all_folders, key=lambda f: f.position):
-            sidebar.append(ListItem(Label(folder.name)))
-        sidebar.append(ListItem(Label("Someday")))
-        sidebar.append(ListItem(Label("Logbook")))
+            sidebar.append(ListItem(Label(f"{folder.name}{_n(len(folder_tasks(self._all_tasks, folder.id)))}")))
+        sidebar.append(ListItem(Label(f"Someday{_n(len(someday_tasks(self._all_tasks)))}")))
+        sidebar.append(ListItem(Label(f"Logbook{_n(len(logbook_tasks(self._all_tasks)))}")))
+
         view_ids = self._sidebar_view_ids
         try:
             idx = view_ids.index(self._current_view)
@@ -603,6 +608,12 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
     # Rendering helpers                                                    #
     # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _task_label(task: Task) -> str:
+        """Build the display label for a task row, with a recurrence marker."""
+        marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
+        return f"{task.title}{marker}"
 
     def _refresh_list(self, select_task_id: str | None = None) -> None:
         list_view = self.query_one("#task-list", ListView)
@@ -661,7 +672,7 @@ class GtdApp(App[None]):
                 self._list_entries.append(None)
                 list_view.append(ListItem(Label(" "), classes="placeholder"))
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(task.title)))
+            list_view.append(ListItem(Label(self._task_label(task))))
 
         if ph_at == len(today_only):
             self._placeholder_list_idx = len(self._list_entries)
@@ -674,10 +685,10 @@ class GtdApp(App[None]):
             for task in other:
                 self._list_entries.append(task)
                 if task.folder_id == "waiting_on":
-                    label = f"[W] {task.title}"
+                    label = f"[W] {self._task_label(task)}"
                 else:
                     folder_label = self._view_label(task.folder_id)
-                    label = f"[{folder_label}] {task.title}"
+                    label = f"[{folder_label}] {self._task_label(task)}"
                 list_view.append(ListItem(Label(label)))
 
     def _render_upcoming_view(self, list_view: ListView) -> None:
@@ -691,7 +702,7 @@ class GtdApp(App[None]):
             if task.folder_id != "today":
                 folder_hint = f"  [{self._view_label(task.folder_id)}]"
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(f"{task.title}  {date_str}{folder_hint}")))
+            list_view.append(ListItem(Label(f"{self._task_label(task)}  {date_str}{folder_hint}")))
 
     def _render_waiting_on_view(self, list_view: ListView) -> None:
         self.query_one("#header", Label).update("Waiting On")
@@ -702,14 +713,14 @@ class GtdApp(App[None]):
                 if task.scheduled_date
                 else ""
             )
-            list_view.append(ListItem(Label(f"{task.title}{date_str}")))
+            list_view.append(ListItem(Label(f"{self._task_label(task)}{date_str}")))
 
     def _render_someday_view(self, list_view: ListView) -> None:
         tasks = someday_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Someday ({len(tasks)})")
         for task in tasks:
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(task.title)))
+            list_view.append(ListItem(Label(self._task_label(task))))
 
     def _render_logbook_view(self, list_view: ListView) -> None:
         tasks = logbook_tasks(self._all_tasks)
@@ -730,7 +741,7 @@ class GtdApp(App[None]):
         self.query_one("#header", Label).update(f"{label} ({len(tasks)})")
         for task in tasks:
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(task.title)))
+            list_view.append(ListItem(Label(self._task_label(task))))
 
     def _placeholder_insert_idx(self, active: list[Task]) -> int:
         """Index within `active` before which the placeholder row is inserted."""
@@ -909,6 +920,23 @@ class GtdApp(App[None]):
             list_view.action_cursor_up()
             self._skip_separator(direction=-1)
         elif event.key == "G":
+            event.prevent_default()
+            n = len(self._list_entries)
+            if n > 0:
+                list_view.index = n - 1
+                self._skip_separator(direction=-1)
+        elif event.key == "H":
+            event.prevent_default()
+            if self._list_entries:
+                list_view.index = 0
+                self._skip_separator(direction=1)
+        elif event.key == "M":
+            event.prevent_default()
+            n = len(self._list_entries)
+            if n > 0:
+                list_view.index = n // 2
+                self._skip_separator(direction=1)
+        elif event.key == "L":
             event.prevent_default()
             n = len(self._list_entries)
             if n > 0:
@@ -1190,6 +1218,18 @@ class GtdApp(App[None]):
         self._update_status()
 
     def _apply_date(self, value: str) -> None:
+        if value.strip().lower() == "someday":
+            self._push_undo()
+            self._all_tasks = unschedule_task(self._all_tasks, self._pending_task_id)
+            self._all_tasks = move_task_to_folder(
+                self._all_tasks, self._pending_task_id, "someday"
+            )
+            self._rebuild_sidebar()
+            self._save()
+            self._refresh_list()
+            self._cancel_input()
+            return
+
         try:
             parsed = parse_date_input(value)
         except InvalidDateError:
