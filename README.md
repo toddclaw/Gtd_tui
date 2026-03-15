@@ -83,8 +83,8 @@ git clone <repo-url>
 cd Gtd_tui
 
 # Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate  # on Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate  # on Windows: .venv\Scripts\activate
 
 # Install the package and all dependencies (including dev tools)
 pip install -e ".[dev]"
