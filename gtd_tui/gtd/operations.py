@@ -185,33 +185,45 @@ def someday_tasks(tasks: list[Task]) -> list[Task]:
 
 
 def move_task_up(tasks: list[Task], task_id: str) -> list[Task]:
-    """Move a 'today'-folder task one position up.
+    """Move a task one position up within its folder.
 
-    No-op if the task is not in the 'today' folder, already first, or not found.
+    No-op if the task is already first or not found.
     """
-    active = _today_folder_active(tasks)
-    idx = next((i for i, t in enumerate(active) if t.id == task_id), None)
+    task = next((t for t in tasks if t.id == task_id), None)
+    if task is None:
+        return tasks
+    peers = sorted(
+        [t for t in tasks if t.folder_id == task.folder_id],
+        key=lambda t: t.position,
+    )
+    idx = next((i for i, t in enumerate(peers) if t.id == task_id), None)
     if idx is None or idx == 0:
         return tasks
-    active[idx].position, active[idx - 1].position = (
-        active[idx - 1].position,
-        active[idx].position,
+    peers[idx].position, peers[idx - 1].position = (
+        peers[idx - 1].position,
+        peers[idx].position,
     )
     return tasks
 
 
 def move_task_down(tasks: list[Task], task_id: str) -> list[Task]:
-    """Move a 'today'-folder task one position down.
+    """Move a task one position down within its folder.
 
-    No-op if the task is not in the 'today' folder, already last, or not found.
+    No-op if the task is already last or not found.
     """
-    active = _today_folder_active(tasks)
-    idx = next((i for i, t in enumerate(active) if t.id == task_id), None)
-    if idx is None or idx == len(active) - 1:
+    task = next((t for t in tasks if t.id == task_id), None)
+    if task is None:
         return tasks
-    active[idx].position, active[idx + 1].position = (
-        active[idx + 1].position,
-        active[idx].position,
+    peers = sorted(
+        [t for t in tasks if t.folder_id == task.folder_id],
+        key=lambda t: t.position,
+    )
+    idx = next((i for i, t in enumerate(peers) if t.id == task_id), None)
+    if idx is None or idx == len(peers) - 1:
+        return tasks
+    peers[idx].position, peers[idx + 1].position = (
+        peers[idx + 1].position,
+        peers[idx].position,
     )
     return tasks
 

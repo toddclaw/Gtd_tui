@@ -5,6 +5,7 @@ from gtd_tui.gtd.operations import (
     add_waiting_on_task,
     add_task_to_folder,
     complete_task,
+    folder_tasks,
     insert_task_after,
     insert_task_before,
     logbook_tasks,
@@ -381,6 +382,36 @@ def test_move_preserves_other_tasks():
     b_id = next(t.id for t in tasks if t.title == "B")
     tasks = move_task_up(tasks, b_id)
     assert [t.title for t in today_tasks(tasks)] == ["B", "A", "C"]
+
+
+def test_move_task_up_in_custom_folder():
+    tasks = add_task_to_folder([], "projects", "First")
+    tasks = add_task_to_folder(tasks, "projects", "Second")
+    # order: First, Second (by position 0, 1)
+    second_id = next(t.id for t in tasks if t.title == "Second")
+    tasks = move_task_up(tasks, second_id)
+    ordered = folder_tasks(tasks, "projects")
+    assert [t.title for t in ordered] == ["Second", "First"]
+
+
+def test_move_task_down_in_custom_folder():
+    tasks = add_task_to_folder([], "projects", "First")
+    tasks = add_task_to_folder(tasks, "projects", "Second")
+    first_id = next(t.id for t in tasks if t.title == "First")
+    tasks = move_task_down(tasks, first_id)
+    ordered = folder_tasks(tasks, "projects")
+    assert [t.title for t in ordered] == ["Second", "First"]
+
+
+def test_move_does_not_affect_other_folders():
+    tasks = add_task_to_folder([], "projects", "P1")
+    tasks = add_task_to_folder(tasks, "projects", "P2")
+    tasks = add_task(tasks, "T1")
+    p2_id = next(t.id for t in tasks if t.title == "P2")
+    tasks = move_task_up(tasks, p2_id)
+    # projects reordered, today unaffected
+    assert [t.title for t in folder_tasks(tasks, "projects")] == ["P2", "P1"]
+    assert today_tasks(tasks)[0].title == "T1"
 
 
 # ------------------------------------------------------------------ #

@@ -990,6 +990,8 @@ class GtdApp(App[None]):
         task = self._get_selected_task()
         if task is None:
             return
+        if not self._can_reorder(task):
+            return
         self._push_undo()
         self._all_tasks = move_task_up(self._all_tasks, task.id)
         self._save()
@@ -999,10 +1001,23 @@ class GtdApp(App[None]):
         task = self._get_selected_task()
         if task is None:
             return
+        if not self._can_reorder(task):
+            return
         self._push_undo()
         self._all_tasks = move_task_down(self._all_tasks, task.id)
         self._save()
         self._refresh_list(select_task_id=task.id)
+
+    def _can_reorder(self, task: Task) -> bool:
+        """Return True when J/K reordering makes sense for the selected task."""
+        # Upcoming is date-sorted — no manual reordering.
+        if self._current_view == "upcoming":
+            return False
+        # In Today view, only today-folder tasks are positionally ordered;
+        # tasks in the "Also Due" section belong to other folders.
+        if self._current_view == "today" and task.folder_id != "today":
+            return False
+        return True
 
     # ------------------------------------------------------------------ #
     # Undo                                                                 #
