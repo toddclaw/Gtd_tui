@@ -586,6 +586,139 @@ class RepeatRule:
 - [ ] `Esc` cancels search and returns to the previous view
 - [ ] Search is case-insensitive; matches are highlighted in results
 
+### BACKLOG-9 — UX polish: navigation shortcuts, task counts, date display
+
+**Story points:** 3 — Three small independent improvements with no new infrastructure.
+
+**Description:**
+- `gg` jumps to the top of the list (mirrors vim; complements existing `G` for bottom)
+- Folder header shows live task count: **Today (16)**
+- Scheduled task rows display the day of week alongside the date: `[Mar 16 Mon]`
+
+**Acceptance criteria:**
+- [ ] `gg` in NORMAL mode moves the cursor to the first task
+- [ ] Header label updates to reflect current task count whenever the list changes
+- [ ] Scheduled task rows show abbreviated weekday, e.g. `[Mar 16 Mon]`
+
+---
+
+### BACKLOG-10 — Natural language date input
+
+**Story points:** 3 — Extends the existing `dates.py` parser; no new UI components needed.
+
+**Description:**
+- Expand date entry to accept natural language phrases in addition to `YYYY-MM-DD` and `+Nd` relative syntax
+- Supported phrases: `tomorrow`, `next week`, `next monday` (and other weekday names), `in N days`, `in N weeks`
+
+**Acceptance criteria:**
+- [ ] `tomorrow` resolves to today + 1 day
+- [ ] `next week` resolves to today + 7 days
+- [ ] `in N days` / `in N weeks` resolve correctly
+- [ ] Weekday names (`monday`, `tuesday`, …) resolve to the next occurrence of that weekday
+- [ ] Invalid input still raises `InvalidDateError` as before
+- [ ] All new cases covered by unit tests in `tests/gtd/test_dates.py`
+
+---
+
+### BACKLOG-11 — Task detail and edit view
+
+**Story points:** 5 — New overlay/panel component; first time existing tasks can be edited after creation.
+
+**Description:**
+- Pressing `Enter` on a selected task opens a detail panel showing its full title and notes
+- From the detail panel the user can edit the title and notes (INSERT mode)
+- Esc closes the panel; changes are saved on close
+
+**Acceptance criteria:**
+- [ ] `Enter` in NORMAL mode opens the detail view for the selected task
+- [ ] Detail view shows full title and full notes (multi-line)
+- [ ] `i` or `Enter` within the detail view enters INSERT mode for editing
+- [ ] Esc from INSERT mode returns to the detail view; Esc from detail view returns to the list
+- [ ] Edits persist to `data.json` on close
+- [ ] Edited title is reflected in the task list immediately
+
+---
+
+### BACKLOG-12 — Vim motions in text input fields
+
+**Story points:** 8 — Requires a custom Input widget; Textual's built-in Input does not support vi motions.
+
+**Description:**
+- Text fields (task title, notes, date entry) support a vim-style normal/insert sub-mode
+- In normal sub-mode: `h`/`l` move the cursor, `w`/`b` jump by word, `0`/`$` go to line start/end, `x` deletes the character under the cursor, `cw` changes a word
+- `i` / `a` enter insert sub-mode; `Esc` returns to normal sub-mode
+- Builds on BACKLOG-11 (detail view is the primary editing surface for notes)
+
+**Acceptance criteria:**
+- [ ] Custom vi-aware input widget replaces standard Input in all editing contexts
+- [ ] `h` / `l` move cursor left / right in normal sub-mode
+- [ ] `w` / `b` jump forward / backward by word
+- [ ] `0` / `$` move to start / end of line
+- [ ] `x` deletes character under cursor
+- [ ] `cw` deletes to end of word and enters insert sub-mode
+- [ ] `i` enters insert sub-mode at cursor; `a` enters after cursor
+- [ ] Esc always returns to normal sub-mode (never exits the field)
+
+---
+
+### BACKLOG-13 — Redo
+
+**Story points:** 2 — Symmetric to the existing undo stack; minimal new logic.
+
+**Description:**
+- `Ctrl+R` redoes the last undone action
+- Redo history is cleared whenever a new mutating action is performed (standard undo/redo semantics)
+
+**Acceptance criteria:**
+- [ ] `Ctrl+R` in NORMAL mode reapplies the most recently undone action
+- [ ] Redo stack is cleared on any new mutation (add, complete, move, schedule)
+- [ ] `u` followed by `Ctrl+R` returns the list to its pre-undo state
+- [ ] Status bar shows `(nothing to redo)` when the redo stack is empty
+
+---
+
+### BACKLOG-14 — Upcoming view
+
+**Story points:** 5 — Dedicated view for scheduled future tasks; depends on BACKLOG-3 sidebar. Bi-directional movement between Today and Upcoming.
+
+**Description:**
+- **Upcoming** is a sidebar view that aggregates all tasks with a future `scheduled_date` across every folder
+- Tasks are displayed sorted by date ascending, with day-of-week labels (see BACKLOG-9)
+- A task can be promoted back to Today (date cleared) directly from Upcoming with a keybinding
+- Moving a task from Today to Upcoming is shorthand for scheduling it (opens the date picker with `s`)
+
+**Acceptance criteria:**
+- [ ] Upcoming appears in the sidebar (depends on BACKLOG-3)
+- [ ] Upcoming lists all tasks with `scheduled_date > today`, sorted by date
+- [ ] `u` (or equivalent) in Upcoming clears the task's date and returns it to Today
+- [ ] `s` in Today opens the date picker — setting a date moves the task to Upcoming automatically (already implemented; just needs to be reflected in the sidebar)
+- [ ] Task count is shown next to Upcoming in the sidebar
+
+---
+
+### BACKLOG-15 — Visual mode block selection and bulk operations
+
+**Story points:** 8 — New modal state alongside NORMAL and INSERT; significant keybinding and rendering work.
+
+**Description:**
+- `v` in NORMAL mode enters VISUAL mode; selected tasks are highlighted distinctly
+- `j` / `k` extend or shrink the selection
+- Bulk operations apply to all selected tasks:
+  - `s` — open date picker; date is applied to every selected task
+  - `x` / Space — complete all selected tasks
+  - `d d` — delete all selected tasks (with confirmation)
+- Esc exits VISUAL mode without performing any action
+
+**Acceptance criteria:**
+- [ ] `v` enters VISUAL mode; status bar shows `VISUAL`
+- [ ] `j` / `k` extend selection downward / upward (anchor stays fixed)
+- [ ] Selected rows are visually distinct from the cursor row
+- [ ] `s` in VISUAL mode opens date picker; date applied to all selected tasks on confirm
+- [ ] `x` / Space in VISUAL mode completes all selected tasks
+- [ ] `d d` in VISUAL mode deletes all selected tasks after confirmation
+- [ ] Esc cancels selection and returns to NORMAL mode
+- [ ] All bulk operations are undoable as a single undo step
+
 ---
 
 ## Notes for AI Assistants
