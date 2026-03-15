@@ -401,23 +401,33 @@ Refactor storage layer to use JSON serialization
 
 Features to implement, in rough priority order. Pick from the top when starting new work.
 
+Story points use Fibonacci scale calibrated against delivered work: BACKLOG-1 ≈ 13 (full app scaffold), BACKLOG-2 ≈ 8 (significant feature on existing infrastructure).
+
 ---
 
-### BACKLOG-1 — Today folder with task creation
+### ~~BACKLOG-1 — Today folder with task creation~~ ✅ DONE
+
+**Story points:** 13
 
 **Description:**
 - A built-in folder called **Today** is the default view on launch
 - Tasks have two fields: a short **title** (one line) and an optional **notes** section (multi-line)
-- New tasks are added to the **top** of the Today list
+- New tasks are added positionally (`o` = after cursor, `O` = before cursor)
 - Task order in Today persists between sessions (user-defined order is preserved)
 - When a task is marked complete it is moved to the **Logbook** folder
 
 **Acceptance criteria:**
-- [ ] Opening the app shows the Today folder
-- [ ] `o` adds a new task at the top of the list and opens INSERT mode for the title
-- [ ] Pressing `Esc` from title entry opens the notes field (or saves if notes skipped)
-- [ ] Completed tasks disappear from Today and appear in Logbook with a completion timestamp
-- [ ] Task order survives app restart
+- [x] Opening the app shows the Today folder
+- [x] `o` / `O` add a new task after/before the selected task with a placeholder row shown immediately
+- [x] Enter advances from title to notes; Esc cancels at any stage
+- [x] Completed tasks disappear from Today and appear in Logbook with a completion timestamp
+- [x] Task order survives app restart
+
+**Also delivered (not in original spec):**
+- `J` / `K` reorder tasks within Today
+- `u` undoes the last mutating action
+- `:help` shows a keybinding reference modal
+- `G` jumps to the bottom; selection always stays highlighted after any operation
 
 **Data model sketch:**
 ```python
@@ -434,7 +444,9 @@ class Task:
 
 ---
 
-### BACKLOG-2 — Scheduled task dates (snooze to a date)
+### ~~BACKLOG-2 — Scheduled task dates (snooze to a date)~~ ✅ DONE
+
+**Story points:** 8
 
 **Description:**
 - A task can have an optional **date** attached to it
@@ -443,14 +455,16 @@ class Task:
 - Date can be set or cleared from the task edit view
 
 **Acceptance criteria:**
-- [ ] Task edit view has a date field (keyboard-entry, e.g. `2026-03-20` or relative `+3d`)
-- [ ] Tasks with a future date do not appear in Today
-- [ ] On the scheduled date, tasks reappear in Today (checked at app launch)
-- [ ] Clearing a date returns the task to Today immediately
+- [x] Task edit view has a date field (keyboard-entry, e.g. `2026-03-20` or relative `+3d`)
+- [x] Tasks with a future date do not appear in Today
+- [x] On the scheduled date, tasks reappear in Today (checked at app launch)
+- [x] Clearing a date returns the task to Today immediately
 
 ---
 
 ### BACKLOG-3 — Waiting On folder
+
+**Story points:** 8 — Sidebar is the dominant new piece (split pane, `h`/`l` focus switching between sidebar and task list). Date-surfacing logic reuses BACKLOG-2's mechanism.
 
 **Description:**
 - A built-in folder called **Waiting On** holds tasks that are blocked on someone else
@@ -468,6 +482,8 @@ class Task:
 
 ### BACKLOG-4 — User-created folders
 
+**Story points:** 8 — Folder CRUD (create, rename, delete), confirmation dialog for non-empty folder deletion, and task-move UI (`m` key + destination picker) are all new interaction patterns. Depends on sidebar from BACKLOG-3.
+
 **Description:**
 - Users can create custom folders through the TUI (beyond the built-ins: Today, Waiting On, Logbook)
 - Folders appear in the sidebar
@@ -484,6 +500,8 @@ class Task:
 ---
 
 ### BACKLOG-5 — Repeating tasks (time-based, independent of completion)
+
+**Story points:** 8 — Requires a task detail/edit view (none exists yet), a new RepeatRule data model with storage migration, and launch-time task-spawning logic. The edit view alone is a significant new UI component.
 
 **Description:**
 - A task can be marked as **repeating** with an interval: every N days / weeks / months / years
@@ -511,6 +529,8 @@ class RepeatRule:
 
 ### BACKLOG-6 — Recurring tasks (completion-relative scheduling)
 
+**Story points:** 5 — Incremental on BACKLOG-5: edit view and repeat infrastructure already exist, this adds a completion hook that spawns the next instance with a floating due date.
+
 **Description:**
 - A task can be marked as **recurring** with an offset: N days / weeks / months / years after completion
 - When the task is marked complete, a **new task** with the same details is created, with its scheduled date set to `completion_date + offset`
@@ -534,6 +554,8 @@ class RepeatRule:
 
 ### BACKLOG-7 — Someday folder
 
+**Story points:** 3 — Simple folder type with no auto-promotion logic. Once the sidebar is built in BACKLOG-3, this is primarily adding a folder variant and ensuring tasks never surface automatically.
+
 **Description:**
 - A built-in folder called **Someday** for tasks with no specific date or urgency
 - Tasks in Someday do not appear in Today unless explicitly moved there
@@ -548,6 +570,8 @@ class RepeatRule:
 ---
 
 ### BACKLOG-8 — Global search across all folders
+
+**Story points:** 8 — Real-time filter-as-you-type requires reactive updates on every keystroke, result grouping with separators across folders, match highlighting within labels, and navigate-to-folder on selection. All new UI patterns.
 
 **Description:**
 - A search mode that matches tasks by title or notes text across every folder simultaneously
@@ -566,7 +590,7 @@ class RepeatRule:
 
 ## Notes for AI Assistants
 
-- This project is in its **initialization phase** — no source code exists yet. When asked to implement features, scaffold the Python project structure first (`pyproject.toml`, `gtd_tui/__main__.py`).
+- BACKLOG-1 and BACKLOG-2 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
