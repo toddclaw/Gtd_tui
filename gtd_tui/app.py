@@ -131,6 +131,9 @@ class GtdApp(App[None]):
         self._undo_stack: list[list[Task]] = []
         self._pending_anchor_id: str = ""
         self._pending_insert_position: str = "after"  # "after" or "before"
+        # Placeholder row shown in the list while a new task is being typed
+        self._show_placeholder: bool = False
+        self._placeholder_list_idx: int | None = None
 
     def compose(self) -> ComposeResult:
         yield Label("Today", id="header")
@@ -153,13 +156,30 @@ class GtdApp(App[None]):
 
         list_view.clear()
         self._list_entries = []
+        self._placeholder_list_idx = None
 
         active = today_tasks(self._all_tasks)
         snoozed = scheduled_tasks(self._all_tasks)
 
-        for task in active:
+        # Determine where the placeholder row belongs among active tasks.
+        # ph_at is the index within `active` before which the placeholder is
+        # inserted (so ph_at == len(active) means "after all active tasks").
+        ph_at: int | None = None
+        if self._show_placeholder:
+            ph_at = self._placeholder_insert_idx(active)
+
+        for i, task in enumerate(active):
+            if ph_at == i:
+                self._placeholder_list_idx = len(self._list_entries)
+                self._list_entries.append(None)
+                list_view.append(ListItem(Label(" "), classes="placeholder"))
             self._list_entries.append(task)
             list_view.append(ListItem(Label(task.title)))
+
+        if ph_at == len(active):
+            self._placeholder_list_idx = len(self._list_entries)
+            self._list_entries.append(None)
+            list_view.append(ListItem(Label(" "), classes="placeholder"))
 
         if snoozed:
             self._list_entries.append(None)  # separator
@@ -184,6 +204,17 @@ class GtdApp(App[None]):
         else:
             empty_hint.remove_class("hidden")
 
+    def _placeholder_insert_idx(self, active: list[Task]) -> int:
+        """Index within `active` before which the placeholder row is inserted."""
+        if not self._pending_anchor_id:
+            return 0
+        anchor_idx = next(
+            (i for i, t in enumerate(active) if t.id == self._pending_anchor_id), None
+        )
+        if anchor_idx is None:
+            return 0
+        return anchor_idx if self._pending_insert_position == "before" else anchor_idx + 1
+
     def _compute_target_index(
         self, select_task_id: str | None, prev_index: int | None
     ) -> int | None:
@@ -195,6 +226,9 @@ class GtdApp(App[None]):
             for i, entry in enumerate(self._list_entries):
                 if entry is not None and entry.id == select_task_id:
                     return i
+        # While a placeholder is visible, keep the cursor on it.
+        if self._show_placeholder and self._placeholder_list_idx is not None:
+            return self._placeholder_list_idx
         # Fall back to previous position clamped to new length,
         # scanning forward then backward past any separator.
         target = min(prev_index, n - 1) if prev_index is not None else 0
@@ -205,6 +239,14 @@ class GtdApp(App[None]):
             if self._list_entries[i] is not None:
                 return i
         return None
+
+    def _update_placeholder_label(self, text: str) -> None:
+        """Update the placeholder row's label text in place (no full rebuild)."""
+        if self._placeholder_list_idx is None:
+            return
+        items = list(self.query_one("#task-list", ListView).query(ListItem))
+        if self._placeholder_list_idx < len(items):
+            items[self._placeholder_list_idx].query_one(Label).update(text)
 
     def _apply_selection(self, idx: int) -> None:
         """Set the ListView highlight and restore focus after a DOM rebuild."""
@@ -302,6 +344,7 @@ class GtdApp(App[None]):
         task = self._get_selected_task()
         self._pending_anchor_id = task.id if task is not None else ""
         self._pending_insert_position = insert_position
+        self._show_placeholder = True
         self._mode = "INSERT"
         self._input_stage = "title"
         inp = self.query_one("#task-input", Input)
@@ -309,6 +352,7 @@ class GtdApp(App[None]):
         inp.add_class("active")
         inp.focus()
         self._update_status()
+        self._refresh_list()  # show the placeholder row immediately
 
     def _start_command(self) -> None:
         self._mode = "INSERT"
@@ -331,6 +375,9 @@ class GtdApp(App[None]):
             inp.clear()
             inp.placeholder = "Notes (Enter to skip)..."
             self._input_stage = "notes"
+            # Update the placeholder row to show the title the user just typed
+            # so there's visual context while entering notes.
+            self._update_placeholder_label(value)
 
         elif self._input_stage == "notes":
             self._push_undo()
@@ -350,6 +397,8 @@ class GtdApp(App[None]):
                     self._pending_title, notes=value, task_id=new_id,
                 )
             save_tasks(self._all_tasks)
+            self._show_placeholder = False  # clear before rebuild
+            self._placeholder_list_idx = None
             self._refresh_list(select_task_id=new_id)
             self._cancel_input()
 
@@ -367,14 +416,20 @@ class GtdApp(App[None]):
         inp = self.query_one("#task-input", Input)
         inp.clear()
         inp.remove_class("active")
+        had_placeholder = self._show_placeholder
         self._mode = "NORMAL"
         self._input_stage = ""
         self._pending_title = ""
         self._pending_task_id = ""
         self._pending_anchor_id = ""
         self._pending_insert_position = "after"
+        self._show_placeholder = False
+        self._placeholder_list_idx = None
         self._update_status()
-        self.query_one("#task-list", ListView).focus()
+        if had_placeholder:
+            self._refresh_list()  # rebuilds without placeholder; _apply_selection refocuses
+        else:
+            self.query_one("#task-list", ListView).focus()
 
     # ------------------------------------------------------------------ #
     # Task scheduling flow                                                 #
