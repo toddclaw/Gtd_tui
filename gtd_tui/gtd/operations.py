@@ -114,23 +114,30 @@ def unschedule_task(tasks: list[Task], task_id: str) -> list[Task]:
 def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     """Return tasks that should appear in the Today smart view.
 
-    Includes tasks from any folder except 'someday' and 'logbook' whose
-    scheduled_date is absent or has already arrived.
+    Two sources of tasks, matching Things app behaviour:
+    1. 'today'-folder tasks with no future scheduled_date (their home is Today).
+    2. Tasks from any other non-excluded folder that have a scheduled_date
+       on or before today (explicitly scheduled to surface today/overdue).
+       Undated tasks in other folders do NOT appear here.
 
-    Sort order: 'today'-folder tasks first (by position), then tasks from
-    other folders grouped by folder_id then position.
+    Sort order: 'today'-folder tasks first (by position), then dated tasks
+    from other folders by (scheduled_date, folder_id, position).
     """
     ref = as_of or date.today()
-    eligible = [
-        t
-        for t in tasks
-        if t.folder_id not in _EXCLUDED_FROM_SMART_VIEWS
-        and (t.scheduled_date is None or t.scheduled_date <= ref)
-    ]
-    return sorted(
-        eligible,
-        key=lambda t: (0 if t.folder_id == "today" else 1, t.folder_id, t.position),
-    )
+    today_home: list[Task] = []
+    dated_other: list[Task] = []
+    for t in tasks:
+        if t.folder_id in _EXCLUDED_FROM_SMART_VIEWS:
+            continue
+        if t.folder_id == "today":
+            if t.scheduled_date is None or t.scheduled_date <= ref:
+                today_home.append(t)
+        else:
+            if t.scheduled_date is not None and t.scheduled_date <= ref:
+                dated_other.append(t)
+    today_home.sort(key=lambda t: t.position)
+    dated_other.sort(key=lambda t: (t.scheduled_date, t.folder_id, t.position))
+    return today_home + dated_other
 
 
 def upcoming_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:

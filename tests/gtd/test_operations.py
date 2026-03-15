@@ -71,27 +71,40 @@ def test_today_tasks_excludes_someday():
     assert result[0].title == "Today task"
 
 
-def test_today_tasks_includes_undated_waiting_on():
+def test_today_tasks_excludes_undated_waiting_on():
+    """Undated WO tasks do not surface in Today (Things behaviour)."""
     tasks = add_waiting_on_task([], "Waiting without date")
-    result = today_tasks(tasks)
-    assert len(result) == 1
-    assert result[0].title == "Waiting without date"
+    assert today_tasks(tasks) == []
 
 
-def test_today_tasks_includes_undated_custom_folder():
-    """Tasks from custom folders (not someday/logbook) appear in Today when undated."""
+def test_today_tasks_includes_dated_waiting_on():
+    """WO tasks scheduled for today/overdue DO surface in Today."""
+    tasks = add_waiting_on_task([], "WO due today")
+    tasks = schedule_task(tasks, tasks[0].id, date.today())
+    assert len(today_tasks(tasks)) == 1
+
+
+def test_today_tasks_excludes_undated_custom_folder():
+    """Undated tasks in custom folders do not appear in Today."""
     tasks = add_task_to_folder([], "custom-folder", "Custom task")
-    result = today_tasks(tasks)
-    assert len(result) == 1
+    assert today_tasks(tasks) == []
+
+
+def test_today_tasks_includes_dated_custom_folder():
+    """Custom-folder tasks scheduled for today/overdue DO appear in Today."""
+    tasks = add_task_to_folder([], "custom-folder", "Custom task")
+    tasks = schedule_task(tasks, tasks[0].id, date.today())
+    assert len(today_tasks(tasks)) == 1
 
 
 def test_today_tasks_today_folder_sorts_first():
     """'today'-folder tasks appear before tasks from other folders."""
-    tasks = add_waiting_on_task([], "WO task")
+    tasks = add_waiting_on_task([], "WO due today")
+    tasks = schedule_task(tasks, tasks[0].id, date.today())
     tasks = add_task(tasks, "Today task")
     ordered = today_tasks(tasks)
     assert ordered[0].title == "Today task"
-    assert ordered[1].title == "WO task"
+    assert ordered[1].title == "WO due today"
 
 
 def test_today_tasks_sorted_by_position():
@@ -381,10 +394,10 @@ def test_add_waiting_on_task_creates_in_correct_folder():
     assert tasks[0].folder_id == "waiting_on"
 
 
-def test_add_waiting_on_task_appears_in_today_when_undated():
-    # Undated waiting-on tasks surface in Today (no scheduled date = due now).
+def test_add_waiting_on_task_does_not_appear_in_today():
+    # Undated WO tasks do not surface in Today — they need a date to show up.
     tasks = add_waiting_on_task([], "Waiting task")
-    assert len(today_tasks(tasks)) == 1
+    assert today_tasks(tasks) == []
 
 
 def test_waiting_on_tasks_returns_all():
@@ -444,8 +457,8 @@ def test_move_to_waiting_on_changes_folder():
     task_id = tasks[0].id
     tasks = move_to_waiting_on(tasks, task_id)
     assert tasks[0].folder_id == "waiting_on"
-    # Undated WO tasks now appear in Today smart view.
-    assert len(today_tasks(tasks)) == 1
+    # Moved to WO without a date — no longer in Today.
+    assert today_tasks(tasks) == []
 
 
 def test_move_to_waiting_on_unknown_id_is_noop():
