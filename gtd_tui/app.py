@@ -792,6 +792,9 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
 
     def on_key(self, event: events.Key) -> None:
+        # Don't intercept keys when a modal overlay is active — let the modal handle them.
+        if len(self.screen_stack) > 1:
+            return
         # Delete-folder confirmation takes priority
         if self._delete_confirm_folder_id:
             self._handle_delete_confirm_key(event)

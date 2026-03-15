@@ -173,20 +173,30 @@ def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
 def upcoming_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     """Return tasks that should appear in the Upcoming smart view.
 
-    Includes all tasks (except 'someday' and 'logbook') with a scheduled_date
-    strictly in the future, sorted by date then position.
+    Includes tasks (except 'someday' and 'logbook') that have either:
+    - a scheduled_date strictly in the future, OR
+    - a repeat_rule whose next_due is strictly in the future.
+
+    Tasks with a repeat rule stay in Today (they are still actionable) and also
+    appear here to preview the next scheduled occurrence.  Sorted by the
+    effective future date, then position.
     """
     ref = as_of or date.today()
-    return sorted(
-        [
-            t
-            for t in tasks
-            if t.folder_id not in _EXCLUDED_FROM_SMART_VIEWS
-            and t.scheduled_date is not None
-            and t.scheduled_date > ref
-        ],
-        key=lambda t: (t.scheduled_date, t.position),
-    )
+
+    def _future_date(t: Task) -> date | None:
+        if t.scheduled_date is not None and t.scheduled_date > ref:
+            return t.scheduled_date
+        if t.repeat_rule is not None and t.repeat_rule.next_due > ref:
+            return t.repeat_rule.next_due
+        return None
+
+    result = [
+        t
+        for t in tasks
+        if t.folder_id not in _EXCLUDED_FROM_SMART_VIEWS
+        and _future_date(t) is not None
+    ]
+    return sorted(result, key=lambda t: (_future_date(t), t.position))
 
 
 # Backward-compat alias — returns only 'today'-folder future tasks.

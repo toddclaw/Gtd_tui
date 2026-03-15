@@ -184,6 +184,86 @@ async def test_escape_closes_task_detail_screen(tmp_path: Path) -> None:
         assert not isinstance(app.screen, TaskDetailScreen)
 
 
+async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
+    """Open the detail view for 'foo', extend the title to 'foo bar',
+    tab to notes, add 'bar', then Esc to save.  Verify both fields persist."""
+    data_file = _prepopulate(tmp_path, "foo")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Open detail view — title input is pre-filled with "foo" and focused
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, TaskDetailScreen)
+
+        # Move cursor to end of "foo" then append " bar"
+        await pilot.press("end")
+        await pilot.press("space", "b", "a", "r")
+
+        # Enter advances from Title to Notes
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Type notes
+        await pilot.press("b", "a", "r")
+
+        # Esc saves and closes
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, TaskDetailScreen)
+
+        # Verify the task was updated in memory and persisted
+        task = next(t for t in app._all_tasks if t.folder_id != "logbook")
+        assert task.title == "foo bar"
+        assert task.notes == "bar"
+
+        from gtd_tui.storage.file import load_tasks
+        saved = load_tasks(data_file)
+        saved_task = next(t for t in saved if t.folder_id != "logbook")
+        assert saved_task.title == "foo bar"
+        assert saved_task.notes == "bar"
+
+
+async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
+    """Open the detail view for 'foo', navigate to the Repeat field, enter '7 days',
+    save, then switch to the Upcoming view and verify the task appears there."""
+    data_file = _prepopulate(tmp_path, "foo")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Open detail view — title input focused
+        await pilot.press("enter")
+        await pilot.pause()
+        assert isinstance(app.screen, TaskDetailScreen)
+
+        # Advance past title → notes → repeat
+        await pilot.press("enter")   # title → notes
+        await pilot.pause()
+        await pilot.press("enter")   # notes → repeat
+        await pilot.pause()
+
+        # Type the repeat interval in the Repeat field
+        await pilot.press("7", " ", "d", "a", "y", "s")
+
+        # Advance past repeat → recur, then Escape to save and close
+        await pilot.press("enter")   # repeat → recur
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, TaskDetailScreen)
+
+        # The task must still be in Today (it stays actionable)
+        from gtd_tui.gtd.operations import today_tasks, upcoming_tasks
+        today = today_tasks(app._all_tasks)
+        assert any(t.title == "foo" for t in today), "task should remain in Today"
+
+        # AND it must appear in Upcoming (previewing the next_due date)
+        upcoming = upcoming_tasks(app._all_tasks)
+        assert any(t.title == "foo" for t in upcoming), "task should appear in Upcoming"
+
+
 # ---------------------------------------------------------------------------
 # Search modal (BACKLOG-8)
 # ---------------------------------------------------------------------------
