@@ -171,6 +171,13 @@ class GtdApp(App[None]):
 
         self._restore_selection(list_view, select_task_id, prev_index)
 
+        # clear() unmounts children, which can steal focus away from the
+        # ListView.  Re-focus it whenever we're in NORMAL mode so the
+        # highlight stays visible.  INSERT-mode callers restore focus
+        # themselves via _cancel_input().
+        if self._mode == "NORMAL":
+            list_view.focus()
+
         empty_hint = self.query_one("#empty-hint", Label)
         if active or snoozed:
             empty_hint.add_class("hidden")
