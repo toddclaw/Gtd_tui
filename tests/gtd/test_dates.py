@@ -44,7 +44,7 @@ def test_multi_digit_relative():
 
 def test_invalid_string_raises():
     with pytest.raises(InvalidDateError):
-        parse_date_input("next tuesday", today=TODAY)
+        parse_date_input("sometime soon", today=TODAY)
 
 
 def test_invalid_format_raises():
@@ -79,3 +79,60 @@ def test_year_to_another_leap_year():
     # Feb 29 2024 + 4 years → Feb 29 2028 (2028 is a leap year)
     leap_day = date(2024, 2, 29)
     assert parse_date_input("+4y", today=leap_day) == date(2028, 2, 29)
+
+
+# ------------------------------------------------------------------ #
+# Natural language input (BACKLOG-10)                                 #
+# ------------------------------------------------------------------ #
+
+# TODAY = date(2026, 3, 13) — a Friday
+
+def test_tomorrow():
+    assert parse_date_input("tomorrow", today=TODAY) == date(2026, 3, 14)
+
+
+def test_tomorrow_case_insensitive():
+    assert parse_date_input("Tomorrow", today=TODAY) == date(2026, 3, 14)
+
+
+def test_next_week():
+    assert parse_date_input("next week", today=TODAY) == date(2026, 3, 20)
+
+
+def test_in_n_days_numeric():
+    assert parse_date_input("in 3 days", today=TODAY) == date(2026, 3, 16)
+
+
+def test_in_n_weeks_numeric():
+    assert parse_date_input("in 2 weeks", today=TODAY) == date(2026, 3, 27)
+
+
+def test_in_one_day():
+    assert parse_date_input("in 1 day", today=TODAY) == date(2026, 3, 14)
+
+
+def test_weekday_monday_from_friday():
+    # TODAY is Friday; next Monday is 3 days away
+    assert parse_date_input("monday", today=TODAY) == date(2026, 3, 16)
+
+
+def test_weekday_saturday_from_friday():
+    # Next Saturday is tomorrow
+    assert parse_date_input("saturday", today=TODAY) == date(2026, 3, 14)
+
+
+def test_weekday_friday_from_friday():
+    # Same weekday → next week's occurrence (7 days ahead)
+    assert parse_date_input("friday", today=TODAY) == date(2026, 3, 20)
+
+
+def test_weekday_case_insensitive():
+    assert parse_date_input("Monday", today=TODAY) == date(2026, 3, 16)
+
+
+def test_weekday_abbreviated():
+    assert parse_date_input("mon", today=TODAY) == date(2026, 3, 16)
+
+
+def test_next_weekday():
+    assert parse_date_input("next monday", today=TODAY) == date(2026, 3, 16)

@@ -463,7 +463,7 @@ class GtdApp(App[None]):
         self._input_stage = "date"
         inp = self.query_one("#task-input", Input)
         inp.value = task.scheduled_date.isoformat() if task.scheduled_date else ""
-        inp.placeholder = "Date: YYYY-MM-DD or +1d/+2w/+1m  (empty to clear)..."
+        inp.placeholder = "Date: tomorrow / monday / in 3 days / +2w / YYYY-MM-DD  (empty to clear)..."
         inp.add_class("active")
         inp.focus()
         self._update_status()
