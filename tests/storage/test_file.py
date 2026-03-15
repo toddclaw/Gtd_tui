@@ -216,3 +216,23 @@ def test_no_recur_rule_round_trip(tmp_path: Path) -> None:
     save_tasks(tasks, data_file=data_file)
     loaded = load_tasks(data_file=data_file)
     assert loaded[0].recur_rule is None
+
+
+def test_deleted_task_round_trip(tmp_path: Path) -> None:
+    from gtd_tui.gtd.operations import delete_task
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Gone task")
+    tasks = delete_task(tasks, tasks[0].id)
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].is_deleted is True
+    assert loaded[0].folder_id == "logbook"
+    assert loaded[0].is_complete is False
+
+
+def test_non_deleted_task_round_trip(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Normal task")
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].is_deleted is False

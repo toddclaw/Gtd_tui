@@ -48,10 +48,17 @@ class Task:
     repeat_rule: Optional[RepeatRule] = None
     recur_rule: Optional[RecurRule] = None
 
+    is_deleted: bool = False
+
     @property
     def is_complete(self) -> bool:
-        return self.completed_at is not None
+        return self.completed_at is not None and not self.is_deleted
 
     def complete(self) -> None:
         self.completed_at = datetime.now()
         self.folder_id = "logbook"
+
+    def delete(self) -> None:
+        self.completed_at = datetime.now()
+        self.folder_id = "logbook"
+        self.is_deleted = True

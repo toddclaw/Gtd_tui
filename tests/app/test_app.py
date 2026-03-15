@@ -157,6 +157,59 @@ async def test_completing_task_removes_it_from_today(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Task deletion
+# ---------------------------------------------------------------------------
+
+
+async def test_d_deletes_selected_task(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Finish report")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        logbook = [t for t in app._all_tasks if t.folder_id == "logbook"]
+        assert len(logbook) == 1
+        assert logbook[0].title == "Finish report"
+        assert logbook[0].is_deleted is True
+
+
+async def test_deleted_task_not_marked_complete(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Finish report")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        logbook = [t for t in app._all_tasks if t.folder_id == "logbook"]
+        assert logbook[0].is_complete is False
+
+
+async def test_deleting_task_removes_it_from_today(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Walk dog")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        today = [t for t in app._all_tasks if t.folder_id == "today"]
+        assert len(today) == 0
+
+
+async def test_deleted_task_persists_to_data_file(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "Walk dog")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+    from gtd_tui.storage.file import load_tasks
+    loaded = load_tasks(data_file)
+    assert loaded[0].is_deleted is True
+    assert loaded[0].folder_id == "logbook"
+
+
+# ---------------------------------------------------------------------------
 # Task detail modal (BACKLOG-11)
 # ---------------------------------------------------------------------------
 

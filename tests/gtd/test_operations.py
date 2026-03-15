@@ -5,6 +5,7 @@ from gtd_tui.gtd.operations import (
     add_waiting_on_task,
     add_task_to_folder,
     complete_task,
+    delete_task,
     edit_task,
     folder_tasks,
     insert_task_after,
@@ -139,6 +140,41 @@ def test_complete_task_moves_to_logbook():
 def test_complete_task_unknown_id_is_noop():
     tasks = add_task([], "Task")
     result = complete_task(tasks, "nonexistent-id")
+    assert len(today_tasks(result)) == 1
+
+
+# ------------------------------------------------------------------ #
+# delete_task                                                          #
+# ------------------------------------------------------------------ #
+
+
+def test_delete_task_moves_to_logbook():
+    tasks = add_task([], "Unwanted task")
+    task_id = tasks[0].id
+    tasks = delete_task(tasks, task_id)
+    assert today_tasks(tasks) == []
+    lb = logbook_tasks(tasks)
+    assert len(lb) == 1
+    assert lb[0].title == "Unwanted task"
+
+
+def test_delete_task_sets_is_deleted():
+    tasks = add_task([], "Gone")
+    task_id = tasks[0].id
+    tasks = delete_task(tasks, task_id)
+    assert logbook_tasks(tasks)[0].is_deleted is True
+
+
+def test_delete_task_is_not_complete():
+    tasks = add_task([], "Gone")
+    task_id = tasks[0].id
+    tasks = delete_task(tasks, task_id)
+    assert logbook_tasks(tasks)[0].is_complete is False
+
+
+def test_delete_task_unknown_id_is_noop():
+    tasks = add_task([], "Task")
+    result = delete_task(tasks, "nonexistent-id")
     assert len(today_tasks(result)) == 1
 
 

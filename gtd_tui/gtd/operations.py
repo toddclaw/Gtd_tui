@@ -125,6 +125,14 @@ def complete_task(tasks: list[Task], task_id: str) -> list[Task]:
     return tasks + spawned
 
 
+def delete_task(tasks: list[Task], task_id: str) -> list[Task]:
+    """Move a task to the logbook marked as deleted (not completed)."""
+    for task in tasks:
+        if task.id == task_id:
+            task.delete()
+    return tasks
+
+
 def schedule_task(tasks: list[Task], task_id: str, scheduled_date: date) -> list[Task]:
     """Set a future scheduled_date on a task, moving it out of Today."""
     for task in tasks:

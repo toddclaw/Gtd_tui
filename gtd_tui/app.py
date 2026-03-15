@@ -18,6 +18,7 @@ from gtd_tui.gtd.operations import (
     add_task_to_folder,
     add_waiting_on_task,
     complete_task,
+    delete_task,
     create_folder,
     delete_folder,
     discard_folder_tasks,
@@ -696,13 +697,14 @@ class GtdApp(App[None]):
         tasks = logbook_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Logbook ({len(tasks)})")
         for task in tasks:
-            completed_str = (
+            timestamp = (
                 task.completed_at.strftime("%Y-%m-%d %H:%M")
                 if task.completed_at
                 else "unknown"
             )
+            marker = "D" if task.is_deleted else "C"
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(f"{task.title}  [{completed_str}]")))
+            list_view.append(ListItem(Label(f"{marker}  {task.title}  [{timestamp}]")))
 
     def _render_folder_view(self, list_view: ListView, folder_id: str) -> None:
         label = self._view_label(folder_id)
@@ -933,6 +935,9 @@ class GtdApp(App[None]):
         elif event.key == "x" or event.key == "space":
             event.prevent_default()
             self._complete_selected()
+        elif event.key == "d":
+            event.prevent_default()
+            self._delete_selected()
         elif event.key == "slash":
             event.prevent_default()
             self._open_search()
@@ -1430,6 +1435,15 @@ class GtdApp(App[None]):
             return
         self._push_undo()
         self._all_tasks = complete_task(self._all_tasks, task.id)
+        self._save()
+        self._refresh_list()
+
+    def _delete_selected(self) -> None:
+        task = self._get_selected_task()
+        if task is None:
+            return
+        self._push_undo()
+        self._all_tasks = delete_task(self._all_tasks, task.id)
         self._save()
         self._refresh_list()
 

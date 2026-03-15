@@ -56,6 +56,7 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         "recur_rule": (
             _recur_rule_to_dict(task.recur_rule) if task.recur_rule else None
         ),
+        "is_deleted": task.is_deleted,
     }
 
 
@@ -83,6 +84,7 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
             if data.get("recur_rule")
             else None
         ),
+        is_deleted=data.get("is_deleted", False),
     )
 
 
