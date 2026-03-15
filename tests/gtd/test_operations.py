@@ -18,6 +18,7 @@ from gtd_tui.gtd.operations import (
     parse_repeat_input,
     schedule_task,
     scheduled_tasks,
+    search_tasks,
     set_repeat_rule,
     someday_tasks,
     spawn_repeating_tasks,
@@ -928,3 +929,88 @@ def test_spawn_yearly_advances_correctly():
     result = spawn_repeating_tasks(tasks, as_of=_TODAY)
     original = next(t for t in result if t.id == original_id)
     assert original.repeat_rule.next_due == date(2027, 1, 1)
+
+
+# ------------------------------------------------------------------ #
+# search_tasks                                                         #
+# ------------------------------------------------------------------ #
+
+
+def test_search_matches_title():
+    tasks = add_task([], "Buy groceries")
+    results = search_tasks(tasks, "groceries")
+    assert len(results) == 1
+    assert results[0][0].title == "Buy groceries"
+
+
+def test_search_matches_notes():
+    tasks = add_task([], "Meeting", notes="discuss quarterly budget")
+    results = search_tasks(tasks, "budget")
+    assert len(results) == 1
+    assert results[0][1] == "notes"
+
+
+def test_search_case_insensitive():
+    tasks = add_task([], "Buy Milk")
+    assert len(search_tasks(tasks, "milk")) == 1
+    assert len(search_tasks(tasks, "MILK")) == 1
+    assert len(search_tasks(tasks, "Milk")) == 1
+
+
+def test_search_empty_query_returns_empty():
+    tasks = add_task([], "Some task")
+    assert search_tasks(tasks, "") == []
+    assert search_tasks(tasks, "   ") == []
+
+
+def test_search_no_match_returns_empty():
+    tasks = add_task([], "Buy groceries")
+    assert search_tasks(tasks, "dentist") == []
+
+
+def test_search_returns_match_type_title():
+    tasks = add_task([], "Budget review")
+    results = search_tasks(tasks, "budget")
+    assert results[0][1] == "title"
+
+
+def test_search_title_match_before_notes_match():
+    tasks: list = []
+    tasks = add_task(tasks, "Budget review")
+    tasks = add_task(tasks, "Meeting", notes="discuss budget")
+    results = search_tasks(tasks, "budget")
+    assert results[0][1] == "title"
+    assert results[1][1] == "notes"
+
+
+def test_search_active_before_logbook():
+    tasks = add_task([], "Buy milk")
+    tasks = add_task(tasks, "Buy bread")
+    logbook_id = tasks[-1].id
+    tasks = complete_task(tasks, logbook_id)
+    results = search_tasks(tasks, "buy")
+    active = [r for r in results if r[0].folder_id != "logbook"]
+    logbook = [r for r in results if r[0].folder_id == "logbook"]
+    # active results appear first in the list
+    active_indices = [i for i, r in enumerate(results) if r[0].folder_id != "logbook"]
+    logbook_indices = [i for i, r in enumerate(results) if r[0].folder_id == "logbook"]
+    assert max(active_indices) < min(logbook_indices)
+
+
+def test_search_logbook_only_when_no_active_match():
+    tasks = add_task([], "Buy milk")
+    task_id = tasks[0].id
+    tasks = complete_task(tasks, task_id)
+    results = search_tasks(tasks, "buy")
+    assert len(results) == 1
+    assert results[0][0].folder_id == "logbook"
+
+
+def test_search_does_not_return_unmatched():
+    tasks: list = []
+    tasks = add_task(tasks, "Buy groceries")
+    tasks = add_task(tasks, "Call dentist")
+    results = search_tasks(tasks, "groceries")
+    titles = [r[0].title for r in results]
+    assert "Buy groceries" in titles
+    assert "Call dentist" not in titles

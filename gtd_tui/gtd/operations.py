@@ -426,6 +426,63 @@ def move_folder_tasks_to_today(tasks: list[Task], folder_id: str) -> list[Task]:
 
 
 # ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+
+_SEARCH_FOLDER_PRIORITY: dict[str, int] = {
+    "today": 0,
+    "upcoming": 1,
+    "waiting_on": 2,
+    "someday": 3,
+}
+
+
+def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
+    """Full-text search across all tasks by title and notes, case-insensitive.
+
+    Returns (task, match_type) pairs where match_type is "title" or "notes".
+    Ordering:
+      1. Active tasks (not logbook): title matches first, then notes matches;
+         within each group sorted by folder priority then position.
+      2. Logbook tasks: title matches first, then notes matches;
+         within each group sorted by recency (most-recently completed first).
+    Returns empty list for an empty/whitespace-only query.
+    """
+    if not query.strip():
+        return []
+    q = query.lower()
+    active: list[tuple[Task, str]] = []
+    logbook_results: list[tuple[Task, str]] = []
+
+    for task in tasks:
+        if q in task.title.lower():
+            match_type = "title"
+        elif q in task.notes.lower():
+            match_type = "notes"
+        else:
+            continue
+        if task.folder_id == "logbook":
+            logbook_results.append((task, match_type))
+        else:
+            active.append((task, match_type))
+
+    active.sort(
+        key=lambda r: (
+            0 if r[1] == "title" else 1,
+            _SEARCH_FOLDER_PRIORITY.get(r[0].folder_id, 4),
+            r[0].position,
+        )
+    )
+    logbook_results.sort(
+        key=lambda r: (
+            0 if r[1] == "title" else 1,
+            -(r[0].completed_at.timestamp() if r[0].completed_at else 0),
+        )
+    )
+    return active + logbook_results
+
+
+# ---------------------------------------------------------------------------
 # Repeat rule parsing
 # ---------------------------------------------------------------------------
 

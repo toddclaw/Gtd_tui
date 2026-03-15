@@ -36,6 +36,7 @@ from gtd_tui.gtd.operations import (
     parse_repeat_input,
     rename_folder,
     schedule_task,
+    search_tasks,
     set_repeat_rule,
     someday_tasks,
     spawn_repeating_tasks,
@@ -84,6 +85,7 @@ class HelpScreen(ModalScreen[None]):
   t            Move selected task to Today       (Waiting On view)
   u            Undo last action
   Ctrl+R       Redo last undone action
+  /            Global search (Esc to cancel, Enter to go to task)
 
 [bold]Sidebar Folder Actions[/bold]
   N            Create new folder
@@ -211,6 +213,170 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str] | None]):
             self.focus_next()
         elif event.input.id == "detail-repeat-input":
             self.action_save_and_close()
+
+
+class SearchScreen(ModalScreen[str | None]):
+    """Global search across all tasks.
+
+    Dismissed value: task_id of the selected task, or None if cancelled.
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", show=False, priority=True),
+        Binding("up", "cursor_up", show=False, priority=True),
+        Binding("down", "cursor_down", show=False, priority=True),
+        Binding("enter", "select", show=False, priority=True),
+    ]
+
+    CSS = """
+    SearchScreen {
+        align: center middle;
+    }
+
+    #search-panel {
+        width: 72;
+        height: 28;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #search-header {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #search-input {
+        margin-bottom: 1;
+    }
+
+    #search-results {
+        height: 1fr;
+    }
+
+    #search-status {
+        height: 1;
+        color: $text-muted;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, tasks: list[Task]) -> None:
+        super().__init__()
+        self._tasks = tasks
+        # list of (task_id, display_label, is_separator)
+        self._result_entries: list[tuple[str, str, bool]] = []
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="search-panel"):
+            yield Label("Search", id="search-header")
+            yield Input(placeholder="Type to search...", id="search-input")
+            yield ListView(id="search-results")
+            yield Label("↑/↓ navigate   Enter: go to task   Esc: cancel", id="search-status")
+
+    def on_mount(self) -> None:
+        self.query_one("#search-input", Input).focus()
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        self._run_search(event.value)
+
+    def _run_search(self, query: str) -> None:
+        results = search_tasks(self._tasks, query)
+        list_view = self.query_one("#search-results", ListView)
+        list_view.clear()
+        self._result_entries = []
+
+        if not results:
+            return
+
+        active_results = [(t, mt) for t, mt in results if t.folder_id != "logbook"]
+        logbook_results = [(t, mt) for t, mt in results if t.folder_id == "logbook"]
+
+        def _highlight(text: str, query: str) -> str:
+            from rich.markup import escape as rich_escape
+            q_lower = query.lower()
+            idx = text.lower().find(q_lower)
+            if idx == -1:
+                return rich_escape(text)
+            before = rich_escape(text[:idx])
+            match = rich_escape(text[idx : idx + len(query)])
+            after = rich_escape(text[idx + len(query) :])
+            return f"{before}[bold yellow]{match}[/bold yellow]{after}"
+
+        def _folder_tag(task: Task) -> str:
+            folder_map = {
+                "today": "Today",
+                "waiting_on": "WO",
+                "someday": "Someday",
+                "upcoming": "Upcoming",
+            }
+            return folder_map.get(task.folder_id, task.folder_id[:8])
+
+        for task, match_type in active_results:
+            tag = _folder_tag(task)
+            if match_type == "notes":
+                label_text = f"[{tag}] {_highlight(task.title, query)}  [dim](notes)[/dim]"
+            else:
+                label_text = f"[{tag}] {_highlight(task.title, query)}"
+            self._result_entries.append((task.id, task.title, False))
+            list_view.append(ListItem(Label(label_text)))
+
+        if active_results and logbook_results:
+            self._result_entries.append(("", "", True))
+            list_view.append(ListItem(Label("── Logbook ──")))
+
+        for task, match_type in logbook_results:
+            if match_type == "notes":
+                label_text = f"[Logbook] {_highlight(task.title, query)}  [dim](notes)[/dim]"
+            else:
+                label_text = f"[Logbook] {_highlight(task.title, query)}"
+            self._result_entries.append((task.id, task.title, False))
+            list_view.append(ListItem(Label(label_text)))
+
+        if self._result_entries:
+            self.call_after_refresh(self._select_first)
+
+    def _select_first(self) -> None:
+        list_view = self.query_one("#search-results", ListView)
+        for i, (_, _, is_sep) in enumerate(self._result_entries):
+            if not is_sep:
+                list_view.index = i
+                return
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cursor_up(self) -> None:
+        list_view = self.query_one("#search-results", ListView)
+        idx = list_view.index
+        if idx is None:
+            return
+        for i in range(idx - 1, -1, -1):
+            if not self._result_entries[i][2]:
+                list_view.index = i
+                return
+
+    def action_cursor_down(self) -> None:
+        list_view = self.query_one("#search-results", ListView)
+        idx = list_view.index
+        if idx is None:
+            self._select_first()
+            return
+        for i in range(idx + 1, len(self._result_entries)):
+            if not self._result_entries[i][2]:
+                list_view.index = i
+                return
+
+    def action_select(self) -> None:
+        list_view = self.query_one("#search-results", ListView)
+        idx = list_view.index
+        if idx is None or idx >= len(self._result_entries):
+            return
+        task_id, _, is_sep = self._result_entries[idx]
+        if is_sep:
+            return
+        self.dismiss(task_id)
 
 
 class GtdApp(App[None]):
@@ -662,6 +828,9 @@ class GtdApp(App[None]):
         elif event.key.isdigit() and event.key != "0":
             event.prevent_default()
             self._jump_to_view(int(event.key) - 1)
+        elif event.key == "slash":
+            event.prevent_default()
+            self._open_search()
         elif event.key == "u":
             event.prevent_default()
             self._undo()
@@ -745,6 +914,9 @@ class GtdApp(App[None]):
         elif event.key == "x" or event.key == "space":
             event.prevent_default()
             self._complete_selected()
+        elif event.key == "slash":
+            event.prevent_default()
+            self._open_search()
         elif event.key == "colon":
             event.prevent_default()
             self._start_command()
@@ -1068,6 +1240,31 @@ class GtdApp(App[None]):
             self._refresh_list(select_task_id=task_id)
 
         self.push_screen(TaskDetailScreen(task), _on_detail_close)
+
+    def _open_search(self) -> None:
+        def _on_search_close(task_id: str | None) -> None:
+            if task_id is None:
+                self.query_one("#task-list", ListView).focus()
+                return
+            task = next((t for t in self._all_tasks if t.id == task_id), None)
+            if task is None:
+                self.query_one("#task-list", ListView).focus()
+                return
+            # Navigate to the task's folder
+            if task.folder_id == "logbook":
+                self._current_view = "logbook"
+            elif task.folder_id == "waiting_on":
+                self._current_view = "waiting_on"
+            elif task.folder_id == "someday":
+                self._current_view = "someday"
+            elif task.folder_id == "today":
+                self._current_view = "today"
+            else:
+                self._current_view = task.folder_id
+            self._rebuild_sidebar()
+            self._refresh_list(select_task_id=task_id)
+
+        self.push_screen(SearchScreen(self._all_tasks), _on_search_close)
 
     def _move_selected_to_waiting_on(self) -> None:
         task = self._get_selected_task()
