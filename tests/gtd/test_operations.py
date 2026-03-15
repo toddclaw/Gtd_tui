@@ -2,16 +2,21 @@ from datetime import date, timedelta
 
 from gtd_tui.gtd.operations import (
     add_task,
+    add_waiting_on_task,
     complete_task,
     insert_task_after,
     insert_task_before,
     logbook_tasks,
     move_task_down,
     move_task_up,
+    move_to_today,
+    move_to_waiting_on,
     schedule_task,
     scheduled_tasks,
+    surfaced_waiting_on_tasks,
     today_tasks,
     unschedule_task,
+    waiting_on_tasks,
 )
 from gtd_tui.gtd.task import Task
 
@@ -328,3 +333,119 @@ def test_move_preserves_other_tasks():
     b_id = next(t.id for t in tasks if t.title == "B")
     tasks = move_task_up(tasks, b_id)
     assert [t.title for t in today_tasks(tasks)] == ["B", "A", "C"]
+
+
+# ------------------------------------------------------------------ #
+# Waiting On folder                                                    #
+# ------------------------------------------------------------------ #
+
+def test_add_waiting_on_task_creates_in_correct_folder():
+    tasks = add_waiting_on_task([], "Call Alice")
+    assert len(tasks) == 1
+    assert tasks[0].title == "Call Alice"
+    assert tasks[0].folder_id == "waiting_on"
+
+
+def test_add_waiting_on_task_does_not_appear_in_today():
+    tasks = add_waiting_on_task([], "Waiting task")
+    assert today_tasks(tasks) == []
+
+
+def test_waiting_on_tasks_returns_unsurfaced():
+    tasks = add_waiting_on_task([], "No date task")
+    tasks = add_waiting_on_task(tasks, "Future date task")
+    future_id = next(t.id for t in tasks if t.title == "Future date task")
+    tasks = schedule_task(tasks, future_id, date.today() + timedelta(days=5))
+    result = waiting_on_tasks(tasks)
+    assert len(result) == 2
+    assert all(t.folder_id == "waiting_on" for t in result)
+
+
+def test_waiting_on_tasks_excludes_surfaced():
+    tasks = add_waiting_on_task([], "Surfaced task")
+    tasks = schedule_task(tasks, tasks[0].id, date.today() - timedelta(days=1))
+    assert waiting_on_tasks(tasks) == []
+
+
+def test_waiting_on_tasks_no_date_sorts_first():
+    tasks: list[Task] = []
+    tasks = add_waiting_on_task(tasks, "Has date")
+    tasks = add_waiting_on_task(tasks, "No date")
+    has_date_id = next(t.id for t in tasks if t.title == "Has date")
+    tasks = schedule_task(tasks, has_date_id, date.today() + timedelta(days=3))
+    result = waiting_on_tasks(tasks)
+    assert result[0].title == "No date"
+    assert result[1].title == "Has date"
+
+
+def test_surfaced_waiting_on_tasks_returns_due():
+    tasks = add_waiting_on_task([], "Due task")
+    tasks = schedule_task(tasks, tasks[0].id, date.today() - timedelta(days=1))
+    result = surfaced_waiting_on_tasks(tasks)
+    assert len(result) == 1
+    assert result[0].title == "Due task"
+
+
+def test_surfaced_waiting_on_tasks_excludes_future():
+    tasks = add_waiting_on_task([], "Future task")
+    tasks = schedule_task(tasks, tasks[0].id, date.today() + timedelta(days=1))
+    assert surfaced_waiting_on_tasks(tasks) == []
+
+
+def test_surfaced_waiting_on_tasks_excludes_no_date():
+    tasks = add_waiting_on_task([], "No date task")
+    assert surfaced_waiting_on_tasks(tasks) == []
+
+
+def test_surfaced_waiting_on_tasks_as_of_parameter():
+    tasks = add_waiting_on_task([], "Task")
+    target = date(2026, 4, 1)
+    tasks = schedule_task(tasks, tasks[0].id, target)
+    assert surfaced_waiting_on_tasks(tasks, as_of=date(2026, 3, 31)) == []
+    assert len(surfaced_waiting_on_tasks(tasks, as_of=date(2026, 4, 1))) == 1
+
+
+def test_move_to_waiting_on_changes_folder():
+    tasks = add_task([], "Buy milk")
+    task_id = tasks[0].id
+    tasks = move_to_waiting_on(tasks, task_id)
+    assert tasks[0].folder_id == "waiting_on"
+    assert today_tasks(tasks) == []
+
+
+def test_move_to_waiting_on_unknown_id_is_noop():
+    tasks = add_task([], "Task")
+    result = move_to_waiting_on(tasks, "bad-id")
+    assert len(today_tasks(result)) == 1
+
+
+def test_move_to_today_changes_folder():
+    tasks = add_waiting_on_task([], "WO task")
+    task_id = tasks[0].id
+    tasks = move_to_today(tasks, task_id)
+    assert tasks[0].folder_id == "today"
+    assert len(today_tasks(tasks)) == 1
+
+
+def test_move_to_today_clears_scheduled_date():
+    tasks = add_waiting_on_task([], "WO task")
+    task_id = tasks[0].id
+    tasks = schedule_task(tasks, task_id, date.today() + timedelta(days=5))
+    tasks = move_to_today(tasks, task_id)
+    assert tasks[0].scheduled_date is None
+
+
+def test_move_to_today_inserts_at_top():
+    tasks = add_task([], "Existing Today task")
+    tasks = add_waiting_on_task(tasks, "WO task")
+    wo_id = next(t.id for t in tasks if t.folder_id == "waiting_on")
+    tasks = move_to_today(tasks, wo_id)
+    ordered = today_tasks(tasks)
+    assert ordered[0].title == "WO task"
+    assert ordered[1].title == "Existing Today task"
+
+
+def test_move_to_today_unknown_id_is_noop():
+    tasks = add_waiting_on_task([], "WO task")
+    result = move_to_today(tasks, "bad-id")
+    assert waiting_on_tasks(result) == [tasks[0]]

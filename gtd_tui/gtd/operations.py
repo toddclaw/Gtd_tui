@@ -143,3 +143,57 @@ def logbook_tasks(tasks: list[Task]) -> list[Task]:
         key=lambda t: t.completed_at or datetime.min,
         reverse=True,
     )
+
+
+def add_waiting_on_task(tasks: list[Task], title: str, notes: str = "") -> list[Task]:
+    """Add a new task to the Waiting On folder."""
+    new_task = Task(title=title, notes=notes, folder_id="waiting_on", position=0)
+    return tasks + [new_task]
+
+
+def move_to_waiting_on(tasks: list[Task], task_id: str) -> list[Task]:
+    """Move a task to the Waiting On folder. Preserves any scheduled date."""
+    for task in tasks:
+        if task.id == task_id:
+            task.folder_id = "waiting_on"
+    return tasks
+
+
+def move_to_today(tasks: list[Task], task_id: str) -> list[Task]:
+    """Move a task to Today at position 0, clearing its scheduled date."""
+    for task in tasks:
+        if task.folder_id == "today":
+            task.position += 1
+    for task in tasks:
+        if task.id == task_id:
+            task.folder_id = "today"
+            task.scheduled_date = None
+            task.position = 0
+    return tasks
+
+
+def waiting_on_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
+    """Return Waiting On tasks not yet surfaced: no date or a future date."""
+    ref = as_of or date.today()
+    return sorted(
+        [
+            t for t in tasks
+            if t.folder_id == "waiting_on"
+            and (t.scheduled_date is None or t.scheduled_date > ref)
+        ],
+        key=lambda t: (t.scheduled_date or date.min, t.position),
+    )
+
+
+def surfaced_waiting_on_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
+    """Return Waiting On tasks whose date has arrived — they surface in Today."""
+    ref = as_of or date.today()
+    return sorted(
+        [
+            t for t in tasks
+            if t.folder_id == "waiting_on"
+            and t.scheduled_date is not None
+            and t.scheduled_date <= ref
+        ],
+        key=lambda t: t.scheduled_date,  # type: ignore[return-value]
+    )

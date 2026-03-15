@@ -4,6 +4,7 @@ import copy
 import uuid
 
 from textual.app import App, ComposeResult
+from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 from textual import events
@@ -11,18 +12,26 @@ from textual import events
 from gtd_tui.gtd.dates import InvalidDateError, parse_date_input
 from gtd_tui.gtd.operations import (
     add_task,
+    add_waiting_on_task,
     complete_task,
     insert_task_after,
     insert_task_before,
     move_task_down,
     move_task_up,
+    move_to_today,
+    move_to_waiting_on,
     schedule_task,
     scheduled_tasks,
+    surfaced_waiting_on_tasks,
     today_tasks,
     unschedule_task,
+    waiting_on_tasks,
 )
 from gtd_tui.gtd.task import Task
 from gtd_tui.storage.file import load_tasks, save_tasks
+
+_VIEWS = ["today", "waiting_on"]
+_VIEW_LABELS = ["Today", "Waiting On"]
 
 
 class HelpScreen(ModalScreen[None]):
@@ -32,7 +41,7 @@ class HelpScreen(ModalScreen[None]):
     }
 
     #help-panel {
-        width: 54;
+        width: 60;
         height: auto;
         background: $surface;
         border: solid $primary;
@@ -45,6 +54,8 @@ class HelpScreen(ModalScreen[None]):
   j / k        Move cursor down / up
   g g          Jump to top of list
   G            Jump to bottom of list
+  h / l        Focus sidebar / task list
+  1 / 2        Jump to Today / Waiting On
 
 [bold]Task Actions[/bold]
   o            Add new task after selected (INSERT mode)
@@ -52,6 +63,8 @@ class HelpScreen(ModalScreen[None]):
   x / Space    Complete selected task
   s            Schedule selected task
   J / K        Move selected task down / up
+  w            Move selected task to Waiting On  (Today view)
+  t            Move selected task to Today       (Waiting On view)
   u            Undo last action
   Ctrl+R       Redo last undone action
 
@@ -90,6 +103,19 @@ class GtdApp(App[None]):
         text-style: bold;
     }
 
+    #main-area {
+        height: 1fr;
+    }
+
+    #sidebar {
+        width: 16;
+        border-right: solid $panel;
+    }
+
+    #content {
+        width: 1fr;
+    }
+
     #task-input {
         margin: 0 1;
         display: none;
@@ -125,10 +151,11 @@ class GtdApp(App[None]):
         super().__init__()
         self._all_tasks: list[Task] = load_tasks()
         self._mode: str = "NORMAL"
-        self._input_stage: str = ""  # "title", "notes", or "date"
+        self._input_stage: str = ""  # "title", "notes", "date", or "command"
         self._pending_title: str = ""
         self._pending_task_id: str = ""
-        # Parallel to ListView children: Task for task rows, None for separators
+        self._current_view: str = "today"
+        # Parallel to ListView children: Task for task rows, None for separators/placeholders
         self._list_entries: list[Task | None] = []
         self._undo_stack: list[list[Task]] = []
         self._redo_stack: list[list[Task]] = []
@@ -142,12 +169,19 @@ class GtdApp(App[None]):
 
     def compose(self) -> ComposeResult:
         yield Label("Today", id="header")
-        yield Input(placeholder="Task title...", id="task-input")
-        yield ListView(id="task-list")
-        yield Label("No tasks — press o to add one", id="empty-hint")
+        with Horizontal(id="main-area"):
+            yield ListView(id="sidebar")
+            with Vertical(id="content"):
+                yield Input(placeholder="Task title...", id="task-input")
+                yield ListView(id="task-list")
+                yield Label("No tasks — press o to add one", id="empty-hint")
         yield Label("NORMAL  |  Today", id="status")
 
     def on_mount(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        for label in _VIEW_LABELS:
+            sidebar.append(ListItem(Label(label)))
+        sidebar.index = 0
         self._refresh_list()
         self.query_one("#task-list", ListView).focus()
 
@@ -163,8 +197,31 @@ class GtdApp(App[None]):
         self._list_entries = []
         self._placeholder_list_idx = None
 
+        if self._current_view == "today":
+            self._render_today_view(list_view)
+        else:
+            self._render_waiting_on_view(list_view)
+
+        # Compute the target index now (while _list_entries is current),
+        # then defer the actual index + focus update until after Textual has
+        # finished processing all the pending mount/remove messages from
+        # clear() and append().  Setting index before the DOM settles causes
+        # Textual to silently discard it, which makes the highlight vanish.
+        target_idx = self._compute_target_index(select_task_id, prev_index)
+        if target_idx is not None:
+            self.call_after_refresh(self._apply_selection, target_idx)
+
+        has_tasks = any(e is not None for e in self._list_entries)
+        empty_hint = self.query_one("#empty-hint", Label)
+        if has_tasks:
+            empty_hint.add_class("hidden")
+        else:
+            empty_hint.remove_class("hidden")
+
+    def _render_today_view(self, list_view: ListView) -> None:
         active = today_tasks(self._all_tasks)
         snoozed = scheduled_tasks(self._all_tasks)
+        surfaced_wo = surfaced_waiting_on_tasks(self._all_tasks)
 
         total = len(active) + len(snoozed)
         self.query_one("#header", Label).update(f"Today ({total})")
@@ -190,27 +247,29 @@ class GtdApp(App[None]):
             list_view.append(ListItem(Label(" "), classes="placeholder"))
 
         if snoozed:
-            self._list_entries.append(None)  # separator
+            self._list_entries.append(None)
             list_view.append(ListItem(Label("── Scheduled ──")))
             for task in snoozed:
                 self._list_entries.append(task)
                 date_str = task.scheduled_date.strftime("%b %d %a") if task.scheduled_date else ""
                 list_view.append(ListItem(Label(f"{task.title}  [{date_str}]")))
 
-        # Compute the target index now (while _list_entries is current),
-        # then defer the actual index + focus update until after Textual has
-        # finished processing all the pending mount/remove messages from
-        # clear() and append().  Setting index before the DOM settles causes
-        # Textual to silently discard it, which makes the highlight vanish.
-        target_idx = self._compute_target_index(select_task_id, prev_index)
-        if target_idx is not None:
-            self.call_after_refresh(self._apply_selection, target_idx)
+        if surfaced_wo:
+            self._list_entries.append(None)
+            list_view.append(ListItem(Label("── Waiting On ──")))
+            for task in surfaced_wo:
+                self._list_entries.append(task)
+                list_view.append(ListItem(Label(f"[W] {task.title}")))
 
-        empty_hint = self.query_one("#empty-hint", Label)
-        if active or snoozed:
-            empty_hint.add_class("hidden")
-        else:
-            empty_hint.remove_class("hidden")
+    def _render_waiting_on_view(self, list_view: ListView) -> None:
+        self.query_one("#header", Label).update("Waiting On")
+        for task in waiting_on_tasks(self._all_tasks):
+            self._list_entries.append(task)
+            date_str = (
+                f"  [{task.scheduled_date.strftime('%b %d %a')}]"
+                if task.scheduled_date else ""
+            )
+            list_view.append(ListItem(Label(f"{task.title}{date_str}")))
 
     def _placeholder_insert_idx(self, active: list[Task]) -> int:
         """Index within `active` before which the placeholder row is inserted."""
@@ -269,15 +328,17 @@ class GtdApp(App[None]):
 
     def _update_status(self, message: str = "") -> None:
         mode = "INSERT" if self._mode == "INSERT" else "NORMAL"
+        view_name = _VIEW_LABELS[_VIEWS.index(self._current_view)]
         suffix = f"  {message}" if message else ""
-        self.query_one("#status", Label).update(f"{mode}  |  Today{suffix}")
+        self.query_one("#status", Label).update(f"{mode}  |  {view_name}{suffix}")
 
     def _get_selected_task(self) -> Task | None:
+        """Return the Task at the current list selection, or None if on a separator."""
         list_view = self.query_one("#task-list", ListView)
         idx = list_view.index
         if idx is None or idx >= len(self._list_entries):
             return None
-        return self._list_entries[idx]  # None if on separator
+        return self._list_entries[idx]
 
     # ------------------------------------------------------------------ #
     # Key handling                                                         #
@@ -287,8 +348,28 @@ class GtdApp(App[None]):
         if self._mode == "INSERT":
             if event.key == "escape":
                 self._cancel_input()
+        elif self.query_one("#sidebar", ListView).has_focus:
+            self._handle_sidebar_key(event)
         else:
             self._handle_normal_key(event)
+
+    def _handle_sidebar_key(self, event: events.Key) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        if event.key == "j":
+            event.prevent_default()
+            sidebar.action_cursor_down()
+        elif event.key == "k":
+            event.prevent_default()
+            sidebar.action_cursor_up()
+        elif event.key in ("l", "enter"):
+            event.prevent_default()
+            self.query_one("#task-list", ListView).focus()
+        elif event.key in ("1", "2"):
+            event.prevent_default()
+            self._jump_to_view(int(event.key) - 1)
+        elif event.key == "q":
+            event.prevent_default()
+            self.exit()
 
     def _handle_normal_key(self, event: events.Key) -> None:
         list_view = self.query_one("#task-list", ListView)
@@ -326,6 +407,12 @@ class GtdApp(App[None]):
         elif event.key == "K":
             event.prevent_default()
             self._move_selected_up()
+        elif event.key == "h":
+            event.prevent_default()
+            self.query_one("#sidebar", ListView).focus()
+        elif event.key in ("1", "2"):
+            event.prevent_default()
+            self._jump_to_view(int(event.key) - 1)
         elif event.key == "o":
             event.prevent_default()
             self._start_add_task("after")
@@ -341,6 +428,12 @@ class GtdApp(App[None]):
         elif event.key == "ctrl+r":
             event.prevent_default()
             self._redo()
+        elif event.key == "w" and self._current_view == "today":
+            event.prevent_default()
+            self._move_selected_to_waiting_on()
+        elif event.key == "t" and self._current_view == "waiting_on":
+            event.prevent_default()
+            self._move_selected_to_today()
         elif event.key == "x" or event.key == "space":
             event.prevent_default()
             self._complete_selected()
@@ -350,6 +443,20 @@ class GtdApp(App[None]):
         elif event.key == "q":
             event.prevent_default()
             self.exit()
+
+    def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
+        """Update the current view when the sidebar selection changes."""
+        if event.list_view.id == "sidebar":
+            idx = event.list_view.index
+            if idx is not None and idx < len(_VIEWS):
+                self._current_view = _VIEWS[idx]
+                self._refresh_list()
+                self._update_status()
+
+    def _jump_to_view(self, idx: int) -> None:
+        if 0 <= idx < len(_VIEWS):
+            self.query_one("#sidebar", ListView).index = idx
+            # on_list_view_highlighted handles the rest
 
     def _skip_separator(self, direction: int) -> None:
         """If the current ListView selection is a separator, move past it."""
@@ -373,7 +480,10 @@ class GtdApp(App[None]):
         self._mode = "INSERT"
         self._input_stage = "title"
         inp = self.query_one("#task-input", Input)
-        inp.placeholder = "Task title..."
+        if self._current_view == "waiting_on":
+            inp.placeholder = "Waiting On task title..."
+        else:
+            inp.placeholder = "Task title..."
         inp.add_class("active")
         inp.focus()
         self._update_status()
@@ -407,7 +517,11 @@ class GtdApp(App[None]):
         elif self._input_stage == "notes":
             self._push_undo()
             new_id = str(uuid.uuid4())
-            if not self._pending_anchor_id:
+            if self._current_view == "waiting_on":
+                self._all_tasks = add_waiting_on_task(
+                    self._all_tasks, self._pending_title, notes=value
+                )
+            elif not self._pending_anchor_id:
                 self._all_tasks = add_task(
                     self._all_tasks, self._pending_title, notes=value, task_id=new_id
                 )
@@ -491,6 +605,28 @@ class GtdApp(App[None]):
         save_tasks(self._all_tasks)
         self._refresh_list()
         self._cancel_input()
+
+    # ------------------------------------------------------------------ #
+    # Task movement                                                        #
+    # ------------------------------------------------------------------ #
+
+    def _move_selected_to_waiting_on(self) -> None:
+        task = self._get_selected_task()
+        if task is None:
+            return
+        self._push_undo()
+        self._all_tasks = move_to_waiting_on(self._all_tasks, task.id)
+        save_tasks(self._all_tasks)
+        self._refresh_list()
+
+    def _move_selected_to_today(self) -> None:
+        task = self._get_selected_task()
+        if task is None:
+            return
+        self._push_undo()
+        self._all_tasks = move_to_today(self._all_tasks, task.id)
+        save_tasks(self._all_tasks)
+        self._refresh_list()
 
     # ------------------------------------------------------------------ #
     # Task completion                                                      #
