@@ -3,7 +3,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 
-BUILTIN_FOLDER_IDS: frozenset[str] = frozenset({"today", "waiting_on", "logbook"})
+BUILTIN_FOLDER_IDS: frozenset[str] = frozenset(
+    {"today", "upcoming", "waiting_on", "someday", "logbook"}
+)
 
 
 @dataclass

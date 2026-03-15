@@ -462,40 +462,28 @@ class Task:
 
 ---
 
-### BACKLOG-3 — Waiting On folder
+### ~~BACKLOG-3 — Waiting On folder~~ ✅ DONE
 
-**Story points:** 8 — Sidebar is the dominant new piece (split pane, `h`/`l` focus switching between sidebar and task list). Date-surfacing logic reuses BACKLOG-2's mechanism.
-
-**Description:**
-- A built-in folder called **Waiting On** holds tasks that are blocked on someone else
-- Tasks in Waiting On behave like scheduled tasks: they have an optional date
-- When the date arrives, the task surfaces in Today automatically
-- Tasks without a date stay in Waiting On until manually moved
+**Story points:** 8
 
 **Acceptance criteria:**
-- [ ] Waiting On appears in the sidebar
-- [ ] Tasks can be created in or moved to Waiting On
-- [ ] Date-triggered surfacing works identically to BACKLOG-2
-- [ ] Surfaced tasks are visually distinguishable as coming from Waiting On (e.g. a tag or indicator)
+- [x] Waiting On appears in the sidebar
+- [x] Tasks can be created in or moved to Waiting On
+- [x] `w` moves Today task to Waiting On; `t` moves Waiting On task back to Today
+- [x] Surfaced tasks show `[W]` prefix in the Today view (undated WO tasks surface in Today)
 
 ---
 
-### BACKLOG-4 — User-created folders
+### ~~BACKLOG-4 — User-created folders~~ ✅ DONE
 
-**Story points:** 8 — Folder CRUD (create, rename, delete), confirmation dialog for non-empty folder deletion, and task-move UI (`m` key + destination picker) are all new interaction patterns. Depends on sidebar from BACKLOG-3.
-
-**Description:**
-- Users can create custom folders through the TUI (beyond the built-ins: Today, Waiting On, Logbook)
-- Folders appear in the sidebar
-- Tasks can be created in or moved to any folder
-- Folders can be renamed and deleted (deleting a non-empty folder requires confirmation)
+**Story points:** 8
 
 **Acceptance criteria:**
-- [ ] Keybinding to create a new folder from the sidebar (e.g. `N` while sidebar is focused)
-- [ ] Folder name entry uses INSERT mode
-- [ ] New folder appears in sidebar immediately and persists across restarts
-- [ ] Tasks can be moved between folders (`m` to move, then select destination)
-- [ ] Deleting a folder with tasks inside prompts: delete tasks too, or move to Inbox
+- [x] `N` while sidebar is focused creates a new folder
+- [x] Folder name entry uses INSERT mode
+- [x] New folder appears in sidebar immediately and persists across restarts
+- [x] Tasks can be moved between folders (`m` to move, then select destination)
+- [x] Deleting a non-empty folder prompts: `[d]`elete all or `[m]`ove to Today
 
 ---
 
@@ -552,20 +540,15 @@ class RepeatRule:
 
 ---
 
-### BACKLOG-7 — Someday folder
+### ~~BACKLOG-7 — Someday folder~~ ✅ DONE
 
-**Story points:** 3 — Simple folder type with no auto-promotion logic. Once the sidebar is built in BACKLOG-3, this is primarily adding a folder variant and ensuring tasks never surface automatically.
-
-**Description:**
-- A built-in folder called **Someday** for tasks with no specific date or urgency
-- Tasks in Someday do not appear in Today unless explicitly moved there
-- Someday is a standard GTD holding area — tasks live here until the user promotes them
+**Story points:** 3
 
 **Acceptance criteria:**
-- [ ] Someday appears in the sidebar as a built-in folder (below Today, above user-created folders)
-- [ ] Tasks can be created directly in Someday or moved there from any other folder
-- [ ] Tasks in Someday never surface in Today automatically (no date-based promotion)
-- [ ] Tasks can be moved from Someday to Today or any other folder manually
+- [x] Someday appears in the sidebar as a built-in folder (below user-created folders)
+- [x] Tasks can be created directly in Someday or moved there from any other folder
+- [x] Tasks in Someday never surface in Today or Upcoming automatically
+- [x] Tasks can be moved from Someday to Today or any other folder manually
 
 ---
 
@@ -586,37 +569,28 @@ class RepeatRule:
 - [ ] `Esc` cancels search and returns to the previous view
 - [ ] Search is case-insensitive; matches are highlighted in results
 
-### BACKLOG-9 — UX polish: navigation shortcuts, task counts, date display
+### ~~BACKLOG-9 — UX polish: navigation shortcuts, task counts, date display~~ ✅ DONE
 
-**Story points:** 3 — Three small independent improvements with no new infrastructure.
-
-**Description:**
-- `gg` jumps to the top of the list (mirrors vim; complements existing `G` for bottom)
-- Folder header shows live task count: **Today (16)**
-- Scheduled task rows display the day of week alongside the date: `[Mar 16 Mon]`
+**Story points:** 3
 
 **Acceptance criteria:**
-- [ ] `gg` in NORMAL mode moves the cursor to the first task
-- [ ] Header label updates to reflect current task count whenever the list changes
-- [ ] Scheduled task rows show abbreviated weekday, e.g. `[Mar 16 Mon]`
+- [x] `gg` in NORMAL mode moves the cursor to the first task
+- [x] Header label updates to reflect current task count whenever the list changes
+- [x] Scheduled task rows show abbreviated weekday, e.g. `[Mar 16 Mon]`
 
 ---
 
-### BACKLOG-10 — Natural language date input
+### ~~BACKLOG-10 — Natural language date input~~ ✅ DONE
 
-**Story points:** 3 — Extends the existing `dates.py` parser; no new UI components needed.
-
-**Description:**
-- Expand date entry to accept natural language phrases in addition to `YYYY-MM-DD` and `+Nd` relative syntax
-- Supported phrases: `tomorrow`, `next week`, `next monday` (and other weekday names), `in N days`, `in N weeks`
+**Story points:** 3
 
 **Acceptance criteria:**
-- [ ] `tomorrow` resolves to today + 1 day
-- [ ] `next week` resolves to today + 7 days
-- [ ] `in N days` / `in N weeks` resolve correctly
-- [ ] Weekday names (`monday`, `tuesday`, …) resolve to the next occurrence of that weekday
-- [ ] Invalid input still raises `InvalidDateError` as before
-- [ ] All new cases covered by unit tests in `tests/gtd/test_dates.py`
+- [x] `tomorrow` resolves to today + 1 day
+- [x] `next week` resolves to today + 7 days
+- [x] `in N days` / `in N weeks` resolve correctly
+- [x] Weekday names (`monday`, `tuesday`, …) resolve to the next occurrence of that weekday
+- [x] Invalid input still raises `InvalidDateError` as before
+- [x] All new cases covered by unit tests in `tests/gtd/test_dates.py`
 
 ---
 
@@ -661,25 +635,21 @@ class RepeatRule:
 
 ---
 
-### BACKLOG-13 — Redo
+### ~~BACKLOG-13 — Redo~~ ✅ DONE
 
-**Story points:** 2 — Symmetric to the existing undo stack; minimal new logic.
-
-**Description:**
-- `Ctrl+R` redoes the last undone action
-- Redo history is cleared whenever a new mutating action is performed (standard undo/redo semantics)
+**Story points:** 2
 
 **Acceptance criteria:**
-- [ ] `Ctrl+R` in NORMAL mode reapplies the most recently undone action
-- [ ] Redo stack is cleared on any new mutation (add, complete, move, schedule)
-- [ ] `u` followed by `Ctrl+R` returns the list to its pre-undo state
-- [ ] Status bar shows `(nothing to redo)` when the redo stack is empty
+- [x] `Ctrl+R` in NORMAL mode reapplies the most recently undone action
+- [x] Redo stack is cleared on any new mutation (add, complete, move, schedule)
+- [x] `u` followed by `Ctrl+R` returns the list to its pre-undo state
+- [x] Status bar shows `(nothing to redo)` when the redo stack is empty
 
 ---
 
-### BACKLOG-14 — Upcoming view
+### ~~BACKLOG-14 — Upcoming view~~ ✅ DONE
 
-**Story points:** 5 — Dedicated view for scheduled future tasks; depends on BACKLOG-3 sidebar. Bi-directional movement between Today and Upcoming.
+**Story points:** 5 — Delivered as part of the Today/Upcoming/Someday smart-view refactor.
 
 **Description:**
 - **Upcoming** is a sidebar view that aggregates all tasks with a future `scheduled_date` across every folder
@@ -688,11 +658,11 @@ class RepeatRule:
 - Moving a task from Today to Upcoming is shorthand for scheduling it (opens the date picker with `s`)
 
 **Acceptance criteria:**
-- [ ] Upcoming appears in the sidebar (depends on BACKLOG-3)
-- [ ] Upcoming lists all tasks with `scheduled_date > today`, sorted by date
-- [ ] `u` (or equivalent) in Upcoming clears the task's date and returns it to Today
-- [ ] `s` in Today opens the date picker — setting a date moves the task to Upcoming automatically (already implemented; just needs to be reflected in the sidebar)
-- [ ] Task count is shown next to Upcoming in the sidebar
+- [x] Upcoming appears in the sidebar
+- [x] Upcoming lists all tasks with `scheduled_date > today`, sorted by date
+- [x] Task count is shown in the Upcoming header
+- [x] `s` in any view opens the date picker — setting a date moves the task to Upcoming automatically
+- [ ] Unschedule a task from Upcoming returns it to its home folder's Today slot (`s` then empty)
 
 ---
 

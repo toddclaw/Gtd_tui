@@ -30,10 +30,10 @@ from gtd_tui.gtd.operations import (
     move_to_waiting_on,
     rename_folder,
     schedule_task,
-    scheduled_tasks,
-    surfaced_waiting_on_tasks,
+    someday_tasks,
     today_tasks,
     unschedule_task,
+    upcoming_tasks,
     waiting_on_tasks,
 )
 from gtd_tui.gtd.task import Task
@@ -192,15 +192,21 @@ class GtdApp(App[None]):
 
     @property
     def _sidebar_view_ids(self) -> list[str]:
-        return ["today", "waiting_on"] + [
-            f.id for f in sorted(self._all_folders, key=lambda f: f.position)
-        ]
+        return (
+            ["today", "upcoming", "waiting_on"]
+            + [f.id for f in sorted(self._all_folders, key=lambda f: f.position)]
+            + ["someday"]
+        )
 
     def _view_label(self, view_id: str) -> str:
         if view_id == "today":
             return "Today"
+        if view_id == "upcoming":
+            return "Upcoming"
         if view_id == "waiting_on":
             return "Waiting On"
+        if view_id == "someday":
+            return "Someday"
         for folder in self._all_folders:
             if folder.id == view_id:
                 return folder.name
@@ -231,9 +237,11 @@ class GtdApp(App[None]):
         sidebar = self.query_one("#sidebar", ListView)
         sidebar.clear()
         sidebar.append(ListItem(Label("Today")))
+        sidebar.append(ListItem(Label("Upcoming")))
         sidebar.append(ListItem(Label("Waiting On")))
         for folder in sorted(self._all_folders, key=lambda f: f.position):
             sidebar.append(ListItem(Label(folder.name)))
+        sidebar.append(ListItem(Label("Someday")))
         view_ids = self._sidebar_view_ids
         try:
             idx = view_ids.index(self._current_view)
@@ -263,8 +271,12 @@ class GtdApp(App[None]):
 
         if self._current_view == "today":
             self._render_today_view(list_view)
+        elif self._current_view == "upcoming":
+            self._render_upcoming_view(list_view)
         elif self._current_view == "waiting_on":
             self._render_waiting_on_view(list_view)
+        elif self._current_view == "someday":
+            self._render_someday_view(list_view)
         else:
             self._render_folder_view(list_view, self._current_view)
 
@@ -285,21 +297,20 @@ class GtdApp(App[None]):
             empty_hint.remove_class("hidden")
 
     def _render_today_view(self, list_view: ListView) -> None:
-        active = today_tasks(self._all_tasks)
-        snoozed = scheduled_tasks(self._all_tasks)
-        surfaced_wo = surfaced_waiting_on_tasks(self._all_tasks)
+        all_today = today_tasks(self._all_tasks)
+        # Split into today-folder tasks (sortable/reorderable) and tasks from
+        # other folders that surface here because they have no scheduled date.
+        today_only = [t for t in all_today if t.folder_id == "today"]
+        other = [t for t in all_today if t.folder_id != "today"]
 
-        total = len(active) + len(snoozed)
-        self.query_one("#header", Label).update(f"Today ({total})")
+        self.query_one("#header", Label).update(f"Today ({len(all_today)})")
 
-        # Determine where the placeholder row belongs among active tasks.
-        # ph_at is the index within `active` before which the placeholder is
-        # inserted (so ph_at == len(active) means "after all active tasks").
+        # Placeholder row only applies in the today-folder section.
         ph_at: int | None = None
         if self._show_placeholder:
-            ph_at = self._placeholder_insert_idx(active)
+            ph_at = self._placeholder_insert_idx(today_only)
 
-        for i, task in enumerate(active):
+        for i, task in enumerate(today_only):
             if ph_at == i:
                 self._placeholder_list_idx = len(self._list_entries)
                 self._list_entries.append(None)
@@ -307,29 +318,35 @@ class GtdApp(App[None]):
             self._list_entries.append(task)
             list_view.append(ListItem(Label(task.title)))
 
-        if ph_at == len(active):
+        if ph_at == len(today_only):
             self._placeholder_list_idx = len(self._list_entries)
             self._list_entries.append(None)
             list_view.append(ListItem(Label(" "), classes="placeholder"))
 
-        if snoozed:
+        if other:
             self._list_entries.append(None)
-            list_view.append(ListItem(Label("── Scheduled ──")))
-            for task in snoozed:
+            list_view.append(ListItem(Label("── Also Due ──")))
+            for task in other:
                 self._list_entries.append(task)
-                date_str = (
-                    task.scheduled_date.strftime("%b %d %a")
-                    if task.scheduled_date
-                    else ""
-                )
-                list_view.append(ListItem(Label(f"{task.title}  [{date_str}]")))
+                if task.folder_id == "waiting_on":
+                    label = f"[W] {task.title}"
+                else:
+                    folder_label = self._view_label(task.folder_id)
+                    label = f"[{folder_label}] {task.title}"
+                list_view.append(ListItem(Label(label)))
 
-        if surfaced_wo:
-            self._list_entries.append(None)
-            list_view.append(ListItem(Label("── Waiting On ──")))
-            for task in surfaced_wo:
-                self._list_entries.append(task)
-                list_view.append(ListItem(Label(f"[W] {task.title}")))
+    def _render_upcoming_view(self, list_view: ListView) -> None:
+        tasks = upcoming_tasks(self._all_tasks)
+        self.query_one("#header", Label).update(f"Upcoming ({len(tasks)})")
+        for task in tasks:
+            date_str = (
+                task.scheduled_date.strftime("%b %d %a") if task.scheduled_date else ""
+            )
+            folder_hint = ""
+            if task.folder_id != "today":
+                folder_hint = f"  [{self._view_label(task.folder_id)}]"
+            self._list_entries.append(task)
+            list_view.append(ListItem(Label(f"{task.title}  {date_str}{folder_hint}")))
 
     def _render_waiting_on_view(self, list_view: ListView) -> None:
         self.query_one("#header", Label).update("Waiting On")
@@ -341,6 +358,13 @@ class GtdApp(App[None]):
                 else ""
             )
             list_view.append(ListItem(Label(f"{task.title}{date_str}")))
+
+    def _render_someday_view(self, list_view: ListView) -> None:
+        tasks = someday_tasks(self._all_tasks)
+        self.query_one("#header", Label).update(f"Someday ({len(tasks)})")
+        for task in tasks:
+            self._list_entries.append(task)
+            list_view.append(ListItem(Label(task.title)))
 
     def _render_folder_view(self, list_view: ListView, folder_id: str) -> None:
         label = self._view_label(folder_id)
@@ -605,8 +629,17 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
 
     def _start_add_task(self, insert_position: str = "after") -> None:
+        # Upcoming is a read-only smart view — no task creation there.
+        if self._current_view == "upcoming":
+            self._update_status("(cannot add tasks to Upcoming — use Today or a folder)")
+            return
         task = self._get_selected_task()
-        self._pending_anchor_id = task.id if task is not None else ""
+        # Only anchor on 'today'-folder tasks; other-folder tasks surfacing in
+        # Today are not reorderable so fall back to top-of-today insertion.
+        if task is not None and task.folder_id == "today":
+            self._pending_anchor_id = task.id
+        else:
+            self._pending_anchor_id = ""
         self._pending_insert_position = insert_position
         self._show_placeholder = True
         self._mode = "INSERT"
@@ -614,6 +647,8 @@ class GtdApp(App[None]):
         inp = self.query_one("#task-input", Input)
         if self._current_view == "waiting_on":
             inp.placeholder = "Waiting On task title..."
+        elif self._current_view == "someday":
+            inp.placeholder = "Someday task title..."
         else:
             inp.placeholder = "Task title..."
         inp.add_class("active")
@@ -653,8 +688,8 @@ class GtdApp(App[None]):
                 self._all_tasks = add_waiting_on_task(
                     self._all_tasks, self._pending_title, notes=value
                 )
-            elif self._current_view not in BUILTIN_FOLDER_IDS:
-                # Custom folder: append task to that folder
+            elif self._current_view in ("someday",) or self._current_view not in BUILTIN_FOLDER_IDS:
+                # Someday built-in or any custom folder: append task there
                 self._all_tasks = add_task_to_folder(
                     self._all_tasks,
                     self._current_view,
@@ -799,6 +834,10 @@ class GtdApp(App[None]):
             self._cancel_move_mode()
             return
         target_folder_id = view_ids[idx]
+        if target_folder_id == "upcoming":
+            self._update_status("(cannot move to Upcoming — schedule a date with 's' instead)")
+            self._cancel_move_mode()
+            return
         self._push_undo()
         self._all_tasks = move_task_to_folder(
             self._all_tasks, self._pending_task_id, target_folder_id
