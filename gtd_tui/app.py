@@ -43,6 +43,7 @@ class HelpScreen(ModalScreen[None]):
     _HELP_TEXT = """\
 [bold]Navigation[/bold]
   j / k        Move cursor down / up
+  g g          Jump to top of list
   G            Jump to bottom of list
 
 [bold]Task Actions[/bold]
@@ -134,6 +135,8 @@ class GtdApp(App[None]):
         # Placeholder row shown in the list while a new task is being typed
         self._show_placeholder: bool = False
         self._placeholder_list_idx: int | None = None
+        # Tracks the first key of a chord (e.g. "g" waiting for "gg")
+        self._pending_key: str = ""
 
     def compose(self) -> ComposeResult:
         yield Label("Today", id="header")
@@ -161,6 +164,9 @@ class GtdApp(App[None]):
         active = today_tasks(self._all_tasks)
         snoozed = scheduled_tasks(self._all_tasks)
 
+        total = len(active) + len(snoozed)
+        self.query_one("#header", Label).update(f"Today ({total})")
+
         # Determine where the placeholder row belongs among active tasks.
         # ph_at is the index within `active` before which the placeholder is
         # inserted (so ph_at == len(active) means "after all active tasks").
@@ -186,7 +192,7 @@ class GtdApp(App[None]):
             list_view.append(ListItem(Label("── Scheduled ──")))
             for task in snoozed:
                 self._list_entries.append(task)
-                date_str = task.scheduled_date.strftime("%b %d") if task.scheduled_date else ""
+                date_str = task.scheduled_date.strftime("%b %d %a") if task.scheduled_date else ""
                 list_view.append(ListItem(Label(f"{task.title}  [{date_str}]")))
 
         # Compute the target index now (while _list_entries is current),
@@ -283,6 +289,19 @@ class GtdApp(App[None]):
 
     def _handle_normal_key(self, event: events.Key) -> None:
         list_view = self.query_one("#task-list", ListView)
+
+        pending = self._pending_key
+        self._pending_key = ""
+
+        if pending == "g" and event.key == "g":
+            event.prevent_default()
+            if self._list_entries:
+                list_view.index = 0
+                self._skip_separator(direction=1)
+            return
+        elif event.key == "g":
+            self._pending_key = "g"
+            return
 
         if event.key == "j":
             event.prevent_default()
