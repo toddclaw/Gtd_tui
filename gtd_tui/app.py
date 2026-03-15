@@ -37,6 +37,7 @@ from gtd_tui.gtd.operations import (
     rename_folder,
     schedule_task,
     search_tasks,
+    set_recur_rule,
     set_repeat_rule,
     someday_tasks,
     spawn_repeating_tasks,
@@ -45,7 +46,7 @@ from gtd_tui.gtd.operations import (
     upcoming_tasks,
     waiting_on_tasks,
 )
-from gtd_tui.gtd.task import RepeatRule
+from gtd_tui.gtd.task import RecurRule, RepeatRule
 from gtd_tui.gtd.task import Task
 from gtd_tui.storage.file import load_folders, load_tasks, save_data
 
@@ -74,7 +75,7 @@ class HelpScreen(ModalScreen[None]):
   1–9          Jump to nth sidebar item
 
 [bold]Task Actions[/bold]
-  Enter        Open task detail / edit (Esc to save & close)
+  Enter        Open task detail / edit (title, notes, repeat, recurring)
   o            Add new task after selected (INSERT mode)
   O            Add new task before selected (INSERT mode)
   x / Space    Complete selected task
@@ -113,15 +114,16 @@ class HelpScreen(ModalScreen[None]):
             self.dismiss()
 
 
-class TaskDetailScreen(ModalScreen[tuple[str, str, str] | None]):
+class TaskDetailScreen(ModalScreen[tuple[str, str, str, str] | None]):
     """Detail and edit view for a single task.
 
     Opens directly in edit mode with inputs pre-filled.
-    Enter on each field advances to the next; Enter on Repeat saves and closes.
+    Enter on each field advances to the next; Enter on Recurring saves and closes.
     Esc always saves and closes (priority binding fires before any widget).
 
-    Dismissed value: (title, notes, repeat_text) or None if title was cleared.
-    repeat_text is the raw string from the Repeat field (e.g. '7 days', empty = clear).
+    Dismissed value: (title, notes, repeat_text, recur_text) or None if title
+    was cleared.  repeat_text / recur_text are raw strings (e.g. '7 days',
+    empty = clear).  If both are non-empty, repeat takes precedence.
     """
 
     BINDINGS = [
@@ -171,13 +173,19 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str] | None]):
         self._task = task
 
     @staticmethod
-    def _rule_to_str(rule: RepeatRule | None) -> str:
-        if rule is None:
-            return ""
-        unit = rule.unit if rule.interval != 1 else rule.unit.rstrip("s")
-        return f"{rule.interval} {unit}"
+    def _interval_to_str(interval: int, unit: str) -> str:
+        display_unit = unit if interval != 1 else unit.rstrip("s")
+        return f"{interval} {display_unit}"
 
     def compose(self) -> ComposeResult:
+        repeat_val = (
+            self._interval_to_str(self._task.repeat_rule.interval, self._task.repeat_rule.unit)
+            if self._task.repeat_rule else ""
+        )
+        recur_val = (
+            self._interval_to_str(self._task.recur_rule.interval, self._task.recur_rule.unit)
+            if self._task.recur_rule else ""
+        )
         with Vertical(id="detail-panel"):
             yield Label("Edit Task", id="detail-header")
             yield Label("Title", classes="field-label")
@@ -188,16 +196,17 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str] | None]):
                 placeholder="(optional)",
                 id="detail-notes-input",
             )
-            yield Label("Repeat  (e.g. 7 days, 2 weeks, 1 month — empty to clear)",
-                        classes="field-label")
-            yield Input(
-                value=self._rule_to_str(self._task.repeat_rule),
-                placeholder="(none)",
-                id="detail-repeat-input",
-            )
             yield Label(
-                "Enter: next field  Esc: save & close", id="detail-status"
+                "Repeat  (calendar-fixed — e.g. 7 days, 2 weeks — empty to clear)",
+                classes="field-label",
             )
+            yield Input(value=repeat_val, placeholder="(none)", id="detail-repeat-input")
+            yield Label(
+                "Recurring  (after completion — e.g. 1 day, 3 weeks — empty to clear)",
+                classes="field-label",
+            )
+            yield Input(value=recur_val, placeholder="(none)", id="detail-recur-input")
+            yield Label("Enter: next field  Esc: save & close", id="detail-status")
 
     def on_mount(self) -> None:
         self.query_one("#detail-title-input", Input).focus()
@@ -206,12 +215,17 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str] | None]):
         title = self.query_one("#detail-title-input", Input).value.strip()
         notes = self.query_one("#detail-notes-input", Input).value.strip()
         repeat = self.query_one("#detail-repeat-input", Input).value.strip()
-        self.dismiss((title, notes, repeat) if title else None)
+        recur = self.query_one("#detail-recur-input", Input).value.strip()
+        self.dismiss((title, notes, repeat, recur) if title else None)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id in ("detail-title-input", "detail-notes-input"):
+        if event.input.id in (
+            "detail-title-input",
+            "detail-notes-input",
+            "detail-repeat-input",
+        ):
             self.focus_next()
-        elif event.input.id == "detail-repeat-input":
+        elif event.input.id == "detail-recur-input":
             self.action_save_and_close()
 
 
@@ -1201,41 +1215,65 @@ class GtdApp(App[None]):
         if task is None:
             return
         task_id = task.id
-        old_rule = task.repeat_rule
+        old_repeat = task.repeat_rule
+        old_recur = task.recur_rule
 
-        def _on_detail_close(result: tuple[str, str, str] | None) -> None:
+        def _on_detail_close(result: tuple[str, str, str, str] | None) -> None:
             if result is None:
                 return
-            new_title, new_notes, repeat_text = result
+            new_title, new_notes, repeat_text, recur_text = result
 
-            # Parse repeat field; show status message on bad input.
-            new_rule: RepeatRule | None = old_rule  # default: keep existing
+            # Parse repeat field.
+            new_repeat: RepeatRule | None = old_repeat
             try:
                 parsed = parse_repeat_input(repeat_text)
                 if parsed is None:
-                    new_rule = None  # explicitly cleared
+                    new_repeat = None
                 else:
                     interval, unit = parsed
-                    if old_rule and old_rule.interval == interval and old_rule.unit == unit:
-                        # Same interval+unit — preserve next_due so the
-                        # schedule is not reset just by opening the edit view.
-                        new_rule = old_rule
+                    if (
+                        old_repeat
+                        and old_repeat.interval == interval
+                        and old_repeat.unit == unit
+                    ):
+                        new_repeat = old_repeat  # preserve next_due unchanged
                     else:
-                        new_rule = make_repeat_rule(interval, unit)
+                        new_repeat = make_repeat_rule(interval, unit)
             except InvalidRepeatError:
                 self._update_status("(invalid repeat — changes saved, repeat unchanged)")
-                new_rule = old_rule
+                new_repeat = old_repeat
+
+            # Parse recur field.
+            new_recur: RecurRule | None = old_recur
+            try:
+                parsed_recur = parse_repeat_input(recur_text)  # same format
+                if parsed_recur is None:
+                    new_recur = None
+                else:
+                    interval_r, unit_r = parsed_recur
+                    new_recur = RecurRule(interval=interval_r, unit=unit_r)
+            except InvalidRepeatError:
+                self._update_status("(invalid recurring — changes saved, recurring unchanged)")
+                new_recur = old_recur
+
+            # Mutual exclusivity: if both are set, repeat wins and recur is cleared.
+            if new_repeat is not None and new_recur is not None:
+                new_recur = None
+                self._update_status("(both repeat and recurring set — repeat takes precedence)")
 
             title_changed = new_title != task.title or new_notes != task.notes
-            rule_changed = new_rule != old_rule
-            if not title_changed and not rule_changed:
+            repeat_changed = new_repeat != old_repeat
+            recur_changed = new_recur != old_recur
+            if not title_changed and not repeat_changed and not recur_changed:
                 return
 
             self._push_undo()
             if title_changed:
                 self._all_tasks = edit_task(self._all_tasks, task_id, new_title, new_notes)
-            if rule_changed:
-                self._all_tasks = set_repeat_rule(self._all_tasks, task_id, new_rule)
+            if repeat_changed:
+                self._all_tasks = set_repeat_rule(self._all_tasks, task_id, new_repeat)
+            if recur_changed:
+                self._all_tasks = set_recur_rule(self._all_tasks, task_id, new_recur)
             self._save()
             self._refresh_list(select_task_id=task_id)
 

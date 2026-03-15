@@ -1,8 +1,14 @@
 from datetime import date
 from pathlib import Path
 
-from gtd_tui.gtd.operations import add_task, complete_task, create_folder, set_repeat_rule
-from gtd_tui.gtd.task import RepeatRule
+from gtd_tui.gtd.operations import (
+    add_task,
+    complete_task,
+    create_folder,
+    set_recur_rule,
+    set_repeat_rule,
+)
+from gtd_tui.gtd.task import RecurRule, RepeatRule
 from gtd_tui.storage.file import load_folders, load_tasks, save_data, save_tasks
 
 
@@ -190,3 +196,23 @@ def test_no_repeat_rule_round_trip(tmp_path: Path) -> None:
     save_tasks(tasks, data_file=data_file)
     loaded = load_tasks(data_file=data_file)
     assert loaded[0].repeat_rule is None
+
+
+def test_recur_rule_round_trip(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Floss")
+    rule = RecurRule(interval=1, unit="days")
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].recur_rule is not None
+    assert loaded[0].recur_rule.interval == 1
+    assert loaded[0].recur_rule.unit == "days"
+
+
+def test_no_recur_rule_round_trip(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Plain task")
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].recur_rule is None

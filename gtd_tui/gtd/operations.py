@@ -5,7 +5,7 @@ import re
 from datetime import date, datetime, timedelta
 
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
-from gtd_tui.gtd.task import RepeatRule, Task
+from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
 
 # Folders whose tasks never auto-surface in Today or Upcoming smart views.
 _EXCLUDED_FROM_SMART_VIEWS: frozenset[str] = frozenset({"someday", "logbook"})
@@ -99,11 +99,30 @@ def edit_task(tasks: list[Task], task_id: str, title: str, notes: str = "") -> l
 
 
 def complete_task(tasks: list[Task], task_id: str) -> list[Task]:
-    """Mark a task complete and move it to the logbook."""
+    """Mark a task complete and move it to the logbook.
+
+    If the task has a recur_rule, also spawns a new copy in Today with
+    scheduled_date = completion_date + interval, carrying the same recur_rule.
+    """
+    spawned: list[Task] = []
     for task in tasks:
         if task.id == task_id:
             task.complete()
-    return tasks
+            if task.recur_rule is not None:
+                rule = task.recur_rule
+                new_date = _advance_date(
+                    task.completed_at.date(), rule.interval, rule.unit  # type: ignore[union-attr]
+                )
+                spawned.append(
+                    Task(
+                        title=task.title,
+                        notes=task.notes,
+                        folder_id="today",
+                        scheduled_date=new_date,
+                        recur_rule=rule,
+                    )
+                )
+    return tasks + spawned
 
 
 def schedule_task(tasks: list[Task], task_id: str, scheduled_date: date) -> list[Task]:
@@ -532,6 +551,16 @@ def set_repeat_rule(
     for task in tasks:
         if task.id == task_id:
             task.repeat_rule = rule
+    return tasks
+
+
+def set_recur_rule(
+    tasks: list[Task], task_id: str, rule: RecurRule | None
+) -> list[Task]:
+    """Set or clear the recur rule on a task. No-op for unknown task_id."""
+    for task in tasks:
+        if task.id == task_id:
+            task.recur_rule = rule
     return tasks
 
 

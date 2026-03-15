@@ -10,7 +10,7 @@ from typing import Any
 from platformdirs import user_data_dir
 
 from gtd_tui.gtd.folder import Folder
-from gtd_tui.gtd.task import RepeatRule, Task
+from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
 
 _DEFAULT_DATA_FILE = Path(user_data_dir("gtd_tui")) / "data.json"
 
@@ -31,6 +31,14 @@ def _repeat_rule_from_dict(data: dict[str, Any]) -> RepeatRule:
     )
 
 
+def _recur_rule_to_dict(rule: RecurRule) -> dict[str, Any]:
+    return {"interval": rule.interval, "unit": rule.unit}
+
+
+def _recur_rule_from_dict(data: dict[str, Any]) -> RecurRule:
+    return RecurRule(interval=data["interval"], unit=data["unit"])
+
+
 def _task_to_dict(task: Task) -> dict[str, Any]:
     return {
         "id": task.id,
@@ -44,6 +52,9 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         ),
         "repeat_rule": (
             _repeat_rule_to_dict(task.repeat_rule) if task.repeat_rule else None
+        ),
+        "recur_rule": (
+            _recur_rule_to_dict(task.recur_rule) if task.recur_rule else None
         ),
     }
 
@@ -67,6 +78,11 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
             else None
         ),
         repeat_rule=_repeat_rule_from_dict(raw_rule) if raw_rule else None,
+        recur_rule=(
+            _recur_rule_from_dict(data["recur_rule"])
+            if data.get("recur_rule")
+            else None
+        ),
     )
 
 

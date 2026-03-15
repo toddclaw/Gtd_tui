@@ -21,6 +21,22 @@ class RepeatRule:
 
 
 @dataclass
+class RecurRule:
+    """Completion-relative recurrence attached to a task.
+
+    When the task is marked complete, a new copy is spawned in Today with
+    scheduled_date = completion_date + interval.  The new copy carries the
+    same RecurRule so the pattern continues indefinitely.
+
+    Unlike RepeatRule, the next date floats relative to when the task was
+    actually done — a missed week does not pile up extra instances.
+    """
+
+    interval: int
+    unit: Literal["days", "weeks", "months", "years"]
+
+
+@dataclass
 class Task:
     title: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -30,6 +46,7 @@ class Task:
     completed_at: Optional[datetime] = None
     scheduled_date: Optional[date] = None
     repeat_rule: Optional[RepeatRule] = None
+    recur_rule: Optional[RecurRule] = None
 
     @property
     def is_complete(self) -> bool:

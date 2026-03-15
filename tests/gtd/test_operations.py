@@ -19,6 +19,7 @@ from gtd_tui.gtd.operations import (
     schedule_task,
     scheduled_tasks,
     search_tasks,
+    set_recur_rule,
     set_repeat_rule,
     someday_tasks,
     spawn_repeating_tasks,
@@ -28,7 +29,7 @@ from gtd_tui.gtd.operations import (
     upcoming_tasks,
     waiting_on_tasks,
 )
-from gtd_tui.gtd.task import RepeatRule
+from gtd_tui.gtd.task import RecurRule, RepeatRule
 from gtd_tui.gtd.task import Task
 
 
@@ -1014,3 +1015,88 @@ def test_search_does_not_return_unmatched():
     titles = [r[0].title for r in results]
     assert "Buy groceries" in titles
     assert "Call dentist" not in titles
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-6: Recurring tasks (completion-relative scheduling)
+# ---------------------------------------------------------------------------
+
+
+def test_complete_recurring_task_spawns_new_task():
+    tasks = add_task([], "Floss")
+    rule = RecurRule(interval=1, unit="days")
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    tasks = complete_task(tasks, tasks[0].id)
+    active = [t for t in tasks if t.folder_id != "logbook"]
+    assert len(active) == 1
+    assert active[0].title == "Floss"
+
+
+def test_complete_recurring_task_new_task_has_correct_scheduled_date():
+    tasks = add_task([], "Floss")
+    rule = RecurRule(interval=1, unit="days")
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    tasks = complete_task(tasks, tasks[0].id)
+    completed = next(t for t in tasks if t.folder_id == "logbook")
+    active = [t for t in tasks if t.folder_id != "logbook"]
+    expected = completed.completed_at.date() + timedelta(days=1)
+    assert active[0].scheduled_date == expected
+
+
+def test_complete_recurring_task_preserves_recur_rule():
+    tasks = add_task([], "Floss")
+    rule = RecurRule(interval=1, unit="days")
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    tasks = complete_task(tasks, tasks[0].id)
+    active = [t for t in tasks if t.folder_id != "logbook"]
+    assert active[0].recur_rule == rule
+
+
+def test_complete_recurring_weekly_task_scheduled_date():
+    tasks = add_task([], "Weekly review")
+    rule = RecurRule(interval=1, unit="weeks")
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    tasks = complete_task(tasks, tasks[0].id)
+    completed = next(t for t in tasks if t.folder_id == "logbook")
+    active = [t for t in tasks if t.folder_id != "logbook"]
+    expected = completed.completed_at.date() + timedelta(weeks=1)
+    assert active[0].scheduled_date == expected
+
+
+def test_complete_task_without_recur_rule_does_not_spawn():
+    tasks = add_task([], "One-off task")
+    tasks = complete_task(tasks, tasks[0].id)
+    assert all(t.folder_id == "logbook" for t in tasks)
+
+
+def test_complete_recurring_task_new_task_in_today_folder():
+    tasks = add_task([], "Floss")
+    rule = RecurRule(interval=3, unit="days")
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    tasks = complete_task(tasks, tasks[0].id)
+    active = [t for t in tasks if t.folder_id != "logbook"]
+    assert active[0].folder_id == "today"
+
+
+def test_set_recur_rule_stores_rule_on_task():
+    tasks = add_task([], "Floss")
+    rule = RecurRule(interval=2, unit="weeks")
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    assert tasks[0].recur_rule == rule
+
+
+def test_set_recur_rule_can_clear_rule():
+    tasks = add_task([], "Floss")
+    rule = RecurRule(interval=1, unit="days")
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    tasks = set_recur_rule(tasks, tasks[0].id, None)
+    assert tasks[0].recur_rule is None
+
+
+def test_complete_recurring_task_new_task_notes_preserved():
+    tasks = add_task([], "Floss", notes="Use waxed floss")
+    rule = RecurRule(interval=1, unit="days")
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    tasks = complete_task(tasks, tasks[0].id)
+    active = [t for t in tasks if t.folder_id != "logbook"]
+    assert active[0].notes == "Use waxed floss"

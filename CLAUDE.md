@@ -515,7 +515,7 @@ class RepeatRule:
 
 ---
 
-### BACKLOG-6 — Recurring tasks (completion-relative scheduling)
+### ~~BACKLOG-6 — Recurring tasks (completion-relative scheduling)~~ ✅ DONE
 
 **Story points:** 5 — Incremental on BACKLOG-5: edit view and repeat infrastructure already exist, this adds a completion hook that spawns the next instance with a floating due date.
 
@@ -525,10 +525,23 @@ class RepeatRule:
 - Unlike repeating (BACKLOG-5), the next instance's date floats relative to when the current one was done
 
 **Acceptance criteria:**
-- [ ] Task edit view allows selecting recurring mode distinct from repeating mode
-- [ ] On task completion, a new task is automatically created with the computed scheduled date
-- [ ] The new task appears in Today on its scheduled date (same mechanism as BACKLOG-2)
-- [ ] Recurring setting is preserved on each generated task
+- [x] Task edit view allows selecting recurring mode distinct from repeating mode
+- [x] On task completion, a new task is automatically created with the computed scheduled date
+- [x] The new task appears in Today on its scheduled date (same mechanism as BACKLOG-2)
+- [x] Recurring setting is preserved on each generated task
+
+**Data model addition:**
+```python
+@dataclass
+class RecurRule:
+    interval: int
+    unit: Literal["days", "weeks", "months", "years"]
+```
+
+**Notes:**
+- `RecurRule` is distinct from `RepeatRule` (no `next_due` — date is computed at completion time)
+- If both Repeat and Recurring are set on a task, Repeat takes precedence and Recurring is cleared
+- The "Recurring" field in the task edit view uses the same `N unit` format as Repeat
 
 **Distinction from BACKLOG-5:**
 
@@ -552,7 +565,7 @@ class RepeatRule:
 
 ---
 
-### BACKLOG-8 — Global search across all folders
+### ~~BACKLOG-8 — Global search across all folders~~ ✅ DONE
 
 **Story points:** 8 — Real-time filter-as-you-type requires reactive updates on every keystroke, result grouping with separators across folders, match highlighting within labels, and navigate-to-folder on selection. All new UI patterns.
 
@@ -562,12 +575,12 @@ class RepeatRule:
 - Within each group, results are ordered by relevance (title match > notes match) then by recency
 
 **Acceptance criteria:**
-- [ ] `/` from any view opens a search prompt
-- [ ] Results update incrementally as the user types (filter-as-you-type)
-- [ ] Results are grouped: active folders first, Logbook last — with a visible separator
-- [ ] Selecting a result navigates to that task in its folder and closes search
-- [ ] `Esc` cancels search and returns to the previous view
-- [ ] Search is case-insensitive; matches are highlighted in results
+- [x] `/` from any view opens a search prompt
+- [x] Results update incrementally as the user types (filter-as-you-type)
+- [x] Results are grouped: active folders first, Logbook last — with a visible separator
+- [x] Selecting a result navigates to that task in its folder and closes search
+- [x] `Esc` cancels search and returns to the previous view
+- [x] Search is case-insensitive; matches are highlighted in results
 
 ### ~~BACKLOG-9 — UX polish: navigation shortcuts, task counts, date display~~ ✅ DONE
 
@@ -693,7 +706,7 @@ class RepeatRule:
 
 ## Notes for AI Assistants
 
-- BACKLOG-1 and BACKLOG-2 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 5, 6, 8 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
