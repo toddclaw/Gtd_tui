@@ -9,13 +9,13 @@ from typing import Any
 
 from platformdirs import user_data_dir
 
+from gtd_tui.gtd.folder import Folder
 from gtd_tui.gtd.task import Task
-
 
 _DEFAULT_DATA_FILE = Path(user_data_dir("gtd_tui")) / "data.json"
 
 
-def _to_dict(task: Task) -> dict[str, Any]:
+def _task_to_dict(task: Task) -> dict[str, Any]:
     return {
         "id": task.id,
         "title": task.title,
@@ -23,20 +23,38 @@ def _to_dict(task: Task) -> dict[str, Any]:
         "folder_id": task.folder_id,
         "position": task.position,
         "completed_at": task.completed_at.isoformat() if task.completed_at else None,
-        "scheduled_date": task.scheduled_date.isoformat() if task.scheduled_date else None,
+        "scheduled_date": (
+            task.scheduled_date.isoformat() if task.scheduled_date else None
+        ),
     }
 
 
-def _from_dict(data: dict[str, Any]) -> Task:
+def _task_from_dict(data: dict[str, Any]) -> Task:
     return Task(
         id=data["id"],
         title=data["title"],
         notes=data.get("notes", ""),
         folder_id=data["folder_id"],
         position=data["position"],
-        completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
-        scheduled_date=date.fromisoformat(data["scheduled_date"]) if data.get("scheduled_date") else None,
+        completed_at=(
+            datetime.fromisoformat(data["completed_at"])
+            if data.get("completed_at")
+            else None
+        ),
+        scheduled_date=(
+            date.fromisoformat(data["scheduled_date"])
+            if data.get("scheduled_date")
+            else None
+        ),
     )
+
+
+def _folder_to_dict(folder: Folder) -> dict[str, Any]:
+    return {"id": folder.id, "name": folder.name, "position": folder.position}
+
+
+def _folder_from_dict(data: dict[str, Any]) -> Folder:
+    return Folder(id=data["id"], name=data["name"], position=data.get("position", 0))
 
 
 def load_tasks(data_file: Path | None = None) -> list[Task]:
@@ -47,16 +65,34 @@ def load_tasks(data_file: Path | None = None) -> list[Task]:
     try:
         with open(path) as f:
             raw = json.load(f)
-        return [_from_dict(t) for t in raw.get("tasks", [])]
+        return [_task_from_dict(t) for t in raw.get("tasks", [])]
     except (json.JSONDecodeError, KeyError, ValueError):
         return []
 
 
-def save_tasks(tasks: list[Task], data_file: Path | None = None) -> None:
-    """Atomically save tasks to disk with restricted permissions (600)."""
+def load_folders(data_file: Path | None = None) -> list[Folder]:
+    """Load user-created folders from disk. Returns empty list if missing or corrupt."""
+    path = data_file or _DEFAULT_DATA_FILE
+    if not path.exists():
+        return []
+    try:
+        with open(path) as f:
+            raw = json.load(f)
+        return [_folder_from_dict(f) for f in raw.get("folders", [])]
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return []
+
+
+def save_data(
+    tasks: list[Task], folders: list[Folder], data_file: Path | None = None
+) -> None:
+    """Atomically save tasks and folders to disk with restricted permissions (600)."""
     path = data_file or _DEFAULT_DATA_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"tasks": [_to_dict(t) for t in tasks]}
+    payload = {
+        "tasks": [_task_to_dict(t) for t in tasks],
+        "folders": [_folder_to_dict(f) for f in folders],
+    }
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
@@ -69,3 +105,9 @@ def save_tasks(tasks: list[Task], data_file: Path | None = None) -> None:
         except OSError:
             pass
         raise
+
+
+def save_tasks(tasks: list[Task], data_file: Path | None = None) -> None:
+    """Atomically save tasks to disk, preserving any existing folder data."""
+    existing_folders = load_folders(data_file)
+    save_data(tasks, existing_folders, data_file)

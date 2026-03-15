@@ -3,23 +3,32 @@ from __future__ import annotations
 import copy
 import uuid
 
+from textual import events
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
-from textual import events
 
 from gtd_tui.gtd.dates import InvalidDateError, parse_date_input
+from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.operations import (
     add_task,
+    add_task_to_folder,
     add_waiting_on_task,
     complete_task,
+    create_folder,
+    delete_folder,
+    discard_folder_tasks,
+    folder_tasks,
     insert_task_after,
     insert_task_before,
+    move_folder_tasks_to_today,
     move_task_down,
+    move_task_to_folder,
     move_task_up,
     move_to_today,
     move_to_waiting_on,
+    rename_folder,
     schedule_task,
     scheduled_tasks,
     surfaced_waiting_on_tasks,
@@ -28,10 +37,7 @@ from gtd_tui.gtd.operations import (
     waiting_on_tasks,
 )
 from gtd_tui.gtd.task import Task
-from gtd_tui.storage.file import load_tasks, save_tasks
-
-_VIEWS = ["today", "waiting_on"]
-_VIEW_LABELS = ["Today", "Waiting On"]
+from gtd_tui.storage.file import load_folders, load_tasks, save_data
 
 
 class HelpScreen(ModalScreen[None]):
@@ -41,7 +47,7 @@ class HelpScreen(ModalScreen[None]):
     }
 
     #help-panel {
-        width: 60;
+        width: 64;
         height: auto;
         background: $surface;
         border: solid $primary;
@@ -55,18 +61,24 @@ class HelpScreen(ModalScreen[None]):
   g g          Jump to top of list
   G            Jump to bottom of list
   h / l        Focus sidebar / task list
-  1 / 2        Jump to Today / Waiting On
+  1–9          Jump to nth sidebar item
 
 [bold]Task Actions[/bold]
   o            Add new task after selected (INSERT mode)
   O            Add new task before selected (INSERT mode)
   x / Space    Complete selected task
   s            Schedule selected task
-  J / K        Move selected task down / up
+  m            Move selected task to a folder (sidebar picker)
+  J / K        Move selected task down / up  (Today)
   w            Move selected task to Waiting On  (Today view)
   t            Move selected task to Today       (Waiting On view)
   u            Undo last action
   Ctrl+R       Redo last undone action
+
+[bold]Sidebar Folder Actions[/bold]
+  N            Create new folder
+  r            Rename selected folder
+  d            Delete selected folder
 
 [bold]INSERT Mode[/bold]
   Enter        Confirm input / advance to next field
@@ -108,7 +120,7 @@ class GtdApp(App[None]):
     }
 
     #sidebar {
-        width: 16;
+        width: 18;
         border-right: solid $panel;
     }
 
@@ -150,12 +162,15 @@ class GtdApp(App[None]):
     def __init__(self) -> None:
         super().__init__()
         self._all_tasks: list[Task] = load_tasks()
+        self._all_folders: list[Folder] = load_folders()
         self._mode: str = "NORMAL"
-        self._input_stage: str = ""  # "title", "notes", "date", or "command"
+        self._input_stage: str = (
+            ""  # "title", "notes", "date", "command", "folder_name", "folder_rename"
+        )
         self._pending_title: str = ""
         self._pending_task_id: str = ""
         self._current_view: str = "today"
-        # Parallel to ListView children: Task for task rows, None for separators/placeholders
+        # Parallel to ListView children: Task for rows, None for separators/placeholders
         self._list_entries: list[Task | None] = []
         self._undo_stack: list[list[Task]] = []
         self._redo_stack: list[list[Task]] = []
@@ -166,6 +181,30 @@ class GtdApp(App[None]):
         self._placeholder_list_idx: int | None = None
         # Tracks the first key of a chord (e.g. "g" waiting for "gg")
         self._pending_key: str = ""
+        # Sidebar rebuild guard — prevents on_list_view_highlighted from switching views
+        self._rebuilding_sidebar: bool = False
+        # Move-task-to-folder mode
+        self._move_mode: bool = False
+        # Delete folder confirmation: non-empty ID means waiting for d/m/Esc
+        self._delete_confirm_folder_id: str = ""
+        # Rename folder in progress
+        self._rename_folder_id: str = ""
+
+    @property
+    def _sidebar_view_ids(self) -> list[str]:
+        return ["today", "waiting_on"] + [
+            f.id for f in sorted(self._all_folders, key=lambda f: f.position)
+        ]
+
+    def _view_label(self, view_id: str) -> str:
+        if view_id == "today":
+            return "Today"
+        if view_id == "waiting_on":
+            return "Waiting On"
+        for folder in self._all_folders:
+            if folder.id == view_id:
+                return folder.name
+        return view_id
 
     def compose(self) -> ComposeResult:
         yield Label("Today", id="header")
@@ -178,12 +217,37 @@ class GtdApp(App[None]):
         yield Label("NORMAL  |  Today", id="status")
 
     def on_mount(self) -> None:
-        sidebar = self.query_one("#sidebar", ListView)
-        for label in _VIEW_LABELS:
-            sidebar.append(ListItem(Label(label)))
-        sidebar.index = 0
+        self._rebuild_sidebar()
         self._refresh_list()
         self.query_one("#task-list", ListView).focus()
+
+    # ------------------------------------------------------------------ #
+    # Sidebar management                                                   #
+    # ------------------------------------------------------------------ #
+
+    def _rebuild_sidebar(self) -> None:
+        """Repopulate the sidebar from built-ins + user folders."""
+        self._rebuilding_sidebar = True
+        sidebar = self.query_one("#sidebar", ListView)
+        sidebar.clear()
+        sidebar.append(ListItem(Label("Today")))
+        sidebar.append(ListItem(Label("Waiting On")))
+        for folder in sorted(self._all_folders, key=lambda f: f.position):
+            sidebar.append(ListItem(Label(folder.name)))
+        view_ids = self._sidebar_view_ids
+        try:
+            idx = view_ids.index(self._current_view)
+        except ValueError:
+            idx = 0
+            self._current_view = "today"
+        self.call_after_refresh(self._apply_sidebar_selection, idx)
+        self.call_after_refresh(self._clear_rebuilding_flag)
+
+    def _clear_rebuilding_flag(self) -> None:
+        self._rebuilding_sidebar = False
+
+    def _apply_sidebar_selection(self, idx: int) -> None:
+        self.query_one("#sidebar", ListView).index = idx
 
     # ------------------------------------------------------------------ #
     # Rendering helpers                                                    #
@@ -199,8 +263,10 @@ class GtdApp(App[None]):
 
         if self._current_view == "today":
             self._render_today_view(list_view)
-        else:
+        elif self._current_view == "waiting_on":
             self._render_waiting_on_view(list_view)
+        else:
+            self._render_folder_view(list_view, self._current_view)
 
         # Compute the target index now (while _list_entries is current),
         # then defer the actual index + focus update until after Textual has
@@ -251,7 +317,11 @@ class GtdApp(App[None]):
             list_view.append(ListItem(Label("── Scheduled ──")))
             for task in snoozed:
                 self._list_entries.append(task)
-                date_str = task.scheduled_date.strftime("%b %d %a") if task.scheduled_date else ""
+                date_str = (
+                    task.scheduled_date.strftime("%b %d %a")
+                    if task.scheduled_date
+                    else ""
+                )
                 list_view.append(ListItem(Label(f"{task.title}  [{date_str}]")))
 
         if surfaced_wo:
@@ -267,9 +337,18 @@ class GtdApp(App[None]):
             self._list_entries.append(task)
             date_str = (
                 f"  [{task.scheduled_date.strftime('%b %d %a')}]"
-                if task.scheduled_date else ""
+                if task.scheduled_date
+                else ""
             )
             list_view.append(ListItem(Label(f"{task.title}{date_str}")))
+
+    def _render_folder_view(self, list_view: ListView, folder_id: str) -> None:
+        label = self._view_label(folder_id)
+        tasks = folder_tasks(self._all_tasks, folder_id)
+        self.query_one("#header", Label).update(f"{label} ({len(tasks)})")
+        for task in tasks:
+            self._list_entries.append(task)
+            list_view.append(ListItem(Label(task.title)))
 
     def _placeholder_insert_idx(self, active: list[Task]) -> int:
         """Index within `active` before which the placeholder row is inserted."""
@@ -280,7 +359,9 @@ class GtdApp(App[None]):
         )
         if anchor_idx is None:
             return 0
-        return anchor_idx if self._pending_insert_position == "before" else anchor_idx + 1
+        return (
+            anchor_idx if self._pending_insert_position == "before" else anchor_idx + 1
+        )
 
     def _compute_target_index(
         self, select_task_id: str | None, prev_index: int | None
@@ -328,7 +409,7 @@ class GtdApp(App[None]):
 
     def _update_status(self, message: str = "") -> None:
         mode = "INSERT" if self._mode == "INSERT" else "NORMAL"
-        view_name = _VIEW_LABELS[_VIEWS.index(self._current_view)]
+        view_name = self._view_label(self._current_view)
         suffix = f"  {message}" if message else ""
         self.query_one("#status", Label).update(f"{mode}  |  {view_name}{suffix}")
 
@@ -340,11 +421,18 @@ class GtdApp(App[None]):
             return None
         return self._list_entries[idx]
 
+    def _save(self) -> None:
+        save_data(self._all_tasks, self._all_folders)
+
     # ------------------------------------------------------------------ #
     # Key handling                                                         #
     # ------------------------------------------------------------------ #
 
     def on_key(self, event: events.Key) -> None:
+        # Delete-folder confirmation takes priority
+        if self._delete_confirm_folder_id:
+            self._handle_delete_confirm_key(event)
+            return
         if self._mode == "INSERT":
             if event.key == "escape":
                 self._cancel_input()
@@ -355,6 +443,23 @@ class GtdApp(App[None]):
 
     def _handle_sidebar_key(self, event: events.Key) -> None:
         sidebar = self.query_one("#sidebar", ListView)
+
+        # Move-mode: sidebar is acting as a folder picker
+        if self._move_mode:
+            if event.key == "j":
+                event.prevent_default()
+                sidebar.action_cursor_down()
+            elif event.key == "k":
+                event.prevent_default()
+                sidebar.action_cursor_up()
+            elif event.key in ("l", "enter"):
+                event.prevent_default()
+                self._confirm_move_task()
+            elif event.key == "escape":
+                event.prevent_default()
+                self._cancel_move_mode()
+            return
+
         if event.key == "j":
             event.prevent_default()
             sidebar.action_cursor_down()
@@ -364,7 +469,16 @@ class GtdApp(App[None]):
         elif event.key in ("l", "enter"):
             event.prevent_default()
             self.query_one("#task-list", ListView).focus()
-        elif event.key in ("1", "2"):
+        elif event.key == "N":
+            event.prevent_default()
+            self._start_create_folder()
+        elif event.key == "r":
+            event.prevent_default()
+            self._start_rename_folder()
+        elif event.key == "d":
+            event.prevent_default()
+            self._delete_selected_folder()
+        elif event.key.isdigit() and event.key != "0":
             event.prevent_default()
             self._jump_to_view(int(event.key) - 1)
         elif event.key == "q":
@@ -410,7 +524,7 @@ class GtdApp(App[None]):
         elif event.key == "h":
             event.prevent_default()
             self.query_one("#sidebar", ListView).focus()
-        elif event.key in ("1", "2"):
+        elif event.key.isdigit() and event.key != "0":
             event.prevent_default()
             self._jump_to_view(int(event.key) - 1)
         elif event.key == "o":
@@ -422,6 +536,9 @@ class GtdApp(App[None]):
         elif event.key == "s":
             event.prevent_default()
             self._start_schedule()
+        elif event.key == "m":
+            event.prevent_default()
+            self._start_move_task()
         elif event.key == "u":
             event.prevent_default()
             self._undo()
@@ -446,15 +563,26 @@ class GtdApp(App[None]):
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
         """Update the current view when the sidebar selection changes."""
-        if event.list_view.id == "sidebar":
-            idx = event.list_view.index
-            if idx is not None and idx < len(_VIEWS):
-                self._current_view = _VIEWS[idx]
-                self._refresh_list()
-                self._update_status()
+        if event.list_view.id != "sidebar":
+            return
+        if self._rebuilding_sidebar or self._move_mode:
+            return
+        idx = event.list_view.index
+        if idx is None:
+            return
+        view_ids = self._sidebar_view_ids
+        if idx >= len(view_ids):
+            return
+        new_view = view_ids[idx]
+        if new_view == self._current_view:
+            return
+        self._current_view = new_view
+        self._refresh_list()
+        self._update_status()
 
     def _jump_to_view(self, idx: int) -> None:
-        if 0 <= idx < len(_VIEWS):
+        view_ids = self._sidebar_view_ids
+        if 0 <= idx < len(view_ids):
             self.query_one("#sidebar", ListView).index = idx
             # on_list_view_highlighted handles the rest
 
@@ -462,7 +590,11 @@ class GtdApp(App[None]):
         """If the current ListView selection is a separator, move past it."""
         list_view = self.query_one("#task-list", ListView)
         idx = list_view.index
-        if idx is not None and idx < len(self._list_entries) and self._list_entries[idx] is None:
+        if (
+            idx is not None
+            and idx < len(self._list_entries)
+            and self._list_entries[idx] is None
+        ):
             if direction == 1:
                 list_view.action_cursor_down()
             else:
@@ -521,21 +653,36 @@ class GtdApp(App[None]):
                 self._all_tasks = add_waiting_on_task(
                     self._all_tasks, self._pending_title, notes=value
                 )
+            elif self._current_view not in BUILTIN_FOLDER_IDS:
+                # Custom folder: append task to that folder
+                self._all_tasks = add_task_to_folder(
+                    self._all_tasks,
+                    self._current_view,
+                    self._pending_title,
+                    notes=value,
+                    task_id=new_id,
+                )
             elif not self._pending_anchor_id:
                 self._all_tasks = add_task(
                     self._all_tasks, self._pending_title, notes=value, task_id=new_id
                 )
             elif self._pending_insert_position == "before":
                 self._all_tasks = insert_task_before(
-                    self._all_tasks, self._pending_anchor_id,
-                    self._pending_title, notes=value, task_id=new_id,
+                    self._all_tasks,
+                    self._pending_anchor_id,
+                    self._pending_title,
+                    notes=value,
+                    task_id=new_id,
                 )
             else:
                 self._all_tasks = insert_task_after(
-                    self._all_tasks, self._pending_anchor_id,
-                    self._pending_title, notes=value, task_id=new_id,
+                    self._all_tasks,
+                    self._pending_anchor_id,
+                    self._pending_title,
+                    notes=value,
+                    task_id=new_id,
                 )
-            save_tasks(self._all_tasks)
+            self._save()
             self._show_placeholder = False  # clear before rebuild
             self._placeholder_list_idx = None
             self._refresh_list(select_task_id=new_id)
@@ -550,6 +697,29 @@ class GtdApp(App[None]):
                 self.push_screen(HelpScreen())
             elif value:
                 self._update_status(f"(unknown command: {value})")
+
+        elif self._input_stage == "folder_name":
+            if value:
+                new_folder_id = str(uuid.uuid4())
+                self._all_folders = create_folder(
+                    self._all_folders, value, folder_id=new_folder_id
+                )
+                self._save()
+                self._rebuild_sidebar()
+                self._current_view = new_folder_id
+                self._refresh_list()
+            self._cancel_input()
+
+        elif self._input_stage == "folder_rename":
+            if value and self._rename_folder_id:
+                self._all_folders = rename_folder(
+                    self._all_folders, self._rename_folder_id, value
+                )
+                self._save()
+                self._rebuild_sidebar()
+                self._refresh_list()
+            self._rename_folder_id = ""
+            self._cancel_input()
 
     def _cancel_input(self) -> None:
         inp = self.query_one("#task-input", Input)
@@ -566,7 +736,7 @@ class GtdApp(App[None]):
         self._placeholder_list_idx = None
         self._update_status()
         if had_placeholder:
-            self._refresh_list()  # rebuilds without placeholder; _apply_selection refocuses
+            self._refresh_list()  # removes placeholder; _apply_selection refocuses
         else:
             self.query_one("#task-list", ListView).focus()
 
@@ -583,7 +753,7 @@ class GtdApp(App[None]):
         self._input_stage = "date"
         inp = self.query_one("#task-input", Input)
         inp.value = task.scheduled_date.isoformat() if task.scheduled_date else ""
-        inp.placeholder = "Date: tomorrow / monday / in 3 days / +2w / YYYY-MM-DD  (empty to clear)..."
+        inp.placeholder = "Date: tomorrow/+3d/monday/YYYY-MM-DD (empty=clear)..."
         inp.add_class("active")
         inp.focus()
         self._update_status()
@@ -600,9 +770,11 @@ class GtdApp(App[None]):
         if parsed is None:
             self._all_tasks = unschedule_task(self._all_tasks, self._pending_task_id)
         else:
-            self._all_tasks = schedule_task(self._all_tasks, self._pending_task_id, parsed)
+            self._all_tasks = schedule_task(
+                self._all_tasks, self._pending_task_id, parsed
+            )
 
-        save_tasks(self._all_tasks)
+        self._save()
         self._refresh_list()
         self._cancel_input()
 
@@ -610,13 +782,49 @@ class GtdApp(App[None]):
     # Task movement                                                        #
     # ------------------------------------------------------------------ #
 
+    def _start_move_task(self) -> None:
+        task = self._get_selected_task()
+        if task is None:
+            return
+        self._pending_task_id = task.id
+        self._move_mode = True
+        self.query_one("#sidebar", ListView).focus()
+        self._update_status("Move to: j/k select folder, Enter confirm, Esc cancel")
+
+    def _confirm_move_task(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            self._cancel_move_mode()
+            return
+        target_folder_id = view_ids[idx]
+        self._push_undo()
+        self._all_tasks = move_task_to_folder(
+            self._all_tasks, self._pending_task_id, target_folder_id
+        )
+        self._save()
+        self._move_mode = False
+        self._pending_task_id = ""
+        self._current_view = target_folder_id
+        self._rebuild_sidebar()
+        self._refresh_list()
+        self._update_status()
+        self.query_one("#task-list", ListView).focus()
+
+    def _cancel_move_mode(self) -> None:
+        self._move_mode = False
+        self._pending_task_id = ""
+        self._update_status()
+        self.query_one("#task-list", ListView).focus()
+
     def _move_selected_to_waiting_on(self) -> None:
         task = self._get_selected_task()
         if task is None:
             return
         self._push_undo()
         self._all_tasks = move_to_waiting_on(self._all_tasks, task.id)
-        save_tasks(self._all_tasks)
+        self._save()
         self._refresh_list()
 
     def _move_selected_to_today(self) -> None:
@@ -625,8 +833,101 @@ class GtdApp(App[None]):
             return
         self._push_undo()
         self._all_tasks = move_to_today(self._all_tasks, task.id)
-        save_tasks(self._all_tasks)
+        self._save()
         self._refresh_list()
+
+    # ------------------------------------------------------------------ #
+    # Folder creation / rename / delete                                   #
+    # ------------------------------------------------------------------ #
+
+    def _start_create_folder(self) -> None:
+        self._mode = "INSERT"
+        self._input_stage = "folder_name"
+        inp = self.query_one("#task-input", Input)
+        inp.placeholder = "New folder name..."
+        inp.add_class("active")
+        inp.focus()
+        self._update_status()
+
+    def _start_rename_folder(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        folder_id = view_ids[idx]
+        if folder_id in BUILTIN_FOLDER_IDS:
+            self._update_status("(cannot rename built-in folders)")
+            return
+        self._rename_folder_id = folder_id
+        folder = next((f for f in self._all_folders if f.id == folder_id), None)
+        current_name = folder.name if folder else ""
+        self._mode = "INSERT"
+        self._input_stage = "folder_rename"
+        inp = self.query_one("#task-input", Input)
+        inp.value = current_name
+        inp.placeholder = "Folder name..."
+        inp.add_class("active")
+        inp.focus()
+        self._update_status()
+
+    def _delete_selected_folder(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        folder_id = view_ids[idx]
+        if folder_id in BUILTIN_FOLDER_IDS:
+            self._update_status("(cannot delete built-in folders)")
+            return
+        tasks_in_folder = folder_tasks(self._all_tasks, folder_id)
+        if not tasks_in_folder:
+            # Empty folder: delete immediately
+            self._all_folders = delete_folder(self._all_folders, folder_id)
+            if self._current_view == folder_id:
+                self._current_view = "today"
+            self._save()
+            self._rebuild_sidebar()
+            self._refresh_list()
+        else:
+            # Non-empty: prompt user
+            folder = next((f for f in self._all_folders if f.id == folder_id), None)
+            name = folder.name if folder else folder_id
+            n = len(tasks_in_folder)
+            self._delete_confirm_folder_id = folder_id
+            self._update_status(
+                f"'{name}' has {n} task(s). [d]elete all  [m]ove to Today  [Esc] cancel"
+            )
+
+    def _handle_delete_confirm_key(self, event: events.Key) -> None:
+        folder_id = self._delete_confirm_folder_id
+        if event.key == "d":
+            event.prevent_default()
+            self._all_tasks = discard_folder_tasks(self._all_tasks, folder_id)
+            self._all_folders = delete_folder(self._all_folders, folder_id)
+            if self._current_view == folder_id:
+                self._current_view = "today"
+            self._save()
+            self._delete_confirm_folder_id = ""
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status()
+        elif event.key == "m":
+            event.prevent_default()
+            self._all_tasks = move_folder_tasks_to_today(self._all_tasks, folder_id)
+            self._all_folders = delete_folder(self._all_folders, folder_id)
+            if self._current_view == folder_id:
+                self._current_view = "today"
+            self._save()
+            self._delete_confirm_folder_id = ""
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status()
+        elif event.key == "escape":
+            event.prevent_default()
+            self._delete_confirm_folder_id = ""
+            self._update_status()
 
     # ------------------------------------------------------------------ #
     # Task completion                                                      #
@@ -638,7 +939,7 @@ class GtdApp(App[None]):
             return
         self._push_undo()
         self._all_tasks = complete_task(self._all_tasks, task.id)
-        save_tasks(self._all_tasks)
+        self._save()
         self._refresh_list()
 
     # ------------------------------------------------------------------ #
@@ -651,7 +952,7 @@ class GtdApp(App[None]):
             return
         self._push_undo()
         self._all_tasks = move_task_up(self._all_tasks, task.id)
-        save_tasks(self._all_tasks)
+        self._save()
         self._refresh_list(select_task_id=task.id)
 
     def _move_selected_down(self) -> None:
@@ -660,7 +961,7 @@ class GtdApp(App[None]):
             return
         self._push_undo()
         self._all_tasks = move_task_down(self._all_tasks, task.id)
-        save_tasks(self._all_tasks)
+        self._save()
         self._refresh_list(select_task_id=task.id)
 
     # ------------------------------------------------------------------ #
@@ -673,7 +974,7 @@ class GtdApp(App[None]):
             return
         self._redo_stack.append(copy.deepcopy(self._all_tasks))
         self._all_tasks = self._undo_stack.pop()
-        save_tasks(self._all_tasks)
+        self._save()
         self._refresh_list()
 
     def _redo(self) -> None:
@@ -682,5 +983,5 @@ class GtdApp(App[None]):
             return
         self._undo_stack.append(copy.deepcopy(self._all_tasks))
         self._all_tasks = self._redo_stack.pop()
-        save_tasks(self._all_tasks)
+        self._save()
         self._refresh_list()

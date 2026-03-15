@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.task import Task
 
 
@@ -35,7 +36,12 @@ def insert_task_after(
     for task in tasks:
         if task.folder_id == "today" and task.position >= insert_pos:
             task.position += 1
-    kwargs = {"title": title, "notes": notes, "folder_id": "today", "position": insert_pos}
+    kwargs = {
+        "title": title,
+        "notes": notes,
+        "folder_id": "today",
+        "position": insert_pos,
+    }
     if task_id is not None:
         kwargs["id"] = task_id
     new_task = Task(**kwargs)  # type: ignore[arg-type]
@@ -58,7 +64,12 @@ def insert_task_before(
     for task in tasks:
         if task.folder_id == "today" and task.position >= insert_pos:
             task.position += 1
-    kwargs = {"title": title, "notes": notes, "folder_id": "today", "position": insert_pos}
+    kwargs = {
+        "title": title,
+        "notes": notes,
+        "folder_id": "today",
+        "position": insert_pos,
+    }
     if task_id is not None:
         kwargs["id"] = task_id
     new_task = Task(**kwargs)  # type: ignore[arg-type]
@@ -94,7 +105,8 @@ def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     ref = as_of or date.today()
     return sorted(
         [
-            t for t in tasks
+            t
+            for t in tasks
             if t.folder_id == "today"
             and (t.scheduled_date is None or t.scheduled_date <= ref)
         ],
@@ -107,7 +119,8 @@ def scheduled_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     ref = as_of or date.today()
     return sorted(
         [
-            t for t in tasks
+            t
+            for t in tasks
             if t.folder_id == "today"
             and t.scheduled_date is not None
             and t.scheduled_date > ref
@@ -117,22 +130,28 @@ def scheduled_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
 
 
 def move_task_up(tasks: list[Task], task_id: str) -> list[Task]:
-    """Move a Today task one position toward the top. No-op if already first or not found."""
+    """Move a Today task one position up. No-op if already first or not found."""
     active = today_tasks(tasks)
     idx = next((i for i, t in enumerate(active) if t.id == task_id), None)
     if idx is None or idx == 0:
         return tasks
-    active[idx].position, active[idx - 1].position = active[idx - 1].position, active[idx].position
+    active[idx].position, active[idx - 1].position = (
+        active[idx - 1].position,
+        active[idx].position,
+    )
     return tasks
 
 
 def move_task_down(tasks: list[Task], task_id: str) -> list[Task]:
-    """Move a Today task one position toward the bottom. No-op if already last or not found."""
+    """Move a Today task one position down. No-op if already last or not found."""
     active = today_tasks(tasks)
     idx = next((i for i, t in enumerate(active) if t.id == task_id), None)
     if idx is None or idx == len(active) - 1:
         return tasks
-    active[idx].position, active[idx + 1].position = active[idx + 1].position, active[idx].position
+    active[idx].position, active[idx + 1].position = (
+        active[idx + 1].position,
+        active[idx].position,
+    )
     return tasks
 
 
@@ -177,7 +196,8 @@ def waiting_on_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]
     ref = as_of or date.today()
     return sorted(
         [
-            t for t in tasks
+            t
+            for t in tasks
             if t.folder_id == "waiting_on"
             and (t.scheduled_date is None or t.scheduled_date > ref)
         ],
@@ -185,15 +205,108 @@ def waiting_on_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]
     )
 
 
-def surfaced_waiting_on_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
+def surfaced_waiting_on_tasks(
+    tasks: list[Task], as_of: date | None = None
+) -> list[Task]:
     """Return Waiting On tasks whose date has arrived — they surface in Today."""
     ref = as_of or date.today()
     return sorted(
         [
-            t for t in tasks
+            t
+            for t in tasks
             if t.folder_id == "waiting_on"
             and t.scheduled_date is not None
             and t.scheduled_date <= ref
         ],
-        key=lambda t: t.scheduled_date,  # type: ignore[return-value]
+        key=lambda t: t.scheduled_date,  # type: ignore[arg-type, return-value]
     )
+
+
+# ---------------------------------------------------------------------------
+# Folder operations (BACKLOG-4)
+# ---------------------------------------------------------------------------
+
+
+def add_task_to_folder(
+    tasks: list[Task],
+    folder_id: str,
+    title: str,
+    notes: str = "",
+    task_id: str | None = None,
+) -> list[Task]:
+    """Append a new task to the end of the given folder."""
+    existing = folder_tasks(tasks, folder_id)
+    next_pos = existing[-1].position + 1 if existing else 0
+    kwargs: dict = {
+        "title": title,
+        "notes": notes,
+        "folder_id": folder_id,
+        "position": next_pos,
+    }
+    if task_id is not None:
+        kwargs["id"] = task_id
+    return tasks + [Task(**kwargs)]  # type: ignore[arg-type]
+
+
+def create_folder(
+    folders: list[Folder], name: str, folder_id: str | None = None
+) -> list[Folder]:
+    """Create a new user folder appended after existing folders."""
+    max_pos = max((f.position for f in folders), default=-1)
+    kwargs: dict = {"name": name, "position": max_pos + 1}
+    if folder_id is not None:
+        kwargs["id"] = folder_id
+    return folders + [Folder(**kwargs)]
+
+
+def rename_folder(folders: list[Folder], folder_id: str, new_name: str) -> list[Folder]:
+    """Rename a user folder. No-op for built-in folders or unknown IDs."""
+    if folder_id in BUILTIN_FOLDER_IDS:
+        return folders
+    for folder in folders:
+        if folder.id == folder_id:
+            folder.name = new_name
+    return folders
+
+
+def delete_folder(folders: list[Folder], folder_id: str) -> list[Folder]:
+    """Remove a user folder from the list. No-op for built-in folders."""
+    if folder_id in BUILTIN_FOLDER_IDS:
+        return folders
+    return [f for f in folders if f.id != folder_id]
+
+
+def folder_tasks(tasks: list[Task], folder_id: str) -> list[Task]:
+    """Return tasks belonging to the given folder, sorted by position."""
+    return sorted(
+        [t for t in tasks if t.folder_id == folder_id],
+        key=lambda t: t.position,
+    )
+
+
+def move_task_to_folder(tasks: list[Task], task_id: str, folder_id: str) -> list[Task]:
+    """Move a task to a different folder, appending it at the end."""
+    target_tasks = folder_tasks(tasks, folder_id)
+    new_pos = target_tasks[-1].position + 1 if target_tasks else 0
+    for task in tasks:
+        if task.id == task_id:
+            task.folder_id = folder_id
+            task.position = new_pos
+    return tasks
+
+
+def discard_folder_tasks(tasks: list[Task], folder_id: str) -> list[Task]:
+    """Delete all tasks in the given folder."""
+    return [t for t in tasks if t.folder_id != folder_id]
+
+
+def move_folder_tasks_to_today(tasks: list[Task], folder_id: str) -> list[Task]:
+    """Move all tasks from the given folder to Today at the bottom."""
+    today = [t for t in tasks if t.folder_id == "today"]
+    next_pos = (max(t.position for t in today) + 1) if today else 0
+    for task in tasks:
+        if task.folder_id == folder_id:
+            task.folder_id = "today"
+            task.position = next_pos
+            next_pos += 1
+    return tasks

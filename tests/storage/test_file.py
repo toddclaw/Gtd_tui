@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from gtd_tui.gtd.operations import add_task, complete_task
-from gtd_tui.storage.file import load_tasks, save_tasks
+from gtd_tui.gtd.operations import add_task, complete_task, create_folder
+from gtd_tui.storage.file import load_folders, load_tasks, save_data, save_tasks
 
 
 def test_save_and_load_round_trip(tmp_path: Path) -> None:
@@ -85,3 +85,85 @@ def test_save_preserves_position(tmp_path: Path) -> None:
     positions = {t.title: t.position for t in loaded}
     assert positions["Second"] == 0
     assert positions["First"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Folder persistence (BACKLOG-4)
+# ---------------------------------------------------------------------------
+
+
+def test_save_data_and_load_folders_round_trip(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    folders = create_folder([], "Work", folder_id="f1")
+    save_data([], folders, data_file=data_file)
+    loaded = load_folders(data_file=data_file)
+    assert len(loaded) == 1
+    assert loaded[0].name == "Work"
+    assert loaded[0].id == "f1"
+
+
+def test_load_folders_missing_file_returns_empty(tmp_path: Path) -> None:
+    data_file = tmp_path / "nonexistent.json"
+    result = load_folders(data_file=data_file)
+    assert result == []
+
+
+def test_load_folders_corrupt_file_returns_empty(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    data_file.write_text("not valid json {{{{")
+    result = load_folders(data_file=data_file)
+    assert result == []
+
+
+def test_save_data_preserves_tasks_and_folders(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "My task")
+    folders = create_folder([], "Work", folder_id="f1")
+    save_data(tasks, folders, data_file=data_file)
+    loaded_tasks = load_tasks(data_file=data_file)
+    loaded_folders = load_folders(data_file=data_file)
+    assert len(loaded_tasks) == 1
+    assert loaded_tasks[0].title == "My task"
+    assert len(loaded_folders) == 1
+    assert loaded_folders[0].name == "Work"
+
+
+def test_save_tasks_preserves_existing_folders(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    # First save some folders
+    folders = create_folder([], "Work", folder_id="f1")
+    save_data([], folders, data_file=data_file)
+    # Now save tasks without touching folders
+    tasks = add_task([], "A task")
+    save_tasks(tasks, data_file=data_file)
+    # Folders should still be there
+    loaded_folders = load_folders(data_file=data_file)
+    assert len(loaded_folders) == 1
+    assert loaded_folders[0].name == "Work"
+
+
+def test_load_folders_file_without_folders_key_returns_empty(tmp_path: Path) -> None:
+    # Old-format file with only tasks key
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Old task")
+    save_tasks(tasks, data_file=data_file)
+    # Manually strip the folders key to simulate old file
+    import json
+    with open(data_file) as f:
+        raw = json.load(f)
+    raw.pop("folders", None)
+    with open(data_file, "w") as f:
+        json.dump(raw, f)
+    result = load_folders(data_file=data_file)
+    assert result == []
+
+
+def test_folder_position_persists(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    folders = create_folder([], "A", folder_id="f1")
+    folders = create_folder(folders, "B", folder_id="f2")
+    save_data([], folders, data_file=data_file)
+    loaded = load_folders(data_file=data_file)
+    by_id = {f.id: f for f in loaded}
+    assert by_id["f1"].position == 0
+    assert by_id["f2"].position == 1
