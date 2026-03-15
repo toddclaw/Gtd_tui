@@ -169,14 +169,14 @@ class GtdApp(App[None]):
                 date_str = task.scheduled_date.strftime("%b %d") if task.scheduled_date else ""
                 list_view.append(ListItem(Label(f"{task.title}  [{date_str}]")))
 
-        self._restore_selection(list_view, select_task_id, prev_index)
-
-        # clear() unmounts children, which can steal focus away from the
-        # ListView.  Re-focus it whenever we're in NORMAL mode so the
-        # highlight stays visible.  INSERT-mode callers restore focus
-        # themselves via _cancel_input().
-        if self._mode == "NORMAL":
-            list_view.focus()
+        # Compute the target index now (while _list_entries is current),
+        # then defer the actual index + focus update until after Textual has
+        # finished processing all the pending mount/remove messages from
+        # clear() and append().  Setting index before the DOM settles causes
+        # Textual to silently discard it, which makes the highlight vanish.
+        target_idx = self._compute_target_index(select_task_id, prev_index)
+        if target_idx is not None:
+            self.call_after_refresh(self._apply_selection, target_idx)
 
         empty_hint = self.query_one("#empty-hint", Label)
         if active or snoozed:
@@ -184,34 +184,34 @@ class GtdApp(App[None]):
         else:
             empty_hint.remove_class("hidden")
 
-    def _restore_selection(
-        self,
-        list_view: ListView,
-        select_task_id: str | None,
-        prev_index: int | None,
-    ) -> None:
-        """After a list rebuild, ensure a task row is always highlighted."""
+    def _compute_target_index(
+        self, select_task_id: str | None, prev_index: int | None
+    ) -> int | None:
+        """Return the list index that should be highlighted after a rebuild."""
         n = len(self._list_entries)
         if n == 0:
-            return
-
+            return None
         if select_task_id is not None:
             for i, entry in enumerate(self._list_entries):
                 if entry is not None and entry.id == select_task_id:
-                    list_view.index = i
-                    return
-
-        # Fall back: restore previous position clamped to new length,
-        # then scan forward (then backward) past any separator.
+                    return i
+        # Fall back to previous position clamped to new length,
+        # scanning forward then backward past any separator.
         target = min(prev_index, n - 1) if prev_index is not None else 0
         for i in range(target, n):
             if self._list_entries[i] is not None:
-                list_view.index = i
-                return
+                return i
         for i in range(target - 1, -1, -1):
             if self._list_entries[i] is not None:
-                list_view.index = i
-                return
+                return i
+        return None
+
+    def _apply_selection(self, idx: int) -> None:
+        """Set the ListView highlight and restore focus after a DOM rebuild."""
+        list_view = self.query_one("#task-list", ListView)
+        list_view.index = idx
+        if self._mode == "NORMAL":
+            list_view.focus()
 
     def _push_undo(self) -> None:
         self._undo_stack.append(copy.deepcopy(self._all_tasks))
