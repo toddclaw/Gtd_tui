@@ -424,7 +424,8 @@ class GtdApp(App[None]):
         """Set the ListView highlight and restore focus after a DOM rebuild."""
         list_view = self.query_one("#task-list", ListView)
         list_view.index = idx
-        if self._mode == "NORMAL":
+        sidebar = self.query_one("#sidebar", ListView)
+        if self._mode == "NORMAL" and not sidebar.has_focus:
             list_view.focus()
 
     def _push_undo(self) -> None:
