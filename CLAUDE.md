@@ -707,6 +707,35 @@ class RecurRule:
 
 ---
 
+### BACKLOG-16 — TUI integration tests
+
+**Story points:** 8 — Textual ships a headless test driver (`App.run_test()`) that simulates key events and inspects the DOM without a real terminal. This is the first time the app layer is tested directly; all prior tests cover only domain logic and storage.
+
+**Description:**
+- Add integration tests that drive `GtdApp` through its full stack — key events → app state → rendered DOM — using Textual's built-in headless test driver
+- Tests should cover the core user journeys that cannot be verified by unit-testing domain logic alone: navigation, modal screens, mode transitions, and persistence side-effects
+- Keep tests fast: use `tmp_path` for storage so no real data file is touched
+
+**Acceptance criteria:**
+- [ ] Test harness uses `await app.run_test()` (Textual's `pilot` API) — no subprocess or real terminal required
+- [ ] Launching the app shows Today view with correct header
+- [ ] Pressing `o` enters INSERT mode; typing a title and pressing Enter twice adds the task to the list
+- [ ] Pressing `x` / Space on a task completes it and removes it from Today
+- [ ] Pressing `Enter` on a task opens the `TaskDetailScreen` modal; `Esc` closes it
+- [ ] Pressing `/` opens the `SearchScreen` modal; `Esc` closes it
+- [ ] Pressing `h` focuses the sidebar; `l` / `Enter` returns focus to the task list
+- [ ] Pressing `u` after completing a task restores it to Today (undo)
+- [ ] Tasks persist: saving and reloading `GtdApp` with the same `tmp_path` data file shows the same tasks
+- [ ] Tests live in `tests/app/test_app.py` and run with the rest of the suite via `pytest`
+
+**Implementation notes:**
+- Textual's pilot API: `async with app.run_test() as pilot: await pilot.press("o")`
+- Use `app.query_one("#header", Label).renderable` to inspect displayed text
+- Modal screens can be detected via `app.screen` (the currently active screen)
+- Pass a `tmp_path`-based data file path to `GtdApp.__init__` — this requires adding an optional `data_file` parameter to the constructor, which then passes it through to `load_tasks` / `load_folders` / `save_data`
+
+---
+
 ## Notes for AI Assistants
 
 - BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
