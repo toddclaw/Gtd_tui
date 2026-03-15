@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import uuid
+from pathlib import Path
 
 from textual import events
 from textual.app import App, ComposeResult
@@ -170,7 +171,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str] | None]):
 
     def __init__(self, task: Task) -> None:
         super().__init__()
-        self._task = task
+        self._gtd_task = task
 
     @staticmethod
     def _interval_to_str(interval: int, unit: str) -> str:
@@ -179,20 +180,20 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str] | None]):
 
     def compose(self) -> ComposeResult:
         repeat_val = (
-            self._interval_to_str(self._task.repeat_rule.interval, self._task.repeat_rule.unit)
-            if self._task.repeat_rule else ""
+            self._interval_to_str(self._gtd_task.repeat_rule.interval, self._gtd_task.repeat_rule.unit)
+            if self._gtd_task.repeat_rule else ""
         )
         recur_val = (
-            self._interval_to_str(self._task.recur_rule.interval, self._task.recur_rule.unit)
-            if self._task.recur_rule else ""
+            self._interval_to_str(self._gtd_task.recur_rule.interval, self._gtd_task.recur_rule.unit)
+            if self._gtd_task.recur_rule else ""
         )
         with Vertical(id="detail-panel"):
             yield Label("Edit Task", id="detail-header")
             yield Label("Title", classes="field-label")
-            yield Input(value=self._task.title, id="detail-title-input")
+            yield Input(value=self._gtd_task.title, id="detail-title-input")
             yield Label("Notes", classes="field-label")
             yield Input(
-                value=self._task.notes,
+                value=self._gtd_task.notes,
                 placeholder="(optional)",
                 id="detail-notes-input",
             )
@@ -451,10 +452,11 @@ class GtdApp(App[None]):
     }
     """
 
-    def __init__(self) -> None:
+    def __init__(self, data_file: Path | None = None) -> None:
         super().__init__()
-        self._all_tasks: list[Task] = load_tasks()
-        self._all_folders: list[Folder] = load_folders()
+        self._data_file: Path | None = data_file
+        self._all_tasks: list[Task] = load_tasks(data_file)
+        self._all_folders: list[Folder] = load_folders(data_file)
         self._mode: str = "NORMAL"
         self._input_stage: str = (
             ""  # "title", "notes", "date", "command", "folder_name", "folder_rename"
@@ -783,7 +785,7 @@ class GtdApp(App[None]):
         return self._list_entries[idx]
 
     def _save(self) -> None:
-        save_data(self._all_tasks, self._all_folders)
+        save_data(self._all_tasks, self._all_folders, self._data_file)
 
     # ------------------------------------------------------------------ #
     # Key handling                                                         #
