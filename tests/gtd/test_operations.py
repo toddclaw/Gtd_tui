@@ -3,7 +3,11 @@ from datetime import date, timedelta
 from gtd_tui.gtd.operations import (
     add_task,
     complete_task,
+    insert_task_after,
+    insert_task_before,
     logbook_tasks,
+    move_task_down,
+    move_task_up,
     schedule_task,
     scheduled_tasks,
     today_tasks,
@@ -191,3 +195,136 @@ def test_schedule_unknown_id_is_noop():
     future = date.today() + timedelta(days=1)
     result = schedule_task(tasks, "bad-id", future)
     assert today_tasks(result) == [tasks[0]]
+
+
+# ------------------------------------------------------------------ #
+# Reordering                                                           #
+# ------------------------------------------------------------------ #
+
+def test_move_task_up_swaps_with_previous():
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    ordered = today_tasks(tasks)
+    assert [t.title for t in ordered] == ["A", "B"]
+
+    b_id = next(t.id for t in tasks if t.title == "B")
+    tasks = move_task_up(tasks, b_id)
+    ordered = today_tasks(tasks)
+    assert [t.title for t in ordered] == ["B", "A"]
+
+
+def test_move_task_up_at_top_is_noop():
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    a_id = next(t.id for t in tasks if t.title == "A")
+    result = move_task_up(tasks, a_id)
+    assert [t.title for t in today_tasks(result)] == ["A", "B"]
+
+
+def test_move_task_up_unknown_id_is_noop():
+    tasks = add_task([], "Only")
+    result = move_task_up(tasks, "bad-id")
+    assert today_tasks(result) == [tasks[0]]
+
+
+def test_move_task_down_swaps_with_next():
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    ordered = today_tasks(tasks)
+    assert [t.title for t in ordered] == ["A", "B"]
+
+    a_id = next(t.id for t in tasks if t.title == "A")
+    tasks = move_task_down(tasks, a_id)
+    ordered = today_tasks(tasks)
+    assert [t.title for t in ordered] == ["B", "A"]
+
+
+def test_move_task_down_at_bottom_is_noop():
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    b_id = next(t.id for t in tasks if t.title == "B")
+    result = move_task_down(tasks, b_id)
+    assert [t.title for t in today_tasks(result)] == ["A", "B"]
+
+
+def test_move_task_down_unknown_id_is_noop():
+    tasks = add_task([], "Only")
+    result = move_task_down(tasks, "bad-id")
+    assert today_tasks(result) == [tasks[0]]
+
+
+# ------------------------------------------------------------------ #
+# Positional insertion                                                 #
+# ------------------------------------------------------------------ #
+
+def test_insert_task_after_places_below_anchor():
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    # order: A B
+    a_id = next(t.id for t in tasks if t.title == "A")
+    tasks = insert_task_after(tasks, a_id, "new")
+    assert [t.title for t in today_tasks(tasks)] == ["A", "new", "B"]
+
+
+def test_insert_task_after_at_last_position():
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    b_id = next(t.id for t in tasks if t.title == "B")
+    tasks = insert_task_after(tasks, b_id, "new")
+    assert [t.title for t in today_tasks(tasks)] == ["A", "B", "new"]
+
+
+def test_insert_task_before_places_above_anchor():
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    # order: A B
+    b_id = next(t.id for t in tasks if t.title == "B")
+    tasks = insert_task_before(tasks, b_id, "new")
+    assert [t.title for t in today_tasks(tasks)] == ["A", "new", "B"]
+
+
+def test_insert_task_before_at_first_position():
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    a_id = next(t.id for t in tasks if t.title == "A")
+    tasks = insert_task_before(tasks, a_id, "new")
+    assert [t.title for t in today_tasks(tasks)] == ["new", "A", "B"]
+
+
+def test_insert_task_after_uses_provided_task_id():
+    tasks = add_task([], "A")
+    a_id = tasks[0].id
+    tasks = insert_task_after(tasks, a_id, "new", task_id="fixed-id")
+    new_task = next(t for t in tasks if t.title == "new")
+    assert new_task.id == "fixed-id"
+
+
+def test_insert_task_before_uses_provided_task_id():
+    tasks = add_task([], "A")
+    a_id = tasks[0].id
+    tasks = insert_task_before(tasks, a_id, "new", task_id="fixed-id")
+    new_task = next(t for t in tasks if t.title == "new")
+    assert new_task.id == "fixed-id"
+
+
+def test_add_task_uses_provided_task_id():
+    tasks = add_task([], "A", task_id="fixed-id")
+    assert tasks[0].id == "fixed-id"
+
+
+def test_move_preserves_other_tasks():
+    tasks: list[Task] = []
+    for title in ["C", "B", "A"]:
+        tasks = add_task(tasks, title)
+    # order: A B C
+    b_id = next(t.id for t in tasks if t.title == "B")
+    tasks = move_task_up(tasks, b_id)
+    assert [t.title for t in today_tasks(tasks)] == ["B", "A", "C"]
