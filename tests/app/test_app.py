@@ -122,6 +122,10 @@ async def test_press_escape_cancels_task_creation(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("o")
         await pilot.pause()
+        # First Esc: INSERT → COMMAND mode inside VimInput (stays in creation).
+        await pilot.press("escape")
+        await pilot.pause()
+        # Second Esc: COMMAND mode bubbles to GtdApp → cancels the whole creation.
         await pilot.press("escape")
         await pilot.pause()
         assert app._mode == "NORMAL"
@@ -239,29 +243,40 @@ async def test_escape_closes_task_detail_screen(tmp_path: Path) -> None:
 
 async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
     """Open the detail view for 'foo', extend the title to 'foo bar',
-    tab to notes, add 'bar', then Esc to save.  Verify both fields persist."""
+    advance to notes, add 'bar', then Esc to save.  Verify both fields persist.
+
+    Title VimInput opens in COMMAND mode (editing existing task).
+    'A' enters INSERT at end; type ' bar'; Esc → COMMAND; Enter → submit/advance.
+    Notes VimInput also in COMMAND mode; 'i' → INSERT; type 'bar'; Esc → COMMAND.
+    Second Esc from notes COMMAND mode bubbles to TaskDetailScreen → save+close.
+    """
     data_file = _prepopulate(tmp_path, "foo")
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        # Open detail view — title input is pre-filled with "foo" and focused
+        # Open detail view — title VimInput pre-filled with "foo", COMMAND mode
         await pilot.press("enter")
         await pilot.pause()
         assert isinstance(app.screen, TaskDetailScreen)
 
-        # Move cursor to end of "foo" then append " bar"
-        await pilot.press("end")
+        # 'A' → insert mode at end of "foo", then type " bar"
+        await pilot.press("A")
         await pilot.press("space", "b", "a", "r")
-
-        # Enter advances from Title to Notes
+        # Esc → back to COMMAND mode (stays in modal)
+        await pilot.press("escape")
+        await pilot.pause()
+        # Enter in COMMAND mode submits VimInput → focus advances to notes
         await pilot.press("enter")
         await pilot.pause()
 
-        # Type notes
+        # Notes VimInput in COMMAND mode (empty). 'i' → INSERT; type "bar"
+        await pilot.press("i")
         await pilot.press("b", "a", "r")
-
-        # Esc saves and closes
+        # Esc → COMMAND mode
+        await pilot.press("escape")
+        await pilot.pause()
+        # Esc in COMMAND mode bubbles to TaskDetailScreen → save and close
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, TaskDetailScreen)

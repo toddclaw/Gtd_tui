@@ -12,6 +12,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
 from gtd_tui.gtd.dates import InvalidDateError, parse_date_input
+from gtd_tui.widgets.vim_input import VimInput
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.operations import (
     add_task,
@@ -129,7 +130,9 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str] | None]):
     """
 
     BINDINGS = [
-        Binding("escape", "save_and_close", show=False, priority=True),
+        # Not priority — VimInput absorbs Esc in INSERT mode itself; in COMMAND
+        # mode it lets Esc bubble here so we can save and close.
+        Binding("escape", "save_and_close", show=False),
     ]
 
     CSS = """
@@ -191,11 +194,16 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str] | None]):
         with Vertical(id="detail-panel"):
             yield Label("Edit Task", id="detail-header")
             yield Label("Title", classes="field-label")
-            yield Input(value=self._gtd_task.title, id="detail-title-input")
+            yield VimInput(
+                value=self._gtd_task.title,
+                start_mode="command",
+                id="detail-title-input",
+            )
             yield Label("Notes", classes="field-label")
-            yield Input(
+            yield VimInput(
                 value=self._gtd_task.notes,
                 placeholder="(optional)",
+                start_mode="command",
                 id="detail-notes-input",
             )
             yield Label(
@@ -211,21 +219,21 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str] | None]):
             yield Label("Enter: next field  Esc: save & close", id="detail-status")
 
     def on_mount(self) -> None:
-        self.query_one("#detail-title-input", Input).focus()
+        self.query_one("#detail-title-input", VimInput).focus()
 
     def action_save_and_close(self) -> None:
-        title = self.query_one("#detail-title-input", Input).value.strip()
-        notes = self.query_one("#detail-notes-input", Input).value.strip()
+        title = self.query_one("#detail-title-input", VimInput).value.strip()
+        notes = self.query_one("#detail-notes-input", VimInput).value.strip()
         repeat = self.query_one("#detail-repeat-input", Input).value.strip()
         recur = self.query_one("#detail-recur-input", Input).value.strip()
         self.dismiss((title, notes, repeat, recur) if title else None)
 
+    def on_vim_input_submitted(self, event: VimInput.Submitted) -> None:
+        if event.vim_input.id in ("detail-title-input", "detail-notes-input"):
+            self.focus_next()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id in (
-            "detail-title-input",
-            "detail-notes-input",
-            "detail-repeat-input",
-        ):
+        if event.input.id == "detail-repeat-input":
             self.focus_next()
         elif event.input.id == "detail-recur-input":
             self.action_save_and_close()
@@ -431,6 +439,15 @@ class GtdApp(App[None]):
         display: block;
     }
 
+    #vim-input {
+        margin: 0 1;
+        display: none;
+    }
+
+    #vim-input.active {
+        display: block;
+    }
+
     #task-list {
         height: 1fr;
         margin: 0 1;
@@ -514,6 +531,7 @@ class GtdApp(App[None]):
         with Horizontal(id="main-area"):
             yield ListView(id="sidebar")
             with Vertical(id="content"):
+                yield VimInput(placeholder="Task title...", id="vim-input")
                 yield Input(placeholder="Task title...", id="task-input")
                 yield ListView(id="task-list")
                 yield Label("No tasks — press o to add one", id="empty-hint")
@@ -1007,15 +1025,17 @@ class GtdApp(App[None]):
         self._show_placeholder = True
         self._mode = "INSERT"
         self._input_stage = "title"
-        inp = self.query_one("#task-input", Input)
+        vim = self.query_one("#vim-input", VimInput)
         if self._current_view == "waiting_on":
-            inp.placeholder = "Waiting On task title..."
+            vim.set_placeholder("Waiting On task title...")
         elif self._current_view == "someday":
-            inp.placeholder = "Someday task title..."
+            vim.set_placeholder("Someday task title...")
         else:
-            inp.placeholder = "Task title..."
-        inp.add_class("active")
-        inp.focus()
+            vim.set_placeholder("Task title...")
+        vim.clear()
+        vim.set_mode("insert")  # creation always starts in INSERT
+        vim.add_class("active")
+        vim.focus()
         self._update_status()
         self._refresh_list()  # show the placeholder row immediately
 
@@ -1028,65 +1048,75 @@ class GtdApp(App[None]):
         inp.focus()
         self._update_status(":")
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    def on_vim_input_submitted(self, event: VimInput.Submitted) -> None:
+        """Handle title/notes submission from the inline VimInput widget."""
+        if event.vim_input.id != "vim-input":
+            return  # guard against events leaking from modal screens
         value = event.value.strip()
-        inp = self.query_one("#task-input", Input)
+        vim = self.query_one("#vim-input", VimInput)
 
         if self._input_stage == "title":
             if not value:
                 self._cancel_input()
                 return
             self._pending_title = value
-            inp.clear()
-            inp.placeholder = "Notes (Enter to skip)..."
+            vim.clear()
+            vim.set_placeholder("Notes (Enter to skip)...")
+            vim.set_mode("insert")  # notes stage also starts in INSERT
             self._input_stage = "notes"
-            # Update the placeholder row to show the title the user just typed
-            # so there's visual context while entering notes.
             self._update_placeholder_label(value)
 
         elif self._input_stage == "notes":
-            self._push_undo()
-            new_id = str(uuid.uuid4())
-            if self._current_view == "waiting_on":
-                self._all_tasks = add_waiting_on_task(
-                    self._all_tasks, self._pending_title, notes=value
-                )
-            elif self._current_view in ("someday",) or self._current_view not in BUILTIN_FOLDER_IDS:
-                # Someday built-in or any custom folder: append task there
-                self._all_tasks = add_task_to_folder(
-                    self._all_tasks,
-                    self._current_view,
-                    self._pending_title,
-                    notes=value,
-                    task_id=new_id,
-                )
-            elif not self._pending_anchor_id:
-                self._all_tasks = add_task(
-                    self._all_tasks, self._pending_title, notes=value, task_id=new_id
-                )
-            elif self._pending_insert_position == "before":
-                self._all_tasks = insert_task_before(
-                    self._all_tasks,
-                    self._pending_anchor_id,
-                    self._pending_title,
-                    notes=value,
-                    task_id=new_id,
-                )
-            else:
-                self._all_tasks = insert_task_after(
-                    self._all_tasks,
-                    self._pending_anchor_id,
-                    self._pending_title,
-                    notes=value,
-                    task_id=new_id,
-                )
-            self._save()
-            self._show_placeholder = False  # clear before rebuild
-            self._placeholder_list_idx = None
-            self._refresh_list(select_task_id=new_id)
-            self._cancel_input()
+            self._save_new_task(value)
 
-        elif self._input_stage == "date":
+    def _save_new_task(self, notes: str) -> None:
+        """Create the pending task with the given notes and clean up."""
+        self._push_undo()
+        new_id = str(uuid.uuid4())
+        if self._current_view == "waiting_on":
+            self._all_tasks = add_waiting_on_task(
+                self._all_tasks, self._pending_title, notes=notes
+            )
+        elif self._current_view in ("someday",) or self._current_view not in BUILTIN_FOLDER_IDS:
+            self._all_tasks = add_task_to_folder(
+                self._all_tasks,
+                self._current_view,
+                self._pending_title,
+                notes=notes,
+                task_id=new_id,
+            )
+        elif not self._pending_anchor_id:
+            self._all_tasks = add_task(
+                self._all_tasks, self._pending_title, notes=notes, task_id=new_id
+            )
+        elif self._pending_insert_position == "before":
+            self._all_tasks = insert_task_before(
+                self._all_tasks,
+                self._pending_anchor_id,
+                self._pending_title,
+                notes=notes,
+                task_id=new_id,
+            )
+        else:
+            self._all_tasks = insert_task_after(
+                self._all_tasks,
+                self._pending_anchor_id,
+                self._pending_title,
+                notes=notes,
+                task_id=new_id,
+            )
+        self._save()
+        self._show_placeholder = False
+        self._placeholder_list_idx = None
+        self._refresh_list(select_task_id=new_id)
+        self._cancel_input()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id != "task-input":
+            return  # guard against events leaking from modal screens
+        value = event.value.strip()
+
+        if self._input_stage == "date":
             self._apply_date(value)
 
         elif self._input_stage == "command":
@@ -1120,6 +1150,9 @@ class GtdApp(App[None]):
             self._cancel_input()
 
     def _cancel_input(self) -> None:
+        vim = self.query_one("#vim-input", VimInput)
+        vim.clear()
+        vim.remove_class("active")
         inp = self.query_one("#task-input", Input)
         inp.clear()
         inp.remove_class("active")
