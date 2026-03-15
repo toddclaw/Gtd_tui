@@ -487,7 +487,7 @@ class Task:
 
 ---
 
-### BACKLOG-5 — Repeating tasks (time-based, independent of completion)
+### ~~BACKLOG-5 — Repeating tasks (time-based, independent of completion)~~ ✅ DONE
 
 **Story points:** 8 — Requires a task detail/edit view (none exists yet), a new RepeatRule data model with storage migration, and launch-time task-spawning logic. The edit view alone is a significant new UI component.
 
@@ -498,11 +498,11 @@ class Task:
 - The original task is not modified; a fresh copy appears in Today on the repeat date
 
 **Acceptance criteria:**
-- [ ] Task edit view has a repeat field: interval + unit (e.g. `7 days`, `1 month`)
-- [ ] On app launch, any repeat tasks whose next due date has arrived generate a new task in Today
-- [ ] The new task is a full copy (same title, notes, folder) with no repeat setting of its own (or repeat setting preserved, depending on user preference — clarify before implementing)
-- [ ] Repeat schedule is stored on the source task and survives restarts
-- [ ] Completing or deleting a repeating task does not cancel future instances
+- [x] Task edit view has a repeat field: interval + unit (e.g. `7 days`, `1 month`)
+- [x] On app launch, any repeat tasks whose next due date has arrived generate a new task in Today
+- [x] The new task is a copy (title, notes, folder) with no repeat rule of its own; the source task keeps its rule for future spawns
+- [x] Repeat schedule is stored on the source task and survives restarts
+- [x] Completing or deleting a repeating task does not cancel future instances
 
 **Data model addition:**
 ```python
@@ -706,7 +706,7 @@ class RecurRule:
 
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 5, 6, 8 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
