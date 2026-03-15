@@ -707,7 +707,7 @@ class RecurRule:
 
 ---
 
-### BACKLOG-16 — TUI integration tests
+### ~~BACKLOG-16 — TUI integration tests~~ ✅ DONE
 
 **Story points:** 8 — Textual ships a headless test driver (`App.run_test()`) that simulates key events and inspects the DOM without a real terminal. This is the first time the app layer is tested directly; all prior tests cover only domain logic and storage.
 
@@ -717,28 +717,27 @@ class RecurRule:
 - Keep tests fast: use `tmp_path` for storage so no real data file is touched
 
 **Acceptance criteria:**
-- [ ] Test harness uses `await app.run_test()` (Textual's `pilot` API) — no subprocess or real terminal required
-- [ ] Launching the app shows Today view with correct header
-- [ ] Pressing `o` enters INSERT mode; typing a title and pressing Enter twice adds the task to the list
-- [ ] Pressing `x` / Space on a task completes it and removes it from Today
-- [ ] Pressing `Enter` on a task opens the `TaskDetailScreen` modal; `Esc` closes it
-- [ ] Pressing `/` opens the `SearchScreen` modal; `Esc` closes it
-- [ ] Pressing `h` focuses the sidebar; `l` / `Enter` returns focus to the task list
-- [ ] Pressing `u` after completing a task restores it to Today (undo)
-- [ ] Tasks persist: saving and reloading `GtdApp` with the same `tmp_path` data file shows the same tasks
-- [ ] Tests live in `tests/app/test_app.py` and run with the rest of the suite via `pytest`
+- [x] Test harness uses `await app.run_test()` (Textual's `pilot` API) — no subprocess or real terminal required
+- [x] Launching the app shows Today view with correct header
+- [x] Pressing `o` enters INSERT mode; typing a title and pressing Enter twice adds the task to the list
+- [x] Pressing `x` on a task completes it and removes it from Today
+- [x] Pressing `Enter` on a task opens the `TaskDetailScreen` modal; `Esc` closes it
+- [x] Pressing `/` opens the `SearchScreen` modal; `Esc` closes it
+- [x] Pressing `h` focuses the sidebar; `l` returns focus to the task list
+- [x] Pressing `u` after completing a task restores it to Today (undo)
+- [x] Tasks persist: saving and reloading `GtdApp` with the same `tmp_path` data file shows the same tasks
+- [x] Tests live in `tests/app/test_app.py` and run with the rest of the suite via `pytest`
 
 **Implementation notes:**
-- Textual's pilot API: `async with app.run_test() as pilot: await pilot.press("o")`
-- Use `app.query_one("#header", Label).renderable` to inspect displayed text
-- Modal screens can be detected via `app.screen` (the currently active screen)
-- Pass a `tmp_path`-based data file path to `GtdApp.__init__` — this requires adding an optional `data_file` parameter to the constructor, which then passes it through to `load_tasks` / `load_folders` / `save_data`
+- Used `label.content` (not `.renderable`) to read Label text in Textual 8.1.1
+- `_task` attribute renamed to `_gtd_task` in `TaskDetailScreen` — Textual's `Widget` base class uses `_task` internally for its asyncio task, causing a collision
+- `asyncio_mode = "auto"` in `pyproject.toml` means all `async def test_*` functions run as asyncio tests without `@pytest.mark.asyncio`
 
 ---
 
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 16 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
