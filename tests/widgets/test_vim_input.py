@@ -195,6 +195,40 @@ async def test_x_deletes_char_under_cursor() -> None:
         assert vi.value == "ac"
 
 
+async def test_D_deletes_to_end_of_line() -> None:
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 5  # on space between words
+        await pilot.press("D")
+        assert vi.value == "hello"
+        assert vi._vim_mode == "command"
+
+
+async def test_dd_clears_entire_field() -> None:
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        await pilot.press("d", "d")
+        assert vi.value == ""
+        assert vi._cursor == 0
+
+
+async def test_d_dollar_deletes_to_end() -> None:
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 5  # on space
+        await pilot.press("d", "dollar")
+        assert vi.value == "hello"
+
+
+async def test_d_zero_deletes_to_start() -> None:
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 6  # on 'w'
+        await pilot.press("d", "0")
+        assert vi.value == "world"
+        assert vi._cursor == 0
+
+
 async def test_cw_deletes_to_end_of_word_and_enters_insert() -> None:
     async with _App(value="hello world", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)

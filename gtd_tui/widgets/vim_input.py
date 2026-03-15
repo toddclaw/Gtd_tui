@@ -210,7 +210,7 @@ class VimInput(Widget, can_focus=True):
     def _handle_command(self, event: events.Key) -> None:
         key = event.key
 
-        # Resolve pending multi-key sequences (e.g. "cw").
+        # Resolve pending multi-key sequences (e.g. "cw", "dd", "d$", "d0").
         if self._pending:
             pending = self._pending
             self._pending = ""
@@ -218,6 +218,18 @@ class VimInput(Widget, can_focus=True):
                 event.stop()
                 event.prevent_default()
                 self._cmd_change_word()
+            elif pending == "d":
+                event.stop()
+                event.prevent_default()
+                if key == "d":
+                    self._text = ""
+                    self._cursor = 0
+                elif key == "dollar":
+                    self._text = self._text[: self._cursor]
+                    self._cursor = max(0, len(self._text) - 1)
+                elif key == "0":
+                    self._text = self._text[self._cursor :]
+                    self._cursor = 0
             # Unknown sequence — silently discard; do not consume the event.
             return
 
@@ -261,6 +273,12 @@ class VimInput(Widget, can_focus=True):
                 self._cursor = min(self._cursor, max(0, len(self._text) - 1))
         elif key == "c":
             self._pending = "c"
+        elif key == "d":
+            self._pending = "d"
+        elif key == "D":
+            # Delete from cursor to end of line (same as d$).
+            self._text = self._text[: self._cursor]
+            self._cursor = max(0, len(self._text) - 1)
         elif key == "enter":
             self.post_message(self.Submitted(self, self._text))
 
