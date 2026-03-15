@@ -384,6 +384,37 @@ def test_move_preserves_other_tasks():
     assert [t.title for t in today_tasks(tasks)] == ["B", "A", "C"]
 
 
+def test_move_task_down_skips_snoozed_tasks():
+    """J should swap with the next VISIBLE task, not a snoozed one in between."""
+    tasks = add_task([], "A")
+    tasks = add_task(tasks, "B")  # B pos=0, A pos=1 after add_task prepend
+    # Snooze B so today_tasks returns only A
+    b_id = next(t.id for t in tasks if t.title == "B")
+    tasks = schedule_task(tasks, b_id, date.today() + timedelta(days=5))
+    tasks = add_task(tasks, "C")  # C pos=0, B pos=1, A pos=2
+    # Visible order: C(pos=0), A(pos=2)   [B is snoozed]
+    assert [t.title for t in today_tasks(tasks)] == ["C", "A"]
+    c_id = next(t.id for t in tasks if t.title == "C")
+    tasks = move_task_down(tasks, c_id)
+    # C should now be after A — one press is enough
+    assert [t.title for t in today_tasks(tasks)] == ["A", "C"]
+
+
+def test_move_task_up_skips_snoozed_tasks():
+    """K should swap with the previous VISIBLE task, not a snoozed one in between."""
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "C")
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")  # visible order: A, B, C
+    b_id = next(t.id for t in tasks if t.title == "B")
+    tasks = schedule_task(tasks, b_id, date.today() + timedelta(days=5))
+    # Visible order: A, C   [B snoozed]
+    assert [t.title for t in today_tasks(tasks)] == ["A", "C"]
+    c_id = next(t.id for t in tasks if t.title == "C")
+    tasks = move_task_up(tasks, c_id)
+    assert [t.title for t in today_tasks(tasks)] == ["C", "A"]
+
+
 def test_move_task_up_in_custom_folder():
     tasks = add_task_to_folder([], "projects", "First")
     tasks = add_task_to_folder(tasks, "projects", "Second")

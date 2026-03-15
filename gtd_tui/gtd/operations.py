@@ -185,17 +185,18 @@ def someday_tasks(tasks: list[Task]) -> list[Task]:
 
 
 def move_task_up(tasks: list[Task], task_id: str) -> list[Task]:
-    """Move a task one position up within its folder.
+    """Move a task one position up within its visible peers.
+
+    For the 'today' folder, peers are only the currently active (non-snoozed)
+    tasks so that K always swaps with the task the user can see.
+    For all other folders, peers are the full folder contents.
 
     No-op if the task is already first or not found.
     """
     task = next((t for t in tasks if t.id == task_id), None)
     if task is None:
         return tasks
-    peers = sorted(
-        [t for t in tasks if t.folder_id == task.folder_id],
-        key=lambda t: t.position,
-    )
+    peers = _visible_peers(tasks, task)
     idx = next((i for i, t in enumerate(peers) if t.id == task_id), None)
     if idx is None or idx == 0:
         return tasks
@@ -207,17 +208,18 @@ def move_task_up(tasks: list[Task], task_id: str) -> list[Task]:
 
 
 def move_task_down(tasks: list[Task], task_id: str) -> list[Task]:
-    """Move a task one position down within its folder.
+    """Move a task one position down within its visible peers.
+
+    For the 'today' folder, peers are only the currently active (non-snoozed)
+    tasks so that J always swaps with the task the user can see.
+    For all other folders, peers are the full folder contents.
 
     No-op if the task is already last or not found.
     """
     task = next((t for t in tasks if t.id == task_id), None)
     if task is None:
         return tasks
-    peers = sorted(
-        [t for t in tasks if t.folder_id == task.folder_id],
-        key=lambda t: t.position,
-    )
+    peers = _visible_peers(tasks, task)
     idx = next((i for i, t in enumerate(peers) if t.id == task_id), None)
     if idx is None or idx == len(peers) - 1:
         return tasks
@@ -226,6 +228,21 @@ def move_task_down(tasks: list[Task], task_id: str) -> list[Task]:
         peers[idx].position,
     )
     return tasks
+
+
+def _visible_peers(tasks: list[Task], task: Task) -> list[Task]:
+    """Return the ordered list of peers used for J/K reordering.
+
+    'today'-folder tasks use only the active (visible) subset so that snoozed
+    tasks hidden from the view are never accidentally swapped past.
+    All other folders show every task they contain.
+    """
+    if task.folder_id == "today":
+        return _today_folder_active(tasks)
+    return sorted(
+        [t for t in tasks if t.folder_id == task.folder_id],
+        key=lambda t: t.position,
+    )
 
 
 def logbook_tasks(tasks: list[Task]) -> list[Task]:
