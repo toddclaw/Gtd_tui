@@ -607,7 +607,7 @@ class RecurRule:
 
 ---
 
-### BACKLOG-11 — Task detail and edit view
+### ~~BACKLOG-11 — Task detail and edit view~~ ✅ DONE
 
 **Story points:** 5 — New overlay/panel component; first time existing tasks can be edited after creation.
 
@@ -617,12 +617,15 @@ class RecurRule:
 - Esc closes the panel; changes are saved on close
 
 **Acceptance criteria:**
-- [ ] `Enter` in NORMAL mode opens the detail view for the selected task
-- [ ] Detail view shows full title and full notes (multi-line)
-- [ ] `i` or `Enter` within the detail view enters INSERT mode for editing
-- [ ] Esc from INSERT mode returns to the detail view; Esc from detail view returns to the list
-- [ ] Edits persist to `data.json` on close
-- [ ] Edited title is reflected in the task list immediately
+- [x] `Enter` in NORMAL mode opens the detail view for the selected task
+- [x] Detail view shows full title and full notes (multi-line)
+- [x] Modal opens directly in edit mode; `Enter` advances between fields; `Esc` saves and closes
+- [x] Edits persist to `data.json` on close
+- [x] Edited title is reflected in the task list immediately
+
+**Also delivered beyond original spec:**
+- Repeat field (calendar-fixed schedule, e.g. `7 days`) — BACKLOG-5
+- Recurring field (completion-relative, e.g. `1 week`) — BACKLOG-6
 
 ---
 
@@ -706,7 +709,7 @@ class RecurRule:
 
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
