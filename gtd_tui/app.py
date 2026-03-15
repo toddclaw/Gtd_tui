@@ -5,6 +5,7 @@ import uuid
 
 from textual import events
 from textual.app import App, ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
@@ -19,6 +20,7 @@ from gtd_tui.gtd.operations import (
     create_folder,
     delete_folder,
     discard_folder_tasks,
+    edit_task,
     folder_tasks,
     insert_task_after,
     insert_task_before,
@@ -64,12 +66,13 @@ class HelpScreen(ModalScreen[None]):
   1–9          Jump to nth sidebar item
 
 [bold]Task Actions[/bold]
+  Enter        Open task detail / edit (Esc to save & close)
   o            Add new task after selected (INSERT mode)
   O            Add new task before selected (INSERT mode)
   x / Space    Complete selected task
   s            Schedule selected task
   m            Move selected task to a folder (sidebar picker)
-  J / K        Move selected task down / up  (Today)
+  J / K        Move selected task down / up
   w            Move selected task to Waiting On  (Today view)
   t            Move selected task to Today       (Waiting On view)
   u            Undo last action
@@ -99,6 +102,92 @@ class HelpScreen(ModalScreen[None]):
     def on_key(self, event: events.Key) -> None:
         if event.key in ("escape", "q", "enter"):
             self.dismiss()
+
+
+class TaskDetailScreen(ModalScreen[tuple[str, str] | None]):
+    """Detail and edit view for a single task.
+
+    Opens directly in edit mode with inputs pre-filled.
+    Enter on the title field advances focus to notes.
+    Enter on the notes field saves and closes.
+    Esc always saves and closes (priority binding fires before any widget).
+
+    Note: we use call_after_refresh when advancing focus to avoid Textual
+    replaying the Enter key on the newly focused Input.
+    """
+
+    BINDINGS = [
+        Binding("escape", "save_and_close", show=False, priority=True),
+    ]
+
+    CSS = """
+    TaskDetailScreen {
+        align: center middle;
+    }
+
+    #detail-panel {
+        width: 70;
+        height: auto;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #detail-header {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    .field-label {
+        color: $text-muted;
+        margin-bottom: 0;
+    }
+
+    #detail-title-input {
+        margin-bottom: 1;
+    }
+
+    #detail-status {
+        color: $text-muted;
+        margin-top: 1;
+    }
+    """
+
+    def __init__(self, task: Task) -> None:
+        super().__init__()
+        self._task = task
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="detail-panel"):
+            yield Label("Edit Task", id="detail-header")
+            yield Label("Title", classes="field-label")
+            yield Input(value=self._task.title, id="detail-title-input")
+            yield Label("Notes", classes="field-label")
+            yield Input(
+                value=self._task.notes,
+                placeholder="(optional)",
+                id="detail-notes-input",
+            )
+            yield Label(
+                "Enter: next field  Esc: save & close", id="detail-status"
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#detail-title-input", Input).focus()
+
+    def action_save_and_close(self) -> None:
+        title = self.query_one("#detail-title-input", Input).value.strip()
+        notes = self.query_one("#detail-notes-input", Input).value.strip()
+        self.dismiss((title, notes) if title else None)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "detail-title-input":
+            # Use Textual's built-in focus_next() — advances without generating
+            # any key event, so there is no Enter replay on the notes Input.
+            self.focus_next()
+        elif event.input.id == "detail-notes-input":
+            self.action_save_and_close()
 
 
 class GtdApp(App[None]):
@@ -223,9 +312,32 @@ class GtdApp(App[None]):
         yield Label("NORMAL  |  Today", id="status")
 
     def on_mount(self) -> None:
+        self._normalize_folder_positions()
         self._rebuild_sidebar()
         self._refresh_list()
         self.query_one("#task-list", ListView).focus()
+
+    def _normalize_folder_positions(self) -> None:
+        """Ensure every folder's tasks have unique, sequential positions.
+
+        Fixes tasks saved by older versions of the app that always wrote
+        position=0 for Waiting On tasks, which makes J/K swapping a no-op.
+        """
+        from collections import defaultdict
+
+        by_folder: dict[str, list[Task]] = defaultdict(list)
+        for task in self._all_tasks:
+            by_folder[task.folder_id].append(task)
+        needs_save = False
+        for folder_tasks_list in by_folder.values():
+            folder_tasks_list.sort(key=lambda t: t.position)
+            positions = [t.position for t in folder_tasks_list]
+            if positions != list(range(len(positions))):
+                for i, task in enumerate(folder_tasks_list):
+                    task.position = i
+                needs_save = True
+        if needs_save:
+            self._save()
 
     # ------------------------------------------------------------------ #
     # Sidebar management                                                   #
@@ -526,7 +638,11 @@ class GtdApp(App[None]):
             self._pending_key = "g"
             return
 
-        if event.key == "j":
+        if event.key == "enter":
+            event.prevent_default()
+            self._open_task_detail()
+            return
+        elif event.key == "j":
             event.prevent_default()
             list_view.action_cursor_down()
             self._skip_separator(direction=1)
@@ -857,6 +973,25 @@ class GtdApp(App[None]):
         self._pending_task_id = ""
         self._update_status()
         self.query_one("#task-list", ListView).focus()
+
+    def _open_task_detail(self) -> None:
+        task = self._get_selected_task()
+        if task is None:
+            return
+        task_id = task.id
+
+        def _on_detail_close(result: tuple[str, str] | None) -> None:
+            if result is None:
+                return
+            new_title, new_notes = result
+            if new_title == task.title and new_notes == task.notes:
+                return  # nothing changed — skip write
+            self._push_undo()
+            self._all_tasks = edit_task(self._all_tasks, task_id, new_title, new_notes)
+            self._save()
+            self._refresh_list(select_task_id=task_id)
+
+        self.push_screen(TaskDetailScreen(task), _on_detail_close)
 
     def _move_selected_to_waiting_on(self) -> None:
         task = self._get_selected_task()

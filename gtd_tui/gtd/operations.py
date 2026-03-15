@@ -87,6 +87,15 @@ def insert_task_before(
     return tasks + [new_task]
 
 
+def edit_task(tasks: list[Task], task_id: str, title: str, notes: str = "") -> list[Task]:
+    """Update a task's title and notes. No-op if task_id is not found."""
+    for task in tasks:
+        if task.id == task_id:
+            task.title = title
+            task.notes = notes
+    return tasks
+
+
 def complete_task(tasks: list[Task], task_id: str) -> list[Task]:
     """Mark a task complete and move it to the logbook."""
     for task in tasks:
@@ -260,16 +269,21 @@ def logbook_tasks(tasks: list[Task]) -> list[Task]:
 
 
 def add_waiting_on_task(tasks: list[Task], title: str, notes: str = "") -> list[Task]:
-    """Add a new task to the Waiting On folder."""
-    new_task = Task(title=title, notes=notes, folder_id="waiting_on", position=0)
+    """Add a new task to the end of the Waiting On folder."""
+    existing = folder_tasks(tasks, "waiting_on")
+    next_pos = existing[-1].position + 1 if existing else 0
+    new_task = Task(title=title, notes=notes, folder_id="waiting_on", position=next_pos)
     return tasks + [new_task]
 
 
 def move_to_waiting_on(tasks: list[Task], task_id: str) -> list[Task]:
-    """Move a task to the Waiting On folder. Preserves any scheduled date."""
+    """Move a task to the Waiting On folder, appending at the end. Preserves any scheduled date."""
+    existing = folder_tasks(tasks, "waiting_on")
+    next_pos = existing[-1].position + 1 if existing else 0
     for task in tasks:
         if task.id == task_id:
             task.folder_id = "waiting_on"
+            task.position = next_pos
     return tasks
 
 
@@ -287,14 +301,15 @@ def move_to_today(tasks: list[Task], task_id: str) -> list[Task]:
 
 
 def waiting_on_tasks(tasks: list[Task]) -> list[Task]:
-    """Return all Waiting On tasks, sorted by scheduled_date then position.
+    """Return all Waiting On tasks, sorted by position.
 
     Includes undated, future-dated, and past-dated tasks — the full view of
-    what you are waiting on from others.
+    what you are waiting on from others. Position order is preserved so that
+    J/K reordering within the Waiting On view works correctly.
     """
     return sorted(
         [t for t in tasks if t.folder_id == "waiting_on"],
-        key=lambda t: (t.scheduled_date or date.min, t.position),
+        key=lambda t: t.position,
     )
 
 

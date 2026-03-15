@@ -5,6 +5,7 @@ from gtd_tui.gtd.operations import (
     add_waiting_on_task,
     add_task_to_folder,
     complete_task,
+    edit_task,
     folder_tasks,
     insert_task_after,
     insert_task_before,
@@ -132,6 +133,52 @@ def test_complete_task_unknown_id_is_noop():
     tasks = add_task([], "Task")
     result = complete_task(tasks, "nonexistent-id")
     assert len(today_tasks(result)) == 1
+
+
+# ------------------------------------------------------------------ #
+# edit_task                                                            #
+# ------------------------------------------------------------------ #
+
+
+def test_edit_task_updates_title():
+    tasks = add_task([], "Old title")
+    task_id = tasks[0].id
+    tasks = edit_task(tasks, task_id, "New title")
+    assert tasks[0].title == "New title"
+
+
+def test_edit_task_updates_notes():
+    tasks = add_task([], "Task", notes="old notes")
+    task_id = tasks[0].id
+    tasks = edit_task(tasks, task_id, "Task", notes="new notes")
+    assert tasks[0].notes == "new notes"
+
+
+def test_edit_task_clears_notes_when_empty():
+    tasks = add_task([], "Task", notes="some notes")
+    task_id = tasks[0].id
+    tasks = edit_task(tasks, task_id, "Task", notes="")
+    assert tasks[0].notes == ""
+
+
+def test_edit_task_unknown_id_is_noop():
+    tasks = add_task([], "Task")
+    result = edit_task(tasks, "bad-id", "New title")
+    assert result[0].title == "Task"
+
+
+def test_edit_task_preserves_other_fields():
+    from datetime import date as dt
+    tasks = add_task([], "Task")
+    task_id = tasks[0].id
+    tasks[0].scheduled_date = dt(2026, 5, 1)
+    tasks[0].folder_id = "someday"
+    tasks[0].position = 7
+    tasks = edit_task(tasks, task_id, "Edited", notes="note")
+    t = tasks[0]
+    assert t.scheduled_date == dt(2026, 5, 1)
+    assert t.folder_id == "someday"
+    assert t.position == 7
 
 
 def test_logbook_tasks_most_recent_first():
@@ -476,15 +523,65 @@ def test_waiting_on_tasks_returns_all():
     assert all(t.folder_id == "waiting_on" for t in result)
 
 
-def test_waiting_on_tasks_no_date_sorts_first():
+def test_waiting_on_tasks_sorted_by_position():
+    """Waiting On view sorts by position, not by date (enables J/K reordering)."""
     tasks: list[Task] = []
-    tasks = add_waiting_on_task(tasks, "Has date")
-    tasks = add_waiting_on_task(tasks, "No date")
-    has_date_id = next(t.id for t in tasks if t.title == "Has date")
-    tasks = schedule_task(tasks, has_date_id, date.today() + timedelta(days=3))
+    tasks = add_waiting_on_task(tasks, "First added")
+    tasks = add_waiting_on_task(tasks, "Second added")
+    tasks = add_waiting_on_task(tasks, "Third added")
+    # Assign a past date to "Second added" — should still appear second (position order).
+    second_id = next(t.id for t in tasks if t.title == "Second added")
+    tasks = schedule_task(tasks, second_id, date.today() - timedelta(days=1))
     result = waiting_on_tasks(tasks)
-    assert result[0].title == "No date"
-    assert result[1].title == "Has date"
+    assert result[0].title == "First added"
+    assert result[1].title == "Second added"
+    assert result[2].title == "Third added"
+
+
+def test_add_waiting_on_task_assigns_sequential_positions():
+    """Each new WO task gets the next position after existing WO tasks."""
+    tasks: list[Task] = []
+    tasks = add_waiting_on_task(tasks, "First")
+    tasks = add_waiting_on_task(tasks, "Second")
+    tasks = add_waiting_on_task(tasks, "Third")
+    wo = waiting_on_tasks(tasks)
+    assert [t.title for t in wo] == ["First", "Second", "Third"]
+    assert wo[0].position < wo[1].position < wo[2].position
+
+
+def test_move_to_waiting_on_appends_at_end():
+    """A task moved to Waiting On gets the next position after existing WO tasks."""
+    tasks = add_waiting_on_task([], "Already here")
+    tasks = add_task(tasks, "Moving over")
+    moving_id = next(t.id for t in tasks if t.title == "Moving over")
+    tasks = move_to_waiting_on(tasks, moving_id)
+    wo = waiting_on_tasks(tasks)
+    assert wo[0].title == "Already here"
+    assert wo[1].title == "Moving over"
+
+
+def test_move_task_up_in_waiting_on():
+    """J/K reordering works in Waiting On folder."""
+    tasks: list[Task] = []
+    tasks = add_waiting_on_task(tasks, "Alpha")
+    tasks = add_waiting_on_task(tasks, "Beta")
+    beta_id = next(t.id for t in tasks if t.title == "Beta")
+    tasks = move_task_up(tasks, beta_id)
+    result = waiting_on_tasks(tasks)
+    assert result[0].title == "Beta"
+    assert result[1].title == "Alpha"
+
+
+def test_move_task_down_in_waiting_on():
+    """J/K reordering works in Waiting On folder."""
+    tasks: list[Task] = []
+    tasks = add_waiting_on_task(tasks, "Alpha")
+    tasks = add_waiting_on_task(tasks, "Beta")
+    alpha_id = next(t.id for t in tasks if t.title == "Alpha")
+    tasks = move_task_down(tasks, alpha_id)
+    result = waiting_on_tasks(tasks)
+    assert result[0].title == "Beta"
+    assert result[1].title == "Alpha"
 
 
 def test_surfaced_waiting_on_tasks_returns_due():
