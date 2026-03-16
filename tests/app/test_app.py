@@ -401,6 +401,31 @@ async def test_l_from_sidebar_focuses_task_list(tmp_path: Path) -> None:
         assert task_list.has_focus
 
 
+async def test_deleting_non_empty_folder_sends_tasks_to_logbook(tmp_path: Path) -> None:
+    from textual.events import Key
+    from gtd_tui.gtd.operations import create_folder, add_task_to_folder
+
+    data_file = tmp_path / "data.json"
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Create a folder and add a task to it
+        app._all_folders = create_folder(app._all_folders, "Work")
+        folder_id = app._all_folders[-1].id
+        app._all_tasks = add_task_to_folder(app._all_tasks, folder_id, "Work item")
+        await pilot.pause()
+
+        # Simulate state after the first 'd' (prompt is showing) and confirm
+        app._delete_confirm_folder_id = folder_id
+        app._handle_delete_confirm_key(Key("d", character="d"))
+        await pilot.pause()
+
+        # Folder gone and task is in logbook as deleted (not just discarded)
+        assert not any(f.id == folder_id for f in app._all_folders)
+        logbook = [t for t in app._all_tasks if t.folder_id == "logbook"]
+        assert any(t.title == "Work item" and t.is_deleted for t in logbook)
+
+
 async def test_J_K_reorders_folders_in_sidebar(tmp_path: Path) -> None:
     from gtd_tui.gtd.operations import create_folder
 

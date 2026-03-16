@@ -1511,7 +1511,8 @@ class GtdApp(App[None]):
         folder_id = self._delete_confirm_folder_id
         if event.key == "d":
             event.prevent_default()
-            self._all_tasks = discard_folder_tasks(self._all_tasks, folder_id)
+            for task in folder_tasks(self._all_tasks, folder_id):
+                self._all_tasks = delete_task(self._all_tasks, task.id)
             self._all_folders = delete_folder(self._all_folders, folder_id)
             if self._current_view == folder_id:
                 self._current_view = "today"
