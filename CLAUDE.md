@@ -758,9 +758,79 @@ class RecurRule:
 
 ---
 
+### ~~BACKLOG-18 — Usability polish II (8 improvements)~~ ✅ DONE
+
+**Story points:** 8 — Eight user-requested usability improvements from the user's Today list.
+
+**Description:**
+
+1. **Skip notes on initial task creation** — after entering a title and pressing Enter, the task is saved immediately; notes can be added later via the detail view (`Enter` on a task)
+2. **Larger notes section** — the notes VimInput in TaskDetailScreen is 7 rows tall (4 content lines visible)
+3. **Folder count refresh** — sidebar counts update immediately after a task is added to any folder
+4. **Year in date display** — dates in a different year than today show the year: `Mar 16 Mon 2027`; same-year dates remain `Mar 16 Mon`
+5. **Notes in CLI summary** — `gtd-tui --summary` prints notes (indented) under each task that has them
+6. **Speed up Esc** — `ESCAPE_TO_MINIMIZE = False` on GtdApp removes Textual's built-in Esc delay
+7. **VimInput horizontal scroll** — text longer than the widget width scrolls to keep the cursor visible; no more invisible characters
+8. **Undo for folder deletion** — deleting a folder (empty or via confirm) is undoable with `u`; undo/redo stack now stores `(tasks, folders)` tuples
+
+**Features deferred to future backlogs:**
+- Waiting-on reminder (auto-date after 7 days) → BACKLOG-19
+- Weekly review screen → BACKLOG-19
+- Deadline field with red past-due display → BACKLOG-20
+
+**Acceptance criteria:**
+- [x] `o` → type title → Enter saves task immediately (no notes prompt)
+- [x] Notes section in detail view is at least 4 lines tall
+- [x] Sidebar count updates after adding a task
+- [x] Dates in a different year show the year suffix
+- [x] `--summary` prints notes indented under tasks that have them
+- [x] Esc in VimInput feels instant
+- [x] Cursor stays visible when typing past the right edge of the input
+- [x] `u` after deleting a folder restores it and its tasks
+
+---
+
+### BACKLOG-19 — Waiting-on reminder & Weekly review
+
+**Story points:** 13 — Two significant new features: a background scheduling concept (waiting-on auto-reminder) and a new full-screen view (weekly review).
+
+**Description:**
+
+1. **Waiting-on reminder** — when a task is added to Waiting On with no date, automatically schedule a reminder 7 days out; the task surfaces in Today on that date with a visual indicator that it came from Waiting On
+2. **Weekly review** — a new view (accessible via a keybinding, e.g. `W`) showing all tasks completed in the last 7 days, grouped by folder, with completion timestamps
+
+**Acceptance criteria:**
+- [ ] New Waiting On task with no date auto-gets a date of today+7
+- [ ] On the reminder date, task surfaces in Today with a `[W]` indicator
+- [ ] `W` (or similar) opens the Weekly Review view
+- [ ] Weekly Review lists completed tasks from the past 7 days, grouped by folder
+- [ ] Folder name is shown as a section header in the review
+
+---
+
+### BACKLOG-20 — Deadline field
+
+**Story points:** 8 — New data model field, rendering in red if past due, and days-remaining display.
+
+**Description:**
+- A task can have a **deadline** date separate from its scheduled date
+- In the task list, if a deadline is set: show the deadline date; if past due, render in red; if due soon (≤ 3 days), render in yellow
+- In the detail view, a dedicated Deadline field (below the date field)
+- The days-remaining count is shown alongside the date: `[Dec 1 Mon — 3d left]` or `[Dec 1 Mon — 2d overdue]` in red
+
+**Acceptance criteria:**
+- [ ] Task detail view has a Deadline field
+- [ ] Deadline date stored in `Task.deadline: date | None`
+- [ ] Task rows show deadline info when set
+- [ ] Past-due deadlines render in red
+- [ ] Due-in-≤3-days deadlines render in yellow
+- [ ] No deadline: no change to existing display
+
+---
+
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.

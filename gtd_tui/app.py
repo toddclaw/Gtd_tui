@@ -167,6 +167,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str] | None]):
     }
 
     #detail-notes-input {
+        height: 7;
         margin-bottom: 1;
     }
 
@@ -407,6 +408,8 @@ class SearchScreen(ModalScreen[str | None]):
 
 
 class GtdApp(App[None]):
+    ESCAPE_TO_MINIMIZE = False  # prevent Textual's minimize-on-Esc delay
+
     CSS = """
     Screen {
         background: $surface;
@@ -613,6 +616,15 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
 
     @staticmethod
+    def _format_date(d: "date") -> str:
+        """Format a date as 'Mar 16 Mon'; adds year if different from today."""
+        from datetime import date as _date
+        fmt = d.strftime("%b %d %a")
+        if d.year != _date.today().year:
+            fmt += f" {d.year}"
+        return fmt
+
+    @staticmethod
     def _task_label(task: Task) -> str:
         """Build the display label for a task row, with a recurrence marker."""
         marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
@@ -698,9 +710,7 @@ class GtdApp(App[None]):
         tasks = upcoming_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Upcoming ({len(tasks)})")
         for task in tasks:
-            date_str = (
-                task.scheduled_date.strftime("%b %d %a") if task.scheduled_date else ""
-            )
+            date_str = self._format_date(task.scheduled_date) if task.scheduled_date else ""
             folder_hint = ""
             if task.folder_id != "today":
                 folder_hint = f"  [{self._view_label(task.folder_id)}]"
@@ -712,7 +722,7 @@ class GtdApp(App[None]):
         for task in waiting_on_tasks(self._all_tasks):
             self._list_entries.append(task)
             date_str = (
-                f"  [{task.scheduled_date.strftime('%b %d %a')}]"
+                f"  [{self._format_date(task.scheduled_date)}]"
                 if task.scheduled_date
                 else ""
             )
@@ -801,7 +811,9 @@ class GtdApp(App[None]):
             list_view.focus()
 
     def _push_undo(self) -> None:
-        self._undo_stack.append(copy.deepcopy(self._all_tasks))
+        self._undo_stack.append(
+            (copy.deepcopy(self._all_tasks), copy.deepcopy(self._all_folders))
+        )
         self._redo_stack.clear()
 
     def _update_status(self, message: str = "") -> None:
@@ -1100,11 +1112,7 @@ class GtdApp(App[None]):
                 self._cancel_input()
                 return
             self._pending_title = value
-            vim.clear()
-            vim.set_placeholder("Notes (Enter to skip)...")
-            vim.set_mode("insert")  # notes stage also starts in INSERT
-            self._input_stage = "notes"
-            self._update_placeholder_label(value)
+            self._save_new_task("")
 
         elif self._input_stage == "notes":
             self._save_new_task(value)
@@ -1148,6 +1156,7 @@ class GtdApp(App[None]):
         self._save()
         self._show_placeholder = False
         self._placeholder_list_idx = None
+        self._rebuild_sidebar()
         self._refresh_list(select_task_id=new_id)
         self._cancel_input()
 
@@ -1468,6 +1477,7 @@ class GtdApp(App[None]):
         tasks_in_folder = folder_tasks(self._all_tasks, folder_id)
         if not tasks_in_folder:
             # Empty folder: delete immediately
+            self._push_undo()
             self._all_folders = delete_folder(self._all_folders, folder_id)
             if self._current_view == folder_id:
                 self._current_view = "today"
@@ -1514,6 +1524,7 @@ class GtdApp(App[None]):
         folder_id = self._delete_confirm_folder_id
         if event.key == "d":
             event.prevent_default()
+            self._push_undo()
             for task in folder_tasks(self._all_tasks, folder_id):
                 self._all_tasks = delete_task(self._all_tasks, task.id)
             self._all_folders = delete_folder(self._all_folders, folder_id)
@@ -1526,6 +1537,7 @@ class GtdApp(App[None]):
             self._update_status()
         elif event.key == "m":
             event.prevent_default()
+            self._push_undo()
             self._all_tasks = move_folder_tasks_to_today(self._all_tasks, folder_id)
             self._all_folders = delete_folder(self._all_folders, folder_id)
             if self._current_view == folder_id:
@@ -1617,16 +1629,22 @@ class GtdApp(App[None]):
         if not self._undo_stack:
             self._update_status("(nothing to undo)")
             return
-        self._redo_stack.append(copy.deepcopy(self._all_tasks))
-        self._all_tasks = self._undo_stack.pop()
+        self._redo_stack.append(
+            (copy.deepcopy(self._all_tasks), copy.deepcopy(self._all_folders))
+        )
+        self._all_tasks, self._all_folders = self._undo_stack.pop()
         self._save()
+        self._rebuild_sidebar()
         self._refresh_list()
 
     def _redo(self) -> None:
         if not self._redo_stack:
             self._update_status("(nothing to redo)")
             return
-        self._undo_stack.append(copy.deepcopy(self._all_tasks))
-        self._all_tasks = self._redo_stack.pop()
+        self._undo_stack.append(
+            (copy.deepcopy(self._all_tasks), copy.deepcopy(self._all_folders))
+        )
+        self._all_tasks, self._all_folders = self._redo_stack.pop()
         self._save()
+        self._rebuild_sidebar()
         self._refresh_list()

@@ -61,6 +61,7 @@ class VimInput(Widget, can_focus=True):
         self._placeholder: str = placeholder
         self._vim_mode: str = start_mode
         self._pending: str = ""  # for multi-key sequences like "cw"
+        self._view_offset: int = 0  # horizontal scroll offset for long lines
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
@@ -95,6 +96,7 @@ class VimInput(Widget, can_focus=True):
         self._text = ""
         self._cursor = 0
         self._pending = ""
+        self._view_offset = 0
         self.refresh()
 
     def set_placeholder(self, placeholder: str) -> None:
@@ -120,6 +122,14 @@ class VimInput(Widget, can_focus=True):
     # Rendering
     # ------------------------------------------------------------------
 
+    def _scroll_to_cursor(self) -> None:
+        """Adjust _view_offset so the cursor is always visible."""
+        width = self.content_size.width or 40
+        if self._cursor < self._view_offset:
+            self._view_offset = self._cursor
+        elif self._cursor >= self._view_offset + width:
+            self._view_offset = self._cursor - width + 1
+
     def render(self) -> RenderableType:
         from rich.text import Text
 
@@ -128,16 +138,23 @@ class VimInput(Widget, can_focus=True):
                 return Text(self._placeholder, style="dim")
             return Text(" ", style="reverse")
 
+        self._scroll_to_cursor()
         text = self._text
         cursor = max(0, min(self._cursor, len(text)))
+        offset = self._view_offset
+        visible = text[offset:]
+
         t = Text(no_wrap=True)
-        if cursor < len(text):
-            t.append(text[:cursor])
-            t.append(text[cursor], style="reverse")
-            t.append(text[cursor + 1 :])
-        else:
-            t.append(text)
+        rel = cursor - offset  # cursor position within visible slice
+        if 0 <= rel < len(visible):
+            t.append(visible[:rel])
+            t.append(visible[rel], style="reverse")
+            t.append(visible[rel + 1 :])
+        elif rel == len(visible):
+            t.append(visible)
             t.append(" ", style="reverse")
+        else:
+            t.append(visible)
         return t
 
     # ------------------------------------------------------------------

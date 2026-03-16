@@ -18,6 +18,8 @@ def _print_summary(data_file: Path | None = None) -> None:
     print(f"Today ({len(today)}):")
     for t in today:
         print(f"  - {t.title}")
+        if t.notes:
+            print(f"    {t.notes}")
 
     if upcoming:
         print(f"\nUpcoming ({len(upcoming)}):")
@@ -26,6 +28,8 @@ def _print_summary(data_file: Path | None = None) -> None:
                 t.scheduled_date.strftime("%b %d %a") if t.scheduled_date else ""
             )
             print(f"  - {t.title}  {date_str}")
+            if t.notes:
+                print(f"    {t.notes}")
 
 
 def main() -> None:
