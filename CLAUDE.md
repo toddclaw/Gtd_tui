@@ -828,9 +828,25 @@ class RecurRule:
 
 ---
 
+### ~~BACKLOG-21 — Extended vim motions, multiline notes, created_at, positional folder insertion~~ ✅ DONE
+
+**Story points:** 13
+
+**Acceptance criteria:**
+- [x] `W` / `B` WORD-forward / WORD-backward motions in VimInput
+- [x] `dw` / `dW` delete to end of word / WORD in VimInput
+- [x] VimInput supports `multiline=True` mode: Enter inserts newline, j/k navigate lines
+- [x] Task notes field is multiline in the detail view
+- [x] `Task.created_at` field set at creation, stored/loaded in JSON, displayed in detail/logbook views
+- [x] `insert_folder()` operation supports before/after/end positional insertion with renumbering
+- [x] Sidebar `o` / `O` insert a new folder after / before the selected folder
+- [x] Undo/redo unified via `_apply_history` helper
+
+---
+
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 21 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
