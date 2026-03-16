@@ -161,7 +161,7 @@ async def test_dollar_moves_to_last_char() -> None:
     async with _App(value="hello", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 0
-        await pilot.press("dollar")
+        await pilot.press("dollar_sign")
         assert vi._cursor == 4  # index of last char 'o'
 
 
@@ -216,7 +216,7 @@ async def test_d_dollar_deletes_to_end() -> None:
     async with _App(value="hello world", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 5  # on space
-        await pilot.press("d", "dollar")
+        await pilot.press("d", "dollar_sign")
         assert vi.value == "hello"
 
 
@@ -596,7 +596,7 @@ async def test_c_dollar_changes_to_end_of_line_and_enters_insert() -> None:
     async with _App(value="hello world", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 6  # on 'w'
-        await pilot.press("c", "dollar")
+        await pilot.press("c", "dollar_sign")
         assert vi.value == "hello "
         assert vi._cursor == 5
         assert vi._vim_mode == "insert"
@@ -611,7 +611,7 @@ async def test_d_dollar_multiline_deletes_only_current_line_remainder() -> None:
         await pilot.press("escape")   # command mode, cursor on line 1
         await pilot.press("k")        # move to line 0
         vi._cursor = 2                # on 'l' of "hello"
-        await pilot.press("d", "dollar")
+        await pilot.press("d", "dollar_sign")
         assert vi.value == "he\nworld"
 
 

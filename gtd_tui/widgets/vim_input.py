@@ -370,7 +370,7 @@ class VimInput(Widget, can_focus=True):
                 if key == "w":
                     self._push_undo()
                     self._cmd_change_word()
-                elif key == "dollar":
+                elif key in ("dollar", "dollar_sign"):
                     self._push_undo()
                     self._cmd_change_to_line_end()
             elif pending == "d":
@@ -383,7 +383,7 @@ class VimInput(Widget, can_focus=True):
                     else:
                         self._text = ""
                         self._cursor = 0
-                elif key == "dollar":
+                elif key in ("dollar", "dollar_sign"):
                     self._cmd_delete_to_line_end()
                 elif key == "0":
                     self._text = self._text[self._cursor :]
@@ -493,7 +493,7 @@ class VimInput(Widget, can_focus=True):
                 self._cursor = self._offset_from_row_col(row, 0)
             else:
                 self._cursor = 0
-        elif key == "dollar":
+        elif key in ("dollar", "dollar_sign"):
             if self._multiline:
                 row, _ = self._cursor_row_col()
                 line = self._text.split("\n")[row]
