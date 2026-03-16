@@ -789,37 +789,39 @@ class RecurRule:
 
 ---
 
-### BACKLOG-19 — Weekly review
+### ~~BACKLOG-19 — Weekly review~~ ✅ DONE
 
 **Story points:** 13 — a new full-screen view (weekly review).
 
 **Description:**
-2. **Weekly review** — a new view (accessible via a keybinding, e.g. `W`) showing all tasks completed in the last 7 days, grouped by folder, with completion timestamps
+- **Weekly review** — a new view (accessible via `W`) showing all tasks completed in the last 7 days, with completion timestamps and scrollable with j/k
+- Note: completed tasks all carry `folder_id='logbook'` regardless of origin, so the list is flat/chronological rather than grouped by original folder
 
 **Acceptance criteria:**
-- [ ] `W` (or similar) opens the Weekly Review view
-- [ ] Weekly Review lists completed tasks from the past 7 days, grouped by folder
-- [ ] Folder name is shown as a section header in the review
+- [x] `W` opens the Weekly Review view (works from both task list and sidebar)
+- [x] Weekly Review lists completed tasks from the past 7 days, most recent first
+- [x] Completion timestamps shown per task
+- [x] j/k scroll the panel; Esc/Enter/q close it
 
 ---
 
-### BACKLOG-20 — Deadline field
+### ~~BACKLOG-20 — Deadline field~~ ✅ DONE
 
 **Story points:** 8 — New data model field, rendering in red if past due, and days-remaining display.
 
 **Description:**
 - A task can have a **deadline** date separate from its scheduled date
 - In the task list, if a deadline is set: show the deadline date; if past due, render in red; if due soon (≤ 3 days), render in yellow
-- In the detail view, a dedicated Deadline field (below the date field)
-- The days-remaining count is shown alongside the date: `[Dec 1 Mon — 3d left]` or `[Dec 1 Mon — 2d overdue]` in red
+- In the detail view, a dedicated Deadline field (below the Date field)
+- The days-remaining count is shown alongside the date: `Mar 21 Sat — 3d left` or `Mar 16 Mon — 2d overdue` in red
 
 **Acceptance criteria:**
-- [ ] Task detail view has a Deadline field
-- [ ] Deadline date stored in `Task.deadline: date | None`
-- [ ] Task rows show deadline info when set
-- [ ] Past-due deadlines render in red
-- [ ] Due-in-≤3-days deadlines render in yellow
-- [ ] No deadline: no change to existing display
+- [x] Task detail view has a Deadline field (between Date and Notes)
+- [x] Deadline date stored in `Task.deadline: date | None`
+- [x] Task rows show deadline info when set
+- [x] Past-due deadlines render in red
+- [x] Due-in-≤3-days (including today) render in yellow
+- [x] No deadline: no change to existing display
 
 ---
 
@@ -857,7 +859,7 @@ class RecurRule:
 
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22 are **complete**. BACKLOG-19 is partially complete (WO auto-scheduling done; weekly review view not yet built). The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.

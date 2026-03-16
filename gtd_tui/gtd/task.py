@@ -45,6 +45,7 @@ class Task:
     position: int = 0
     completed_at: Optional[datetime] = None
     scheduled_date: Optional[date] = None
+    deadline: Optional[date] = None
     repeat_rule: Optional[RepeatRule] = None
     recur_rule: Optional[RecurRule] = None
     created_at: Optional[datetime] = None

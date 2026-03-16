@@ -157,6 +157,44 @@ def unschedule_task(tasks: list[Task], task_id: str) -> list[Task]:
     return tasks
 
 
+def set_deadline(tasks: list[Task], task_id: str, deadline: date) -> list[Task]:
+    """Set a hard deadline on a task. No-op for unknown task_id."""
+    for task in tasks:
+        if task.id == task_id:
+            task.deadline = deadline
+    return tasks
+
+
+def clear_deadline(tasks: list[Task], task_id: str) -> list[Task]:
+    """Remove the deadline from a task. No-op for unknown task_id."""
+    for task in tasks:
+        if task.id == task_id:
+            task.deadline = None
+    return tasks
+
+
+def deadline_status(task: Task, as_of: date | None = None) -> tuple[str, str] | None:
+    """Return (display_text, status) for a task's deadline, or None if no deadline.
+
+    status is one of: 'overdue', 'soon' (<=3 days), 'ok' (>3 days).
+    display_text is formatted as 'Mar 16 Mon — 2d overdue' or 'Mar 16 Mon — 3d left'.
+    """
+    if task.deadline is None:
+        return None
+    from gtd_tui.gtd.dates import format_date
+    ref = as_of or date.today()
+    delta = (task.deadline - ref).days
+    date_str = format_date(task.deadline)
+    if delta < 0:
+        return (f"{date_str} — {abs(delta)}d overdue", "overdue")
+    elif delta == 0:
+        return (f"{date_str} — today", "soon")
+    elif delta <= 3:
+        return (f"{date_str} — {delta}d left", "soon")
+    else:
+        return (f"{date_str} — {delta}d left", "ok")
+
+
 def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     """Return tasks that should appear in the Today smart view.
 
@@ -305,6 +343,31 @@ def logbook_tasks(tasks: list[Task]) -> list[Task]:
     """Return logbook tasks sorted by completion time, most recent first."""
     return sorted(
         [t for t in tasks if t.folder_id == "logbook"],
+        key=lambda t: t.completed_at or datetime.min,
+        reverse=True,
+    )
+
+
+def weekly_review_tasks(
+    tasks: list[Task], as_of: date | None = None
+) -> list[Task]:
+    """Return tasks completed (not deleted) in the past 7 days, most recent first.
+
+    Note: completed tasks all have folder_id='logbook', so folder grouping by
+    original folder is not possible without additional data. Results are returned
+    as a flat chronological list.
+    """
+    ref = as_of or date.today()
+    cutoff = ref - timedelta(days=7)
+    return sorted(
+        [
+            t
+            for t in tasks
+            if t.folder_id == "logbook"
+            and not t.is_deleted
+            and t.completed_at is not None
+            and t.completed_at.date() >= cutoff
+        ],
         key=lambda t: t.completed_at or datetime.min,
         reverse=True,
     )

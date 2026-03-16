@@ -19,7 +19,9 @@ from gtd_tui.gtd.operations import (
     add_task,
     add_task_to_folder,
     add_waiting_on_task,
+    clear_deadline,
     complete_task,
+    deadline_status,
     delete_task,
     create_folder,
     delete_folder,
@@ -49,6 +51,7 @@ from gtd_tui.gtd.operations import (
     rename_folder,
     schedule_task,
     search_tasks,
+    set_deadline,
     set_recur_rule,
     set_repeat_rule,
     someday_tasks,
@@ -57,6 +60,7 @@ from gtd_tui.gtd.operations import (
     unschedule_task,
     upcoming_tasks,
     waiting_on_tasks,
+    weekly_review_tasks,
 )
 from gtd_tui.gtd.task import RecurRule, RepeatRule
 from gtd_tui.gtd.task import Task
@@ -101,6 +105,7 @@ class HelpScreen(ModalScreen[None]):
   u            Undo last action
   Ctrl+R       Redo last undone action
   /            Global search
+  W            Weekly review (tasks completed in past 7 days)
 
 [bold]VISUAL Mode  (press v to enter)[/bold]
   v            Enter VISUAL mode — anchor selection at cursor
@@ -122,6 +127,7 @@ class HelpScreen(ModalScreen[None]):
               or open new line below / above (notes)
   Enter        Confirm and advance to next field
   Esc          Save and close
+  Deadline     Hard due date — [bold red]red[/bold red] if overdue, [yellow]yellow[/yellow] if ≤3 days
 
 [bold]Sidebar Folder Actions (sidebar focused)[/bold]
   o / O        Create new folder after / before selected
@@ -161,17 +167,74 @@ class HelpScreen(ModalScreen[None]):
             self.dismiss()
 
 
-class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str] | None]):
+class WeeklyReviewScreen(ModalScreen[None]):
+    """Modal showing tasks completed in the past 7 days.
+
+    Note: completed tasks all share folder_id='logbook' regardless of their
+    origin folder, so results are shown as a flat chronological list rather
+    than grouped by folder.
+    """
+
+    CSS = """
+    WeeklyReviewScreen {
+        align: center middle;
+    }
+
+    #review-scroll {
+        width: 66;
+        height: 30;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+    """
+
+    def __init__(self, tasks: list[Task]) -> None:
+        super().__init__()
+        self._tasks = tasks
+
+    def _build_review_text(self) -> str:
+        from datetime import date
+        items = weekly_review_tasks(self._tasks)
+        if not items:
+            return "[dim]No tasks completed in the past 7 days.[/dim]"
+        lines = [f"[bold]Completed in the past 7 days ({len(items)})[/bold]\n"]
+        for task in items:
+            done = (
+                task.completed_at.strftime("%Y-%m-%d %H:%M")
+                if task.completed_at
+                else "unknown"
+            )
+            lines.append(f"  {markup_escape(task.title)}  [dim][{done}][/dim]")
+        return "\n".join(lines)
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="review-scroll"):
+            yield Static(self._build_review_text())
+
+    def on_key(self, event: events.Key) -> None:
+        scroll = self.query_one("#review-scroll", VerticalScroll)
+        if event.key == "j":
+            scroll.scroll_down()
+            event.prevent_default()
+        elif event.key == "k":
+            scroll.scroll_up()
+            event.prevent_default()
+        elif event.key in ("escape", "q", "enter", "W"):
+            self.dismiss()
+
+
+class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
     """Detail and edit view for a single task.
 
     Opens directly in edit mode with inputs pre-filled.
     j/k in COMMAND mode navigate between fields; Enter on single-line fields
     advances to the next; Esc always saves and closes.
 
-    Dismissed value: (title, notes, date_text, repeat_text, recur_text) or None
-    if title was cleared.  date_text is ISO (YYYY-MM-DD) or any parse_date_input
-    format; empty = clear date.  repeat_text / recur_text are raw strings
-    (e.g. '7 days', empty = clear).  If both repeat and recur are non-empty,
+    Dismissed value: (title, notes, date_text, deadline_text, repeat_text, recur_text)
+    or None if title was cleared.  date_text / deadline_text are ISO (YYYY-MM-DD) or
+    any parse_date_input format; empty = clear.  repeat_text / recur_text are raw
+    strings (e.g. '7 days', empty = clear).  If both repeat and recur are non-empty,
     repeat takes precedence.
     """
 
@@ -210,6 +273,10 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str] | None]):
     }
 
     #detail-date-input {
+        margin-bottom: 1;
+    }
+
+    #detail-deadline-input {
         margin-bottom: 1;
     }
 
@@ -256,6 +323,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str] | None]):
             if self._gtd_task.recur_rule else ""
         )
         date_val = self._gtd_task.scheduled_date.isoformat() if self._gtd_task.scheduled_date else ""
+        deadline_val = self._gtd_task.deadline.isoformat() if self._gtd_task.deadline else ""
         with Vertical(id="detail-panel"):
             yield Label("Edit Task", id="detail-header")
             yield Label("Title", classes="field-label")
@@ -270,6 +338,13 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str] | None]):
                 placeholder="(none)",
                 start_mode="command",
                 id="detail-date-input",
+            )
+            yield Label("Deadline  (hard due date — empty to clear)", classes="field-label")
+            yield VimInput(
+                value=deadline_val,
+                placeholder="(none)",
+                start_mode="command",
+                id="detail-deadline-input",
             )
             yield Label("Notes  (Enter = newline)", classes="field-label")
             yield VimInput(
@@ -302,14 +377,20 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str] | None]):
     def action_save_and_close(self) -> None:
         title = self.query_one("#detail-title-input", VimInput).value.strip()
         date_text = self.query_one("#detail-date-input", VimInput).value.strip()
+        deadline_text = self.query_one("#detail-deadline-input", VimInput).value.strip()
         # Preserve internal newlines in notes; only strip leading/trailing whitespace.
         notes = self.query_one("#detail-notes-input", VimInput).value.strip("\n").rstrip()
         repeat = self.query_one("#detail-repeat-input", VimInput).value.strip()
         recur = self.query_one("#detail-recur-input", VimInput).value.strip()
-        self.dismiss((title, notes, date_text, repeat, recur) if title else None)
+        self.dismiss((title, notes, date_text, deadline_text, repeat, recur) if title else None)
 
     def on_vim_input_submitted(self, event: VimInput.Submitted) -> None:
-        if event.vim_input.id in ("detail-title-input", "detail-date-input", "detail-repeat-input"):
+        if event.vim_input.id in (
+            "detail-title-input",
+            "detail-date-input",
+            "detail-deadline-input",
+            "detail-repeat-input",
+        ):
             self.focus_next()
         elif event.vim_input.id == "detail-recur-input":
             self.action_save_and_close()
@@ -751,10 +832,20 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
 
     @staticmethod
+    @staticmethod
     def _task_label(task: Task) -> str:
-        """Build the display label for a task row, with a recurrence marker."""
+        """Build the display label for a task row, with recurrence and deadline markers."""
         marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
-        return f"{markup_escape(task.title)}{marker}"
+        dl = deadline_status(task)
+        if dl is None:
+            dl_suffix = ""
+        elif dl[1] == "overdue":
+            dl_suffix = f"  [bold red]{markup_escape(dl[0])}[/bold red]"
+        elif dl[1] == "soon":
+            dl_suffix = f"  [yellow]{markup_escape(dl[0])}[/yellow]"
+        else:
+            dl_suffix = f"  {markup_escape(dl[0])}"
+        return f"{markup_escape(task.title)}{marker}{dl_suffix}"
 
     def _refresh_list(self, select_task_id: str | None = None) -> None:
         list_view = self.query_one("#task-list", ListView)
@@ -1058,6 +1149,9 @@ class GtdApp(App[None]):
         elif event.key == "slash":
             event.prevent_default()
             self._open_search()
+        elif event.key == "W":
+            event.prevent_default()
+            self._open_weekly_review()
         elif event.key == "u":
             event.prevent_default()
             self._undo()
@@ -1170,6 +1264,9 @@ class GtdApp(App[None]):
         elif event.key == "slash":
             event.prevent_default()
             self._open_search()
+        elif event.key == "W":
+            event.prevent_default()
+            self._open_weekly_review()
         elif event.key == "colon":
             event.prevent_default()
             self._start_command()
@@ -1520,11 +1617,12 @@ class GtdApp(App[None]):
         old_repeat = task.repeat_rule
         old_recur = task.recur_rule
         old_date = task.scheduled_date
+        old_deadline = task.deadline
 
-        def _on_detail_close(result: tuple[str, str, str, str, str] | None) -> None:
+        def _on_detail_close(result: tuple[str, str, str, str, str, str] | None) -> None:
             if result is None:
                 return
-            new_title, new_notes, date_text, repeat_text, recur_text = result
+            new_title, new_notes, date_text, deadline_text, repeat_text, recur_text = result
 
             # Parse date field.
             new_date = old_date
@@ -1572,11 +1670,20 @@ class GtdApp(App[None]):
                 new_recur = None
                 self._update_status("(both repeat and recurring set — repeat takes precedence)")
 
+            # Parse deadline field.
+            new_deadline = old_deadline
+            try:
+                new_deadline = parse_date_input(deadline_text)
+            except InvalidDateError:
+                self._update_status("(invalid deadline — changes saved, deadline unchanged)")
+                new_deadline = old_deadline
+
             title_changed = new_title != task.title or new_notes != task.notes
             date_changed = new_date != old_date
+            deadline_changed = new_deadline != old_deadline
             repeat_changed = new_repeat != old_repeat
             recur_changed = new_recur != old_recur
-            if not title_changed and not date_changed and not repeat_changed and not recur_changed:
+            if not (title_changed or date_changed or deadline_changed or repeat_changed or recur_changed):
                 return
 
             self._push_undo()
@@ -1587,6 +1694,11 @@ class GtdApp(App[None]):
                     self._all_tasks = unschedule_task(self._all_tasks, task_id)
                 else:
                     self._all_tasks = schedule_task(self._all_tasks, task_id, new_date)
+            if deadline_changed:
+                if new_deadline is None:
+                    self._all_tasks = clear_deadline(self._all_tasks, task_id)
+                else:
+                    self._all_tasks = set_deadline(self._all_tasks, task_id, new_deadline)
             if repeat_changed:
                 self._all_tasks = set_repeat_rule(self._all_tasks, task_id, new_repeat)
             if recur_changed:
@@ -1595,6 +1707,9 @@ class GtdApp(App[None]):
             self._refresh_list(select_task_id=task_id)
 
         self.push_screen(TaskDetailScreen(task), _on_detail_close)
+
+    def _open_weekly_review(self) -> None:
+        self.push_screen(WeeklyReviewScreen(self._all_tasks))
 
     def _open_search(self) -> None:
         def _on_search_close(task_id: str | None) -> None:
