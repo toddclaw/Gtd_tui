@@ -101,6 +101,19 @@ class HelpScreen(ModalScreen[None]):
   Ctrl+R       Redo last undone action
   /            Global search
 
+[bold]VISUAL Mode  (press v to enter)[/bold]
+  v            Enter VISUAL mode — anchor selection at cursor
+  j / k        Extend selection down / up
+  x / Space    Complete all selected tasks
+  d            Delete all selected tasks
+  s            Schedule all selected tasks
+  m            Move all selected tasks to a folder
+  w            Move all selected tasks to Waiting On
+  t            Move all selected tasks to Today
+  J / K        Move selected block down / up
+  u            Undo last bulk action (exits VISUAL mode)
+  Esc          Cancel selection and return to NORMAL mode
+
 [bold]Task Detail View (opened with Enter)[/bold]
   j / k        Move to next / previous field
   i / a        Enter INSERT mode at / after cursor
@@ -120,7 +133,7 @@ class HelpScreen(ModalScreen[None]):
   Ctrl+c       Cancel new task without saving
 
 [bold]Commands  (type : then the command)[/bold]
-  :help        Show this help screen
+  :help / :h   Show this help screen
 
 [bold]CLI[/bold]
   gtd-tui -s   Print today's tasks to stdout and exit
@@ -1338,7 +1351,7 @@ class GtdApp(App[None]):
 
         elif self._input_stage == "command":
             self._cancel_input()
-            if value == "help":
+            if value in ("help", "h"):
                 self.push_screen(HelpScreen())
             elif value:
                 self._update_status(f"(unknown command: {value})")
