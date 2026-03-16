@@ -4,6 +4,7 @@ import copy
 import uuid
 from pathlib import Path
 
+from rich.markup import escape as markup_escape
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -403,14 +404,13 @@ class SearchScreen(ModalScreen[str | None]):
         logbook_results = [(t, mt) for t, mt in results if t.folder_id == "logbook"]
 
         def _highlight(text: str, query: str) -> str:
-            from rich.markup import escape as rich_escape
             q_lower = query.lower()
             idx = text.lower().find(q_lower)
             if idx == -1:
-                return rich_escape(text)
-            before = rich_escape(text[:idx])
-            match = rich_escape(text[idx : idx + len(query)])
-            after = rich_escape(text[idx + len(query) :])
+                return markup_escape(text)
+            before = markup_escape(text[:idx])
+            match = markup_escape(text[idx : idx + len(query)])
+            after = markup_escape(text[idx + len(query) :])
             return f"{before}[bold yellow]{match}[/bold yellow]{after}"
 
         def _folder_tag(task: Task) -> str:
@@ -754,7 +754,7 @@ class GtdApp(App[None]):
     def _task_label(task: Task) -> str:
         """Build the display label for a task row, with a recurrence marker."""
         marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
-        return f"{task.title}{marker}"
+        return f"{markup_escape(task.title)}{marker}"
 
     def _refresh_list(self, select_task_id: str | None = None) -> None:
         list_view = self.query_one("#task-list", ListView)
@@ -893,7 +893,7 @@ class GtdApp(App[None]):
             )
             marker = "D" if task.is_deleted else "C"
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(f"{marker}  {task.title}  [{done}]{created}")))
+            list_view.append(ListItem(Label(f"{marker}  {markup_escape(task.title)}  [{done}]{created}")))
 
     def _render_folder_view(self, list_view: ListView, folder_id: str) -> None:
         label = self._view_label(folder_id)
