@@ -473,6 +473,7 @@ async def test_o_in_sidebar_creates_folder(tmp_path: Path) -> None:
         await pilot.press("enter")
         await pilot.pause()
         assert any(f.name == "Work" for f in app._all_folders)
+        assert app.query_one("#task-list", ListView).has_focus
 
 
 # ---------------------------------------------------------------------------

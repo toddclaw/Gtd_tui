@@ -1176,7 +1176,10 @@ class GtdApp(App[None]):
                 self._rebuild_sidebar()
                 self._current_view = new_folder_id
                 self._refresh_list()
-            self._cancel_input()
+                self._cancel_input()
+                self.query_one("#task-list", ListView).focus()
+            else:
+                self._cancel_input()
 
         elif self._input_stage == "folder_rename":
             if value and self._rename_folder_id:
