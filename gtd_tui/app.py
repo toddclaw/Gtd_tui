@@ -1173,8 +1173,8 @@ class GtdApp(App[None]):
                     self._all_folders, value, folder_id=new_folder_id
                 )
                 self._save()
-                self._rebuild_sidebar()
                 self._current_view = new_folder_id
+                self._rebuild_sidebar()
                 self._refresh_list()
                 self._cancel_input()
                 self.query_one("#task-list", ListView).focus()
