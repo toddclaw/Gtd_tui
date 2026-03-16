@@ -8,8 +8,12 @@ from gtd_tui.gtd.operations import (
     delete_task,
     edit_task,
     folder_tasks,
+    insert_folder_task_after,
+    insert_folder_task_before,
     insert_task_after,
     insert_task_before,
+    insert_waiting_on_task_after,
+    insert_waiting_on_task_before,
     InvalidRepeatError,
     logbook_tasks,
     move_task_down,
@@ -610,6 +614,11 @@ def test_waiting_on_tasks_sorted_by_position():
     assert result[2].title == "Third added"
 
 
+def test_add_waiting_on_task_accepts_explicit_task_id():
+    tasks = add_waiting_on_task([], "Call Alice", task_id="fixed-id")
+    assert tasks[0].id == "fixed-id"
+
+
 def test_add_waiting_on_task_assigns_sequential_positions():
     """Each new WO task gets the next position after existing WO tasks."""
     tasks: list[Task] = []
@@ -696,6 +705,92 @@ def test_move_to_waiting_on_unknown_id_is_noop():
     tasks = add_task([], "Task")
     result = move_to_waiting_on(tasks, "bad-id")
     assert len(today_tasks(result)) == 1  # original task still in Today
+
+
+def test_add_waiting_on_task_has_default_scheduled_date():
+    tasks = add_waiting_on_task([], "Call Alice")
+    expected = date.today() + timedelta(days=7)
+    assert tasks[0].scheduled_date == expected
+
+
+def test_move_to_waiting_on_sets_default_scheduled_date():
+    tasks = add_task([], "Buy milk")
+    task_id = tasks[0].id
+    tasks = move_to_waiting_on(tasks, task_id)
+    expected = date.today() + timedelta(days=7)
+    assert tasks[0].scheduled_date == expected
+
+
+def test_move_to_waiting_on_preserves_existing_scheduled_date():
+    tasks = add_task([], "Already scheduled")
+    task_id = tasks[0].id
+    custom_date = date.today() + timedelta(days=14)
+    tasks = schedule_task(tasks, task_id, custom_date)
+    tasks = move_to_waiting_on(tasks, task_id)
+    assert tasks[0].scheduled_date == custom_date
+
+
+def test_insert_waiting_on_task_after_places_between():
+    tasks = add_waiting_on_task([], "First")
+    tasks = add_waiting_on_task(tasks, "Third")
+    first_id = next(t.id for t in tasks if t.title == "First")
+    tasks = insert_waiting_on_task_after(tasks, first_id, "Second")
+    wo = waiting_on_tasks(tasks)
+    assert [t.title for t in wo] == ["First", "Second", "Third"]
+
+
+def test_insert_waiting_on_task_before_places_between():
+    tasks = add_waiting_on_task([], "First")
+    tasks = add_waiting_on_task(tasks, "Third")
+    third_id = next(t.id for t in tasks if t.title == "Third")
+    tasks = insert_waiting_on_task_before(tasks, third_id, "Second")
+    wo = waiting_on_tasks(tasks)
+    assert [t.title for t in wo] == ["First", "Second", "Third"]
+
+
+def test_insert_waiting_on_task_after_sets_scheduled_date():
+    tasks = add_waiting_on_task([], "Anchor")
+    anchor_id = tasks[0].id
+    tasks = insert_waiting_on_task_after(tasks, anchor_id, "New")
+    new_task = next(t for t in tasks if t.title == "New")
+    assert new_task.scheduled_date == date.today() + timedelta(days=7)
+
+
+def test_insert_waiting_on_task_after_unknown_anchor_falls_back():
+    tasks = add_waiting_on_task([], "Existing")
+    tasks = insert_waiting_on_task_after(tasks, "no-such-id", "Appended")
+    wo = waiting_on_tasks(tasks)
+    assert wo[-1].title == "Appended"
+
+
+# ------------------------------------------------------------------ #
+# Generic folder positional insertion                                 #
+# ------------------------------------------------------------------ #
+
+
+def test_insert_folder_task_after_places_between():
+    tasks = add_task_to_folder([], "someday", "First")
+    tasks = add_task_to_folder(tasks, "someday", "Third")
+    first_id = next(t.id for t in tasks if t.title == "First")
+    tasks = insert_folder_task_after(tasks, "someday", first_id, "Second")
+    result = folder_tasks(tasks, "someday")
+    assert [t.title for t in result] == ["First", "Second", "Third"]
+
+
+def test_insert_folder_task_before_places_between():
+    tasks = add_task_to_folder([], "someday", "First")
+    tasks = add_task_to_folder(tasks, "someday", "Third")
+    third_id = next(t.id for t in tasks if t.title == "Third")
+    tasks = insert_folder_task_before(tasks, "someday", third_id, "Second")
+    result = folder_tasks(tasks, "someday")
+    assert [t.title for t in result] == ["First", "Second", "Third"]
+
+
+def test_insert_folder_task_after_unknown_anchor_falls_back():
+    tasks = add_task_to_folder([], "someday", "Existing")
+    tasks = insert_folder_task_after(tasks, "someday", "no-such-id", "Appended")
+    result = folder_tasks(tasks, "someday")
+    assert result[-1].title == "Appended"
 
 
 def test_move_to_today_changes_folder():

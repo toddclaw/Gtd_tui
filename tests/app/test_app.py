@@ -260,11 +260,11 @@ async def test_escape_closes_task_detail_screen(tmp_path: Path) -> None:
 
 async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
     """Open the detail view for 'foo', extend the title to 'foo bar',
-    advance to notes, add 'bar', then Esc to save.  Verify both fields persist.
+    advance through Date to Notes, add 'bar', then Esc to save.
 
-    Title VimInput opens in COMMAND mode (editing existing task).
-    'A' enters INSERT at end; type ' bar'; Esc → COMMAND; Enter → submit/advance.
-    Notes VimInput also in COMMAND mode; 'i' → INSERT; type 'bar'; Esc → COMMAND.
+    Title VimInput opens in COMMAND mode.  'A' enters INSERT at end; type ' bar';
+    Esc → COMMAND; Enter → submit title → focus Date.  Enter on empty Date → Notes.
+    Notes VimInput in COMMAND mode; 'i' → INSERT; type 'bar'; Esc → COMMAND.
     Second Esc from notes COMMAND mode bubbles to TaskDetailScreen → save+close.
     """
     data_file = _prepopulate(tmp_path, "foo")
@@ -283,7 +283,10 @@ async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
         # Esc → back to COMMAND mode (stays in modal)
         await pilot.press("escape")
         await pilot.pause()
-        # Enter in COMMAND mode submits VimInput → focus advances to notes
+        # Enter in COMMAND mode submits VimInput → focus advances to Date field
+        await pilot.press("enter")
+        await pilot.pause()
+        # Enter on empty Date → focus advances to Notes
         await pilot.press("enter")
         await pilot.pause()
 
@@ -323,18 +326,24 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
         await pilot.pause()
         assert isinstance(app.screen, TaskDetailScreen)
 
-        # Advance past title → notes (Enter) → repeat (Tab, since notes is multiline)
-        await pilot.press("enter")   # title → notes
+        # Advance: title → date (Enter), date → notes (Enter), notes → repeat (Tab)
+        await pilot.press("enter")   # title → date
+        await pilot.pause()
+        await pilot.press("enter")   # date → notes (empty date, no change)
         await pilot.pause()
         await pilot.press("tab")     # notes → repeat (multiline: Tab advances)
         await pilot.pause()
 
-        # Type the repeat interval in the Repeat field
+        # Repeat is now VimInput in COMMAND mode — enter insert mode first
+        await pilot.press("i")       # command → insert mode
         await pilot.press("7", " ", "d", "a", "y", "s")
+        await pilot.press("escape")  # insert → command mode
+        await pilot.pause()
 
-        # Advance past repeat → recur, then Escape to save and close
+        # Advance repeat → recur (Enter in command mode fires Submitted)
         await pilot.press("enter")   # repeat → recur
         await pilot.pause()
+        # Esc from recur command mode bubbles to screen → save and close
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, TaskDetailScreen)
@@ -347,6 +356,53 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
         # AND it must appear in Upcoming (previewing the next_due date)
         upcoming = upcoming_tasks(app._all_tasks)
         assert any(t.title == "foo" for t in upcoming), "task should appear in Upcoming"
+
+
+async def test_set_date_via_detail_screen(tmp_path: Path) -> None:
+    """Open detail view, type a date in the Date field, save — task is scheduled."""
+    from datetime import date, timedelta
+    data_file = _prepopulate(tmp_path, "foo")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")   # open detail
+        await pilot.pause()
+        assert isinstance(app.screen, TaskDetailScreen)
+
+        # Skip title (command mode, Enter → date field)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Type '+7d' in Date field (command mode → insert → type → esc)
+        await pilot.press("i")
+        await pilot.press("+", "7", "d")
+        await pilot.press("escape")  # insert → command
+        await pilot.pause()
+        # Esc from command mode bubbles to screen → save and close
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, TaskDetailScreen)
+
+        task = next(t for t in app._all_tasks if t.folder_id != "logbook")
+        assert task.scheduled_date == date.today() + timedelta(days=7)
+
+
+async def test_j_navigates_to_next_field_in_detail_screen(tmp_path: Path) -> None:
+    """Pressing j in command mode on a single-line field moves focus to the next field."""
+    data_file = _prepopulate(tmp_path, "foo")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")   # open detail — title focused
+        await pilot.pause()
+        assert isinstance(app.screen, TaskDetailScreen)
+
+        # Press j in command mode — focus should move from title to date
+        await pilot.press("j")
+        await pilot.pause()
+        focused = app.screen.focused
+        assert focused is not None
+        assert focused.id == "detail-date-input"
 
 
 # ---------------------------------------------------------------------------
@@ -547,11 +603,15 @@ async def test_recurring_task_shows_recurrence_marker(tmp_path: Path) -> None:
         # Open detail, advance to repeat field, set 7 days
         await pilot.press("enter")
         await pilot.pause()
-        await pilot.press("enter")   # title → notes
+        await pilot.press("enter")   # title → date
+        await pilot.pause()
+        await pilot.press("enter")   # date → notes
         await pilot.pause()
         await pilot.press("tab")     # notes → repeat (multiline: Tab advances)
         await pilot.pause()
+        await pilot.press("i")       # command → insert mode
         await pilot.press("7", " ", "d", "a", "y", "s")
+        await pilot.press("escape")  # insert → command mode
         await pilot.press("enter")   # repeat → recur
         await pilot.pause()
         await pilot.press("escape")  # save and close
@@ -719,8 +779,10 @@ async def test_notes_support_newlines_in_detail_view(tmp_path: Path) -> None:
         # Open detail
         await pilot.press("enter")
         await pilot.pause()
-        # Skip title → notes
-        await pilot.press("enter")
+        # Skip title → date → notes
+        await pilot.press("enter")   # title → date
+        await pilot.pause()
+        await pilot.press("enter")   # date → notes
         await pilot.pause()
         # notes VimInput is now focused in COMMAND mode; enter INSERT
         await pilot.press("i")

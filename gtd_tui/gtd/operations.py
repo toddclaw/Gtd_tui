@@ -315,15 +315,73 @@ def logbook_tasks(tasks: list[Task]) -> list[Task]:
 # ---------------------------------------------------------------------------
 
 
-def add_waiting_on_task(tasks: list[Task], title: str, notes: str = "") -> list[Task]:
+def add_waiting_on_task(
+    tasks: list[Task], title: str, notes: str = "", task_id: str | None = None
+) -> list[Task]:
     """Add a new task to the end of the Waiting On folder."""
     existing = folder_tasks(tasks, "waiting_on")
     next_pos = existing[-1].position + 1 if existing else 0
-    new_task = Task(
-        title=title, notes=notes, folder_id="waiting_on", position=next_pos,
-        created_at=datetime.now(),
-    )
-    return tasks + [new_task]
+    kwargs: dict = {
+        "title": title,
+        "notes": notes,
+        "folder_id": "waiting_on",
+        "position": next_pos,
+        "created_at": datetime.now(),
+        "scheduled_date": date.today() + timedelta(days=7),
+    }
+    if task_id is not None:
+        kwargs["id"] = task_id
+    return tasks + [Task(**kwargs)]  # type: ignore[arg-type]
+
+
+def insert_waiting_on_task_after(
+    tasks: list[Task], anchor_id: str, title: str, notes: str = "", task_id: str | None = None
+) -> list[Task]:
+    """Insert a new WO task immediately after the anchor WO task.
+
+    Falls back to add_waiting_on_task if anchor_id is not found.
+    """
+    wo = sorted([t for t in tasks if t.folder_id == "waiting_on"], key=lambda t: t.position)
+    anchor = next((t for t in wo if t.id == anchor_id), None)
+    if anchor is None:
+        return add_waiting_on_task(tasks, title, notes, task_id)
+    insert_pos = anchor.position + 1
+    for task in tasks:
+        if task.folder_id == "waiting_on" and task.position >= insert_pos:
+            task.position += 1
+    kwargs: dict = {
+        "title": title, "notes": notes, "folder_id": "waiting_on",
+        "position": insert_pos, "created_at": datetime.now(),
+        "scheduled_date": date.today() + timedelta(days=7),
+    }
+    if task_id is not None:
+        kwargs["id"] = task_id
+    return tasks + [Task(**kwargs)]  # type: ignore[arg-type]
+
+
+def insert_waiting_on_task_before(
+    tasks: list[Task], anchor_id: str, title: str, notes: str = "", task_id: str | None = None
+) -> list[Task]:
+    """Insert a new WO task immediately before the anchor WO task.
+
+    Falls back to add_waiting_on_task if anchor_id is not found.
+    """
+    wo = sorted([t for t in tasks if t.folder_id == "waiting_on"], key=lambda t: t.position)
+    anchor = next((t for t in wo if t.id == anchor_id), None)
+    if anchor is None:
+        return add_waiting_on_task(tasks, title, notes, task_id)
+    insert_pos = anchor.position
+    for task in tasks:
+        if task.folder_id == "waiting_on" and task.position >= insert_pos:
+            task.position += 1
+    kwargs: dict = {
+        "title": title, "notes": notes, "folder_id": "waiting_on",
+        "position": insert_pos, "created_at": datetime.now(),
+        "scheduled_date": date.today() + timedelta(days=7),
+    }
+    if task_id is not None:
+        kwargs["id"] = task_id
+    return tasks + [Task(**kwargs)]  # type: ignore[arg-type]
 
 
 def move_to_waiting_on(tasks: list[Task], task_id: str) -> list[Task]:
@@ -334,6 +392,8 @@ def move_to_waiting_on(tasks: list[Task], task_id: str) -> list[Task]:
         if task.id == task_id:
             task.folder_id = "waiting_on"
             task.position = next_pos
+            if task.scheduled_date is None:
+                task.scheduled_date = date.today() + timedelta(days=7)
     return tasks
 
 
@@ -512,6 +572,56 @@ def folder_tasks(tasks: list[Task], folder_id: str) -> list[Task]:
         [t for t in tasks if t.folder_id == folder_id],
         key=lambda t: t.position,
     )
+
+
+def insert_folder_task_after(
+    tasks: list[Task], folder_id: str, anchor_id: str,
+    title: str, notes: str = "", task_id: str | None = None,
+) -> list[Task]:
+    """Insert a new task immediately after the anchor task in the given folder.
+
+    Falls back to add_task_to_folder if anchor_id is not found.
+    """
+    members = sorted([t for t in tasks if t.folder_id == folder_id], key=lambda t: t.position)
+    anchor = next((t for t in members if t.id == anchor_id), None)
+    if anchor is None:
+        return add_task_to_folder(tasks, folder_id, title, notes, task_id)
+    insert_pos = anchor.position + 1
+    for task in tasks:
+        if task.folder_id == folder_id and task.position >= insert_pos:
+            task.position += 1
+    kwargs: dict = {
+        "title": title, "notes": notes, "folder_id": folder_id,
+        "position": insert_pos, "created_at": datetime.now(),
+    }
+    if task_id is not None:
+        kwargs["id"] = task_id
+    return tasks + [Task(**kwargs)]  # type: ignore[arg-type]
+
+
+def insert_folder_task_before(
+    tasks: list[Task], folder_id: str, anchor_id: str,
+    title: str, notes: str = "", task_id: str | None = None,
+) -> list[Task]:
+    """Insert a new task immediately before the anchor task in the given folder.
+
+    Falls back to add_task_to_folder if anchor_id is not found.
+    """
+    members = sorted([t for t in tasks if t.folder_id == folder_id], key=lambda t: t.position)
+    anchor = next((t for t in members if t.id == anchor_id), None)
+    if anchor is None:
+        return add_task_to_folder(tasks, folder_id, title, notes, task_id)
+    insert_pos = anchor.position
+    for task in tasks:
+        if task.folder_id == folder_id and task.position >= insert_pos:
+            task.position += 1
+    kwargs: dict = {
+        "title": title, "notes": notes, "folder_id": folder_id,
+        "position": insert_pos, "created_at": datetime.now(),
+    }
+    if task_id is not None:
+        kwargs["id"] = task_id
+    return tasks + [Task(**kwargs)]  # type: ignore[arg-type]
 
 
 def move_task_to_folder(tasks: list[Task], task_id: str, folder_id: str) -> list[Task]:

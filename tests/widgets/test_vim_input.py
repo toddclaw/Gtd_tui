@@ -382,3 +382,113 @@ async def test_multiline_enter_no_submitted_event() -> None:
         await pilot.press("h", "i")
         await pilot.press("enter")
         assert received == []  # no submission
+
+
+async def test_multiline_j_at_last_line_bubbles() -> None:
+    """j on the last line of a multiline VimInput should bubble to the parent."""
+    received: list[str] = []
+
+    class _TrackApp(_MultiApp):
+        def on_key(self, event) -> None:
+            if event.key == "j":
+                received.append("j")
+
+    async with _TrackApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("l", "i", "n", "e")
+        await pilot.press("escape")  # → command mode, single line
+        await pilot.press("j")       # at last (only) line — should bubble
+        assert received == ["j"]
+
+
+async def test_multiline_k_at_first_line_bubbles() -> None:
+    """k on the first line of a multiline VimInput should bubble to the parent."""
+    received: list[str] = []
+
+    class _TrackApp(_MultiApp):
+        def on_key(self, event) -> None:
+            if event.key == "k":
+                received.append("k")
+
+    async with _TrackApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("l", "i", "n", "e")
+        await pilot.press("escape")  # → command mode, single line
+        await pilot.press("k")       # at first (only) line — should bubble
+        assert received == ["k"]
+
+
+async def test_multiline_j_interior_does_not_bubble() -> None:
+    """j on a non-last line should do line navigation, not bubble."""
+    received: list[str] = []
+
+    class _TrackApp(_MultiApp):
+        def on_key(self, event) -> None:
+            if event.key == "j":
+                received.append("j")
+
+    async with _TrackApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("l", "i", "n", "e", "1")
+        await pilot.press("enter")
+        await pilot.press("l", "i", "n", "e", "2")
+        await pilot.press("escape")  # command mode, cursor on line 1 (last)
+        await pilot.press("k")       # move to line 0 (first line, non-last)
+        await pilot.press("j")       # should navigate down, not bubble
+        assert received == []        # no bubble
+        row, _ = vi._cursor_row_col()
+        assert row == 1              # cursor moved back to line 1
+
+
+# ---------------------------------------------------------------------------
+# o/O: open line and enter insert mode
+# ---------------------------------------------------------------------------
+
+
+async def test_o_single_line_enters_insert_at_end() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("o")
+        assert vi._vim_mode == "insert"
+        assert vi._cursor == len("hello")
+
+
+async def test_O_single_line_enters_insert_at_start() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 4
+        await pilot.press("O")
+        assert vi._vim_mode == "insert"
+        assert vi._cursor == 0
+
+
+async def test_o_multiline_opens_line_below() -> None:
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("l", "i", "n", "e", "1")
+        await pilot.press("enter")
+        await pilot.press("l", "i", "n", "e", "2")
+        await pilot.press("escape")   # command mode, cursor on line 1
+        await pilot.press("k")        # move to line 0
+        await pilot.press("o")        # open line below line 0
+        assert vi._vim_mode == "insert"
+        await pilot.press("X")        # type on the new line
+        await pilot.press("escape")
+        lines = vi.value.split("\n")
+        assert lines == ["line1", "X", "line2"]
+
+
+async def test_O_multiline_opens_line_above() -> None:
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("l", "i", "n", "e", "1")
+        await pilot.press("enter")
+        await pilot.press("l", "i", "n", "e", "2")
+        await pilot.press("escape")   # command mode, cursor on line 1
+        await pilot.press("O")        # open line above line 1
+        assert vi._vim_mode == "insert"
+        await pilot.press("X")        # type on the new line
+        await pilot.press("escape")
+        lines = vi.value.split("\n")
+        assert lines == ["line1", "X", "line2"]

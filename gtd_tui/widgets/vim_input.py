@@ -379,6 +379,20 @@ class VimInput(Widget, can_focus=True):
             # and Tab/Shift-Tab reach Textual's focus-traversal handler.
             return
 
+        if key in ("j", "k") and not self._multiline:
+            # In single-line command mode, let j/k bubble for field navigation.
+            return
+
+        if key == "j" and self._multiline:
+            row, _ = self._cursor_row_col()
+            if row + 1 >= len(self._text.split("\n")):
+                return  # at last line — bubble to parent for field navigation
+
+        if key == "k" and self._multiline:
+            row, _ = self._cursor_row_col()
+            if row == 0:
+                return  # at first line — bubble to parent for field navigation
+
         # Every other command-mode key is consumed here.
         event.stop()
         event.prevent_default()
@@ -397,6 +411,18 @@ class VimInput(Widget, can_focus=True):
             else:
                 self._cursor = len(self._text)
             self.set_mode("insert")
+        elif key == "o":
+            if self._multiline:
+                self._cmd_open_line_below()
+            else:
+                self._cursor = len(self._text)
+                self.set_mode("insert")
+        elif key == "O":
+            if self._multiline:
+                self._cmd_open_line_above()
+            else:
+                self._cursor = 0
+                self.set_mode("insert")
         elif key in ("h", "left"):
             if self._multiline:
                 row, col = self._cursor_row_col()
@@ -504,6 +530,23 @@ class VimInput(Widget, can_focus=True):
         new_row = min(row, len(lines) - 1) if lines else 0
         self._cursor = self._offset_from_row_col(new_row, 0) if lines else 0
         self._clamp_cursor_for_command()
+
+    def _cmd_open_line_below(self) -> None:
+        """o in multi-line: insert a new line after the current line, enter INSERT."""
+        row, _ = self._cursor_row_col()
+        lines = self._text.split("\n")
+        line_end = self._offset_from_row_col(row, len(lines[row]))
+        self._text = self._text[:line_end] + "\n" + self._text[line_end:]
+        self._cursor = line_end + 1
+        self.set_mode("insert")
+
+    def _cmd_open_line_above(self) -> None:
+        """O in multi-line: insert a new line before the current line, enter INSERT."""
+        row, _ = self._cursor_row_col()
+        line_start = self._offset_from_row_col(row, 0)
+        self._text = self._text[:line_start] + "\n" + self._text[line_start:]
+        self._cursor = line_start
+        self.set_mode("insert")
 
     # ------------------------------------------------------------------
     # Word motion helpers
