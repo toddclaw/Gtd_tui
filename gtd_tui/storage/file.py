@@ -50,6 +50,7 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         "scheduled_date": (
             task.scheduled_date.isoformat() if task.scheduled_date else None
         ),
+        "deadline": task.deadline.isoformat() if task.deadline else None,
         "repeat_rule": (
             _repeat_rule_to_dict(task.repeat_rule) if task.repeat_rule else None
         ),
@@ -77,6 +78,11 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
         scheduled_date=(
             date.fromisoformat(data["scheduled_date"])
             if data.get("scheduled_date")
+            else None
+        ),
+        deadline=(
+            date.fromisoformat(data["deadline"])
+            if data.get("deadline")
             else None
         ),
         repeat_rule=_repeat_rule_from_dict(raw_rule) if raw_rule else None,

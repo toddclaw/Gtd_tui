@@ -286,7 +286,10 @@ async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
         # Enter in COMMAND mode submits VimInput → focus advances to Date field
         await pilot.press("enter")
         await pilot.pause()
-        # Enter on empty Date → focus advances to Notes
+        # Enter on empty Date → focus advances to Deadline field
+        await pilot.press("enter")
+        await pilot.pause()
+        # Enter on empty Deadline → focus advances to Notes
         await pilot.press("enter")
         await pilot.pause()
 
@@ -326,10 +329,12 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
         await pilot.pause()
         assert isinstance(app.screen, TaskDetailScreen)
 
-        # Advance: title → date (Enter), date → notes (Enter), notes → repeat (Tab)
+        # Advance: title → date (Enter), date → deadline (Enter), deadline → notes (Enter), notes → repeat (Tab)
         await pilot.press("enter")   # title → date
         await pilot.pause()
-        await pilot.press("enter")   # date → notes (empty date, no change)
+        await pilot.press("enter")   # date → deadline (empty date, no change)
+        await pilot.pause()
+        await pilot.press("enter")   # deadline → notes (empty deadline, no change)
         await pilot.pause()
         await pilot.press("tab")     # notes → repeat (multiline: Tab advances)
         await pilot.pause()
@@ -605,7 +610,9 @@ async def test_recurring_task_shows_recurrence_marker(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("enter")   # title → date
         await pilot.pause()
-        await pilot.press("enter")   # date → notes
+        await pilot.press("enter")   # date → deadline
+        await pilot.pause()
+        await pilot.press("enter")   # deadline → notes
         await pilot.pause()
         await pilot.press("tab")     # notes → repeat (multiline: Tab advances)
         await pilot.pause()
@@ -779,10 +786,12 @@ async def test_notes_support_newlines_in_detail_view(tmp_path: Path) -> None:
         # Open detail
         await pilot.press("enter")
         await pilot.pause()
-        # Skip title → date → notes
+        # Skip title → date → deadline → notes
         await pilot.press("enter")   # title → date
         await pilot.pause()
-        await pilot.press("enter")   # date → notes
+        await pilot.press("enter")   # date → deadline
+        await pilot.pause()
+        await pilot.press("enter")   # deadline → notes
         await pilot.pause()
         # notes VimInput is now focused in COMMAND mode; enter INSERT
         await pilot.press("i")

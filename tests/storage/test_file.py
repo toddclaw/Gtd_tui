@@ -263,3 +263,27 @@ def test_created_at_missing_defaults_to_none(tmp_path):
     data_file.write_text(json.dumps(payload))
     loaded = load_tasks(data_file=data_file)
     assert loaded[0].created_at is None
+
+
+def test_deadline_round_trip(tmp_path: Path) -> None:
+    from gtd_tui.gtd.operations import set_deadline
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Buy cake")
+    tasks = set_deadline(tasks, tasks[0].id, date(2026, 12, 1))
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].deadline == date(2026, 12, 1)
+
+
+def test_deadline_missing_defaults_to_none(tmp_path: Path) -> None:
+    """Old tasks without a deadline key load without error."""
+    import json
+    data_file = tmp_path / "data.json"
+    payload = {"tasks": [{"id": "abc", "title": "Old task", "notes": "",
+                           "folder_id": "today", "position": 0,
+                           "completed_at": None, "scheduled_date": None,
+                           "repeat_rule": None, "recur_rule": None,
+                           "is_deleted": False}], "folders": []}
+    data_file.write_text(json.dumps(payload))
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].deadline is None
