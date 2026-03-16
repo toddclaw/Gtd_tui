@@ -110,3 +110,11 @@ def parse_date_input(value: str, today: date | None = None) -> date | None:
         return date.fromisoformat(stripped)
     except ValueError:
         raise InvalidDateError(f"Cannot parse date: {stripped!r}")
+
+
+def format_date(d: date) -> str:
+    """Format a date as 'Mar 16 Mon'; appends the year if it differs from today."""
+    fmt = d.strftime("%b %d %a")
+    if d.year != date.today().year:
+        fmt += f" {d.year}"
+    return fmt

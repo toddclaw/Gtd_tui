@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from gtd_tui.app import GtdApp
+from gtd_tui.gtd.dates import format_date
 from gtd_tui.gtd.operations import today_tasks, upcoming_tasks
 from gtd_tui.storage.file import load_tasks
 
@@ -24,9 +25,7 @@ def _print_summary(data_file: Path | None = None) -> None:
     if upcoming:
         print(f"\nUpcoming ({len(upcoming)}):")
         for t in upcoming:
-            date_str = (
-                t.scheduled_date.strftime("%b %d %a") if t.scheduled_date else ""
-            )
+            date_str = format_date(t.scheduled_date) if t.scheduled_date else ""
             print(f"  - {t.title}  {date_str}")
             if t.notes:
                 print(f"    {t.notes}")

@@ -11,7 +11,7 @@ from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
-from gtd_tui.gtd.dates import InvalidDateError, parse_date_input
+from gtd_tui.gtd.dates import format_date, InvalidDateError, parse_date_input
 from gtd_tui.widgets.vim_input import VimInput
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.operations import (
@@ -490,8 +490,8 @@ class GtdApp(App[None]):
         self._current_view: str = "today"
         # Parallel to ListView children: Task for rows, None for separators/placeholders
         self._list_entries: list[Task | None] = []
-        self._undo_stack: list[list[Task]] = []
-        self._redo_stack: list[list[Task]] = []
+        self._undo_stack: list[tuple[list[Task], list[Folder]]] = []
+        self._redo_stack: list[tuple[list[Task], list[Folder]]] = []
         self._pending_anchor_id: str = ""
         self._pending_insert_position: str = "after"  # "after" or "before"
         # Placeholder row shown in the list while a new task is being typed
@@ -616,15 +616,6 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    def _format_date(d: "date") -> str:
-        """Format a date as 'Mar 16 Mon'; adds year if different from today."""
-        from datetime import date as _date
-        fmt = d.strftime("%b %d %a")
-        if d.year != _date.today().year:
-            fmt += f" {d.year}"
-        return fmt
-
-    @staticmethod
     def _task_label(task: Task) -> str:
         """Build the display label for a task row, with a recurrence marker."""
         marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
@@ -710,7 +701,7 @@ class GtdApp(App[None]):
         tasks = upcoming_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Upcoming ({len(tasks)})")
         for task in tasks:
-            date_str = self._format_date(task.scheduled_date) if task.scheduled_date else ""
+            date_str = format_date(task.scheduled_date) if task.scheduled_date else ""
             folder_hint = ""
             if task.folder_id != "today":
                 folder_hint = f"  [{self._view_label(task.folder_id)}]"
@@ -722,7 +713,7 @@ class GtdApp(App[None]):
         for task in waiting_on_tasks(self._all_tasks):
             self._list_entries.append(task)
             date_str = (
-                f"  [{self._format_date(task.scheduled_date)}]"
+                f"  [{format_date(task.scheduled_date)}]"
                 if task.scheduled_date
                 else ""
             )
@@ -1625,26 +1616,25 @@ class GtdApp(App[None]):
     # Undo                                                                 #
     # ------------------------------------------------------------------ #
 
-    def _undo(self) -> None:
-        if not self._undo_stack:
-            self._update_status("(nothing to undo)")
+    def _apply_history(
+        self,
+        pop_from: list[tuple[list[Task], list[Folder]]],
+        push_to: list[tuple[list[Task], list[Folder]]],
+        empty_msg: str,
+    ) -> None:
+        if not pop_from:
+            self._update_status(empty_msg)
             return
-        self._redo_stack.append(
+        push_to.append(
             (copy.deepcopy(self._all_tasks), copy.deepcopy(self._all_folders))
         )
-        self._all_tasks, self._all_folders = self._undo_stack.pop()
+        self._all_tasks, self._all_folders = pop_from.pop()
         self._save()
         self._rebuild_sidebar()
         self._refresh_list()
 
+    def _undo(self) -> None:
+        self._apply_history(self._undo_stack, self._redo_stack, "(nothing to undo)")
+
     def _redo(self) -> None:
-        if not self._redo_stack:
-            self._update_status("(nothing to redo)")
-            return
-        self._undo_stack.append(
-            (copy.deepcopy(self._all_tasks), copy.deepcopy(self._all_folders))
-        )
-        self._all_tasks, self._all_folders = self._redo_stack.pop()
-        self._save()
-        self._rebuild_sidebar()
-        self._refresh_list()
+        self._apply_history(self._redo_stack, self._undo_stack, "(nothing to redo)")
