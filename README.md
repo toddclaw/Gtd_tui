@@ -1,2 +1,146 @@
 # Gtd_tui
-GTD with a TUI interface
+
+A terminal user interface (TUI) for Getting Things Done (GTD), modeled after the Things iPhone app. Written in Python using the [Textual](https://github.com/Textualize/textual) framework.
+
+---
+
+## Overview
+
+Gtd_tui gives you a keyboard-driven GTD workflow in your terminal. Tasks live in named folders and smart views, persist between sessions in a single JSON file, and are navigated entirely with vi-style keys. No mouse required.
+
+The application follows the core GTD methodology: capture everything, process it into the right folder, schedule what needs a date, and review regularly. The folder structure mirrors the Things app: **Today**, **Upcoming**, **Waiting On**, **Someday**, user-created folders, and a **Logbook** for completed work.
+
+---
+
+## Features
+
+### Views and Folders
+
+| View / Folder | Description |
+|---|---|
+| **Today** | Smart view — shows tasks in the Today folder, plus tasks from any other folder whose scheduled date has arrived |
+| **Upcoming** | Smart view — all tasks with a future scheduled date, sorted by date |
+| **Waiting On** | Tasks blocked on someone else; optional follow-up date surfaces them in Today when the date arrives |
+| **Someday** | Low-priority tasks with no date; never surface automatically |
+| **User folders** | Create any number of named folders for projects or contexts |
+| **Logbook** | Completed tasks, sorted by completion time (most recent first) |
+
+### Task Management
+
+- **Create tasks** with `o` (below selection) or `O` (above selection)
+- **Title and notes** — each task has a one-line title and an optional multi-line notes field
+- **Edit tasks** — press `Enter` to open a detail/edit view; edit title, date, notes, repeat, and recurring fields; `j`/`k` navigate between fields; changes save on close
+- **Complete tasks** — press `x` or `Space`; completed tasks move to the Logbook with a timestamp
+- **Delete tasks** — press `d` to delete the selected task
+- **Schedule tasks** — press `s` to attach a date; supports `YYYY-MM-DD`, relative (`+3d`, `+1w`), and natural language (`tomorrow`, `next monday`, `in 2 weeks`, `someday`)
+- **Reorder tasks** — `J` / `K` move the selected task down or up within its folder
+- **Move tasks** — press `m` to move a task to any folder via the sidebar picker; `w` sends a task to Waiting On; `t` returns a Waiting On task to Today
+- **Waiting On auto-scheduling** — new tasks added to Waiting On automatically get a scheduled date of today + 7 days; they surface in Today on that date with a `[W]` prefix
+
+### Keyboard Navigation (vi-style)
+
+| Key | Action |
+|---|---|
+| `j` / `k` | Move cursor down / up |
+| `H` / `M` / `L` | Jump to top / middle / bottom of list |
+| `g g` | Jump to top of list |
+| `G` | Jump to bottom of list |
+| `h` / `l` | Focus sidebar / task list |
+| `1`–`9` | Jump to nth sidebar item |
+| `J` / `K` | Move selected task down / up |
+| `o` / `O` | Add task after / before selection |
+| `Enter` | Open task detail / edit view |
+| `x` / `Space` | Complete selected task |
+| `d` | Delete selected task |
+| `s` | Schedule selected task |
+| `m` | Move task to a folder |
+| `w` | Move task to Waiting On |
+| `t` | Move task to Today (from Waiting On) |
+| `u` | Undo last action |
+| `Ctrl+R` | Redo last undone action |
+| `q` | Quit |
+| `:help` | Show keybinding reference |
+
+### Task Detail View
+
+The detail view (opened with `Enter`) lets you edit all task fields in a single screen:
+
+| Field | Notes |
+|---|---|
+| **Title** | One-line task name |
+| **Date** | Scheduled date — same formats as `s` (`+7d`, `tomorrow`, `next monday`, etc.) |
+| **Notes** | Multi-line free text |
+| **Repeat** | Calendar-fixed schedule, e.g. `7 days`, `2 weeks` |
+| **Recurring** | Completion-relative schedule, e.g. `1 day` (next instance spawns from completion date) |
+
+Navigation within the detail view:
+
+| Key | Action |
+|---|---|
+| `j` / `k` | Move to next / previous field (in COMMAND mode) |
+| `i` / `a` | Enter INSERT mode at / after cursor |
+| `o` / `O` | Edit from end / start on single-line fields; open new line below / above in notes |
+| `Enter` | Confirm and advance to next field |
+| `Esc` | Save and close |
+
+### Folder Management (sidebar focused)
+
+| Key | Action |
+|---|---|
+| `o` / `O` | Create new folder after / before selected |
+| `N` | Create new folder at end |
+| `r` | Rename selected folder |
+| `d` | Delete selected folder (prompts if non-empty) |
+
+### CLI Summary
+
+Run `gtd-tui -s` (or `--summary`) to print today's tasks to stdout and exit — no TUI required. Useful for shell prompts and scripts:
+
+```bash
+gtd-tui -s
+# Today (3):
+#   - Review project proposal
+#   - Send invoice
+#     Don't forget to attach the time sheet
+```
+
+### Data and Privacy
+
+- All data is stored locally in `~/.local/share/gtd_tui/data.json`
+- Writes are atomic (temp-file rename) with `600` permissions — owner read/write only
+- No network access, no telemetry
+
+---
+
+## Installation
+
+Requires Python 3.11+.
+
+```bash
+# Clone the repository
+git clone <repo-url>
+cd Gtd_tui
+
+# Create and activate a virtual environment
+python -m venv .venv
+source .venv/bin/activate  # on Windows: .venv\Scripts\activate
+
+# Install the package and all dependencies (including dev tools)
+pip install -e ".[dev]"
+```
+
+## Running the Application
+
+```bash
+# Via the installed script
+gtd-tui
+
+# Or directly as a module
+python -m gtd_tui
+```
+
+## Running the Tests
+
+```bash
+pytest
+```
