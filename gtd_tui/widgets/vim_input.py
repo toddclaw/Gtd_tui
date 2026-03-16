@@ -70,6 +70,8 @@ class VimInput(Widget, can_focus=True):
         self._pending: str = ""  # for multi-key sequences like "cw"
         self._view_offset: int = 0  # horizontal scroll offset for the cursor line
         self._view_row: int = 0    # vertical scroll: first visible logical line
+        self._undo_stack: list[tuple[str, int]] = []
+        self._redo_stack: list[tuple[str, int]] = []
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
@@ -99,6 +101,11 @@ class VimInput(Widget, can_focus=True):
         self._text = text
         self._cursor = min(self._cursor, len(text))
         self.refresh()
+
+    def _push_undo(self) -> None:
+        """Save current (text, cursor) to undo stack and clear redo stack."""
+        self._undo_stack.append((self._text, self._cursor))
+        self._redo_stack.clear()
 
     def clear(self) -> None:
         self._text = ""
@@ -348,13 +355,28 @@ class VimInput(Widget, can_focus=True):
         if self._pending:
             pending = self._pending
             self._pending = ""
-            if pending == "c" and key == "w":
+            if pending == "r":
                 event.stop()
                 event.prevent_default()
-                self._cmd_change_word()
+                ch = key if len(key) == 1 else (" " if key == "space" else None)
+                if ch is not None and self._cursor < len(self._text):
+                    self._push_undo()
+                    self._text = (
+                        self._text[: self._cursor] + ch + self._text[self._cursor + 1 :]
+                    )
+            elif pending == "c":
+                event.stop()
+                event.prevent_default()
+                if key == "w":
+                    self._push_undo()
+                    self._cmd_change_word()
+                elif key == "dollar":
+                    self._push_undo()
+                    self._cmd_change_to_line_end()
             elif pending == "d":
                 event.stop()
                 event.prevent_default()
+                self._push_undo()
                 if key == "d":
                     if self._multiline:
                         self._cmd_delete_line()
@@ -362,8 +384,7 @@ class VimInput(Widget, can_focus=True):
                         self._text = ""
                         self._cursor = 0
                 elif key == "dollar":
-                    self._text = self._text[: self._cursor]
-                    self._cursor = max(0, len(self._text) - 1)
+                    self._cmd_delete_to_line_end()
                 elif key == "0":
                     self._text = self._text[self._cursor :]
                     self._cursor = 0
@@ -371,6 +392,10 @@ class VimInput(Widget, can_focus=True):
                     self._cmd_delete_word(word_only=False)
                 elif key == "W":
                     self._cmd_delete_word(word_only=True)
+                elif key == "b":
+                    self._cmd_delete_to_word_backward(word=True)
+                elif key == "B":
+                    self._cmd_delete_to_word_backward(word=False)
             # Unknown sequence — silently discard; do not consume the event.
             return
 
@@ -398,12 +423,15 @@ class VimInput(Widget, can_focus=True):
         event.prevent_default()
 
         if key == "i":
+            self._push_undo()
             self.set_mode("insert")
         elif key == "a":
+            self._push_undo()
             if self._cursor < len(self._text):
                 self._cursor += 1
             self.set_mode("insert")
         elif key == "A":
+            self._push_undo()
             if self._multiline:
                 row, _ = self._cursor_row_col()
                 line = self._text.split("\n")[row]
@@ -412,17 +440,23 @@ class VimInput(Widget, can_focus=True):
                 self._cursor = len(self._text)
             self.set_mode("insert")
         elif key == "o":
+            self._push_undo()
             if self._multiline:
                 self._cmd_open_line_below()
             else:
                 self._cursor = len(self._text)
                 self.set_mode("insert")
         elif key == "O":
+            self._push_undo()
             if self._multiline:
                 self._cmd_open_line_above()
             else:
                 self._cursor = 0
                 self.set_mode("insert")
+        elif key == "u":
+            self._cmd_undo()
+        elif key == "ctrl+r":
+            self._cmd_redo()
         elif key in ("h", "left"):
             if self._multiline:
                 row, col = self._cursor_row_col()
@@ -443,6 +477,8 @@ class VimInput(Widget, can_focus=True):
             self._cmd_line_down()
         elif key == "k" and self._multiline:
             self._cmd_line_up()
+        elif key == "e":
+            self._cmd_word_end_forward()
         elif key == "w":
             self._cmd_word_forward(word=True)
         elif key == "W":
@@ -465,8 +501,21 @@ class VimInput(Widget, can_focus=True):
                 self._cursor = self._offset_from_row_col(row, new_col)
             elif self._text:
                 self._cursor = len(self._text) - 1
+        elif key == "tilde":
+            self._push_undo()
+            self._cmd_toggle_case()
+        elif key == "r":
+            self._pending = "r"
+        elif key == "s":
+            self._push_undo()
+            self._cmd_substitute()
+        elif key == "left_parenthesis":
+            self._cmd_sentence_backward()
+        elif key == "right_parenthesis":
+            self._cmd_sentence_forward()
         elif key == "x":
             if self._cursor < len(self._text) and self._text[self._cursor] != "\n":
+                self._push_undo()
                 self._text = (
                     self._text[: self._cursor] + self._text[self._cursor + 1 :]
                 )
@@ -482,6 +531,7 @@ class VimInput(Widget, can_focus=True):
         elif key == "d":
             self._pending = "d"
         elif key == "D":
+            self._push_undo()
             if self._multiline:
                 row, col = self._cursor_row_col()
                 line_start = self._offset_from_row_col(row, 0)
@@ -620,3 +670,120 @@ class VimInput(Widget, can_focus=True):
             self._clamp_cursor_for_command()
         else:
             self._cursor = min(self._cursor, max(0, len(self._text) - 1))
+
+    def _cmd_undo(self) -> None:
+        """u: restore previous (text, cursor) from undo stack."""
+        if not self._undo_stack:
+            return
+        self._redo_stack.append((self._text, self._cursor))
+        self._text, self._cursor = self._undo_stack.pop()
+        self._clamp_cursor_for_command()
+
+    def _cmd_redo(self) -> None:
+        """Ctrl+R: reapply the most recently undone change."""
+        if not self._redo_stack:
+            return
+        self._undo_stack.append((self._text, self._cursor))
+        self._text, self._cursor = self._redo_stack.pop()
+        self._clamp_cursor_for_command()
+
+    def _cmd_delete_to_line_end(self) -> None:
+        """d$: delete from cursor to end of current line (multiline-aware)."""
+        if self._multiline:
+            row, _ = self._cursor_row_col()
+            lines = self._text.split("\n")
+            line_end = self._offset_from_row_col(row, len(lines[row]))
+            self._text = self._text[: self._cursor] + self._text[line_end:]
+        else:
+            self._text = self._text[: self._cursor]
+        self._cursor = max(0, min(self._cursor, len(self._text) - 1)) if self._text else 0
+        self._clamp_cursor_for_command()
+
+    def _cmd_change_to_line_end(self) -> None:
+        """c$: delete from cursor to end of current line, enter INSERT mode."""
+        self._cmd_delete_to_line_end()
+        self.set_mode("insert")
+
+    def _cmd_word_end_forward(self) -> None:
+        """e: move to end of current or next word."""
+        text = self._text
+        n = len(text)
+        pos = self._cursor
+        if pos >= n - 1:
+            return
+        pos += 1
+        while pos < n and text[pos].isspace():
+            pos += 1
+        while pos + 1 < n and not text[pos + 1].isspace():
+            pos += 1
+        self._cursor = min(pos, n - 1)
+        self._clamp_cursor_for_command()
+
+    def _cmd_delete_to_word_backward(self, word: bool = True) -> None:
+        """db / dB: delete from cursor back to start of previous word."""
+        end = self._cursor
+        self._cmd_word_backward(word=word)
+        start = self._cursor
+        if start == end:
+            return
+        self._text = self._text[:start] + self._text[end:]
+        self._clamp_cursor_for_command()
+
+    def _cmd_toggle_case(self) -> None:
+        """~: toggle case of char under cursor and advance one position."""
+        text = self._text
+        if not text or self._cursor >= len(text):
+            return
+        ch = text[self._cursor]
+        toggled = ch.upper() if ch.islower() else ch.lower()
+        self._text = text[: self._cursor] + toggled + text[self._cursor + 1 :]
+        self._cursor = min(self._cursor + 1, max(0, len(self._text) - 1))
+        self._clamp_cursor_for_command()
+
+    def _cmd_substitute(self) -> None:
+        """s: delete char under cursor and enter INSERT mode (like xi)."""
+        if self._cursor < len(self._text):
+            self._text = self._text[: self._cursor] + self._text[self._cursor + 1 :]
+        self._clamp_cursor_for_command()
+        self.set_mode("insert")
+
+    def _cmd_sentence_forward(self) -> None:
+        """): move to start of next sentence."""
+        text = self._text
+        n = len(text)
+        pos = self._cursor + 1
+        while pos < n:
+            if text[pos - 1] in ".!?" and text[pos].isspace():
+                while pos < n and text[pos].isspace():
+                    pos += 1
+                self._cursor = min(pos, max(0, n - 1))
+                self._clamp_cursor_for_command()
+                return
+            pos += 1
+        self._cursor = max(0, n - 1)
+        self._clamp_cursor_for_command()
+
+    def _cmd_sentence_backward(self) -> None:
+        """(: move to start of previous sentence."""
+        text = self._text
+        n = len(text)
+        pos = self._cursor - 1
+        if pos <= 0:
+            self._cursor = 0
+            return
+        # Skip whitespace immediately before cursor (may be in inter-sentence gap).
+        while pos > 0 and text[pos].isspace():
+            pos -= 1
+        # Scan backward for a sentence terminator that lands us before cursor.
+        while pos > 0:
+            if text[pos] in ".!?" and pos + 1 < n and text[pos + 1].isspace():
+                skip = pos + 1
+                while skip < n and text[skip].isspace():
+                    skip += 1
+                if skip < self._cursor:  # only jump if we'd actually move backward
+                    self._cursor = skip
+                    self._clamp_cursor_for_command()
+                    return
+            pos -= 1
+        self._cursor = 0
+        self._clamp_cursor_for_command()

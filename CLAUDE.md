@@ -688,6 +688,10 @@ class RecurRule:
   - `s` — open date picker; date is applied to every selected task
   - `x` / Space — complete all selected tasks
   - `d d` — delete all selected tasks (with confirmation)
+  - 'm' - move selected tasks to the picked folder
+  - 'w' - move selected tasks to waiting-on folder
+  - 't' - move selected tasks to today folder
+  - 'J' / 'K' - move entire block of selected tasks down or up
 - Esc exits VISUAL mode without performing any action
 
 **Acceptance criteria:**
@@ -785,18 +789,14 @@ class RecurRule:
 
 ---
 
-### BACKLOG-19 — Waiting-on reminder & Weekly review
+### BACKLOG-19 — Weekly review
 
-**Story points:** 13 — Two significant new features: a background scheduling concept (waiting-on auto-reminder) and a new full-screen view (weekly review).
+**Story points:** 13 — a new full-screen view (weekly review).
 
 **Description:**
-
-1. **Waiting-on reminder** — when a task is added to Waiting On with no date, automatically schedule a reminder 7 days out; the task surfaces in Today on that date with a visual indicator that it came from Waiting On
 2. **Weekly review** — a new view (accessible via a keybinding, e.g. `W`) showing all tasks completed in the last 7 days, grouped by folder, with completion timestamps
 
 **Acceptance criteria:**
-- [x] New Waiting On task with no date auto-gets a date of today+7
-- [x] On the reminder date, task surfaces in Today with a `[W]` indicator
 - [ ] `W` (or similar) opens the Weekly Review view
 - [ ] Weekly Review lists completed tasks from the past 7 days, grouped by folder
 - [ ] Folder name is shown as a section header in the review
