@@ -47,6 +47,7 @@ class Task:
     scheduled_date: Optional[date] = None
     repeat_rule: Optional[RepeatRule] = None
     recur_rule: Optional[RecurRule] = None
+    created_at: Optional[datetime] = None
 
     is_deleted: bool = False
 

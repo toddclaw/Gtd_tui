@@ -18,7 +18,13 @@ def add_task(
     for task in tasks:
         if task.folder_id == "today":
             task.position += 1
-    kwargs = {"title": title, "notes": notes, "folder_id": "today", "position": 0}
+    kwargs = {
+        "title": title,
+        "notes": notes,
+        "folder_id": "today",
+        "position": 0,
+        "created_at": datetime.now(),
+    }
     if task_id is not None:
         kwargs["id"] = task_id
     new_task = Task(**kwargs)  # type: ignore[arg-type]
@@ -50,6 +56,7 @@ def insert_task_after(
         "notes": notes,
         "folder_id": "today",
         "position": insert_pos,
+        "created_at": datetime.now(),
     }
     if task_id is not None:
         kwargs["id"] = task_id
@@ -82,6 +89,7 @@ def insert_task_before(
         "notes": notes,
         "folder_id": "today",
         "position": insert_pos,
+        "created_at": datetime.now(),
     }
     if task_id is not None:
         kwargs["id"] = task_id
@@ -311,7 +319,10 @@ def add_waiting_on_task(tasks: list[Task], title: str, notes: str = "") -> list[
     """Add a new task to the end of the Waiting On folder."""
     existing = folder_tasks(tasks, "waiting_on")
     next_pos = existing[-1].position + 1 if existing else 0
-    new_task = Task(title=title, notes=notes, folder_id="waiting_on", position=next_pos)
+    new_task = Task(
+        title=title, notes=notes, folder_id="waiting_on", position=next_pos,
+        created_at=datetime.now(),
+    )
     return tasks + [new_task]
 
 
@@ -392,6 +403,7 @@ def add_task_to_folder(
         "notes": notes,
         "folder_id": folder_id,
         "position": next_pos,
+        "created_at": datetime.now(),
     }
     if task_id is not None:
         kwargs["id"] = task_id
@@ -407,6 +419,43 @@ def create_folder(
     if folder_id is not None:
         kwargs["id"] = folder_id
     return folders + [Folder(**kwargs)]
+
+
+def insert_folder(
+    folders: list[Folder],
+    name: str,
+    anchor_id: str | None,
+    insert_position: str,
+    folder_id: str | None = None,
+) -> list[Folder]:
+    """Insert a new folder relative to an anchor folder.
+
+    insert_position: 'after' inserts below anchor, 'before' inserts above it,
+    'end' (or anchor_id=None) appends after all existing folders.
+    All folders are renumbered 0, 1, 2… after insertion.
+    """
+    import copy as _copy
+    result = [_copy.copy(f) for f in folders]
+    sorted_result = sorted(result, key=lambda f: f.position)
+    new_kwargs: dict = {"name": name, "position": 0}
+    if folder_id is not None:
+        new_kwargs["id"] = folder_id
+    new_folder = Folder(**new_kwargs)
+    if insert_position == "end" or anchor_id is None:
+        sorted_result.append(new_folder)
+    else:
+        anchor_idx = next(
+            (i for i, f in enumerate(sorted_result) if f.id == anchor_id), None
+        )
+        if anchor_idx is None:
+            sorted_result.append(new_folder)
+        elif insert_position == "after":
+            sorted_result.insert(anchor_idx + 1, new_folder)
+        else:
+            sorted_result.insert(anchor_idx, new_folder)
+    for i, f in enumerate(sorted_result):
+        f.position = i
+    return sorted_result
 
 
 def rename_folder(folders: list[Folder], folder_id: str, new_name: str) -> list[Folder]:

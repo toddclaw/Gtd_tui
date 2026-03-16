@@ -323,10 +323,10 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
         await pilot.pause()
         assert isinstance(app.screen, TaskDetailScreen)
 
-        # Advance past title → notes → repeat
+        # Advance past title → notes (Enter) → repeat (Tab, since notes is multiline)
         await pilot.press("enter")   # title → notes
         await pilot.pause()
-        await pilot.press("enter")   # notes → repeat
+        await pilot.press("tab")     # notes → repeat (multiline: Tab advances)
         await pilot.pause()
 
         # Type the repeat interval in the Repeat field
@@ -549,7 +549,7 @@ async def test_recurring_task_shows_recurrence_marker(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("enter")   # title → notes
         await pilot.pause()
-        await pilot.press("enter")   # notes → repeat
+        await pilot.press("tab")     # notes → repeat (multiline: Tab advances)
         await pilot.pause()
         await pilot.press("7", " ", "d", "a", "y", "s")
         await pilot.press("enter")   # repeat → recur
@@ -644,3 +644,95 @@ async def test_sidebar_shows_today_count(tmp_path: Path) -> None:
         label_text = str(first_item.query_one(Label).render())
         assert "Today" in label_text
         assert "(2)" in label_text
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-21: Positional folder insertion with o/O
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_o_inserts_folder_after_selected(tmp_path: Path) -> None:
+    """o in sidebar creates a new folder directly after the currently selected folder."""
+    from gtd_tui.gtd.operations import create_folder
+    from gtd_tui.storage.file import save_data, load_folders
+
+    data_file = tmp_path / "data.json"
+    folders = create_folder([], "Alpha")
+    folders = create_folder(folders, "Beta")
+    save_data([], folders, data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Press h to move focus to sidebar (task-list → sidebar)
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        # Alpha is at sidebar index 3: Today=0, Upcoming=1, WaitingOn=2, Alpha=3
+        sidebar.index = 3
+        await pilot.pause()
+        await pilot.press("o")   # open folder slot after Alpha
+        await pilot.pause()
+        await pilot.press("m", "i", "d")
+        await pilot.press("enter")
+        await pilot.pause()
+
+    result = sorted(load_folders(data_file), key=lambda f: f.position)
+    names = [f.name for f in result]
+    assert "mid" in names
+    assert names.index("mid") == names.index("Alpha") + 1
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-21: created_at set on new tasks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_new_task_has_created_at(tmp_path: Path) -> None:
+    data_file = _make_app(tmp_path)._data_file
+    app = GtdApp(data_file=tmp_path / "data.json")
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("o")
+        await pilot.pause()
+        await pilot.press("B", "u", "y", " ", "m", "i", "l", "k")
+        await pilot.press("enter")
+        await pilot.pause()
+    today = [t for t in app._all_tasks if t.folder_id == "today" and t.title == "Buy milk"]
+    assert today
+    assert today[0].created_at is not None
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-21: Multi-line notes in detail view
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_notes_support_newlines_in_detail_view(tmp_path: Path) -> None:
+    data_file = _prepopulate(tmp_path, "My task")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Open detail
+        await pilot.press("enter")
+        await pilot.pause()
+        # Skip title → notes
+        await pilot.press("enter")
+        await pilot.pause()
+        # notes VimInput is now focused in COMMAND mode; enter INSERT
+        await pilot.press("i")
+        await pilot.pause()
+        # Type two lines
+        await pilot.press("L", "i", "n", "e", "1")
+        await pilot.press("enter")   # inserts newline in multiline mode
+        await pilot.press("L", "i", "n", "e", "2")
+        await pilot.press("escape")  # COMMAND mode
+        await pilot.press("escape")  # save and close
+        await pilot.pause()
+    task = next(t for t in app._all_tasks if t.title == "My task")
+    assert "Line1" in task.notes
+    assert "Line2" in task.notes
+    assert "\n" in task.notes

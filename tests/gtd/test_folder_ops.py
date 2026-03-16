@@ -10,6 +10,7 @@ from gtd_tui.gtd.operations import (
     delete_folder,
     discard_folder_tasks,
     folder_tasks,
+    insert_folder,
     move_folder_down,
     move_folder_tasks_to_today,
     move_folder_up,
@@ -269,3 +270,46 @@ def test_move_folder_down_at_bottom_is_noop():
     folders = move_folder_down(folders, beta_id)
     result = sorted(folders, key=lambda f: f.position)
     assert [f.name for f in result] == [f.name for f in original]
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-21: insert_folder — positional insertion
+# ---------------------------------------------------------------------------
+
+
+def test_insert_folder_end_appends_after_all():
+    folders = _two_folders()
+    folders = insert_folder(folders, "Gamma", anchor_id=None, insert_position="end")
+    names = [f.name for f in sorted(folders, key=lambda f: f.position)]
+    assert names == ["Alpha", "Beta", "Gamma"]
+
+
+def test_insert_folder_after_anchor():
+    folders = _two_folders()
+    alpha_id = next(f.id for f in folders if f.name == "Alpha")
+    folders = insert_folder(folders, "Middle", anchor_id=alpha_id, insert_position="after")
+    names = [f.name for f in sorted(folders, key=lambda f: f.position)]
+    assert names == ["Alpha", "Middle", "Beta"]
+
+
+def test_insert_folder_before_anchor():
+    folders = _two_folders()
+    beta_id = next(f.id for f in folders if f.name == "Beta")
+    folders = insert_folder(folders, "Middle", anchor_id=beta_id, insert_position="before")
+    names = [f.name for f in sorted(folders, key=lambda f: f.position)]
+    assert names == ["Alpha", "Middle", "Beta"]
+
+
+def test_insert_folder_renumbers_positions():
+    folders = _two_folders()
+    alpha_id = next(f.id for f in folders if f.name == "Alpha")
+    folders = insert_folder(folders, "Middle", anchor_id=alpha_id, insert_position="after")
+    positions = sorted(f.position for f in folders)
+    assert positions == [0, 1, 2]
+
+
+def test_insert_folder_unknown_anchor_appends():
+    folders = _two_folders()
+    folders = insert_folder(folders, "Orphan", anchor_id="nonexistent", insert_position="after")
+    names = [f.name for f in sorted(folders, key=lambda f: f.position)]
+    assert names[-1] == "Orphan"

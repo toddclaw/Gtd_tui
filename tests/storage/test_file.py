@@ -236,3 +236,30 @@ def test_non_deleted_task_round_trip(tmp_path: Path) -> None:
     save_tasks(tasks, data_file=data_file)
     loaded = load_tasks(data_file=data_file)
     assert loaded[0].is_deleted is False
+
+
+def test_created_at_round_trips(tmp_path):
+    """created_at is persisted and reloaded correctly."""
+    from gtd_tui.gtd.operations import add_task
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Buy stamps")
+    assert tasks[0].created_at is not None
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].created_at is not None
+    assert loaded[0].created_at == tasks[0].created_at
+
+
+def test_created_at_missing_defaults_to_none(tmp_path):
+    """Old tasks without created_at load without error, defaulting to None."""
+    import json
+    data_file = tmp_path / "data.json"
+    # Write a task dict that lacks created_at (simulates old data).
+    payload = {"tasks": [{"id": "abc", "title": "Old task", "notes": "",
+                           "folder_id": "today", "position": 0,
+                           "completed_at": None, "scheduled_date": None,
+                           "repeat_rule": None, "recur_rule": None,
+                           "is_deleted": False}], "folders": []}
+    data_file.write_text(json.dumps(payload))
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].created_at is None

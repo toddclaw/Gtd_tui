@@ -266,3 +266,119 @@ async def test_enter_in_command_mode_emits_submitted() -> None:
     async with _TestApp(value="task", start_mode="command").run_test() as pilot:
         await pilot.press("enter")
         assert received == ["task"]
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-21: New motions — W, B, dw, dW
+# ---------------------------------------------------------------------------
+
+
+async def test_W_moves_to_next_word() -> None:
+    async with _App(value="hello world foo", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("W")
+        assert vi._cursor == 6  # start of "world"
+
+
+async def test_B_moves_to_previous_word() -> None:
+    async with _App(value="hello world foo", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 6  # "world"
+        await pilot.press("B")
+        assert vi._cursor == 0  # start of "hello"
+
+
+async def test_dw_deletes_to_end_of_word() -> None:
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("d", "w")
+        assert vi.value == "world"
+
+
+async def test_dW_deletes_to_end_of_WORD() -> None:
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("d", "W")
+        assert vi.value == "world"
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-21: Multi-line VimInput
+# ---------------------------------------------------------------------------
+
+
+class _MultiApp(App[None]):
+    def compose(self) -> ComposeResult:
+        yield VimInput(
+            value="",
+            start_mode="insert",
+            multiline=True,
+            id="vi",
+        )
+
+
+def _mvi(app: App) -> VimInput:
+    return app.query_one("#vi", VimInput)
+
+
+async def test_multiline_enter_inserts_newline() -> None:
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        await pilot.press("t", "h", "e", "r", "e")
+        assert vi.value == "hi\nthere"
+
+
+async def test_multiline_cursor_row_col() -> None:
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("a", "b", "c")
+        await pilot.press("enter")
+        await pilot.press("d", "e", "f")
+        row, col = vi._cursor_row_col()
+        assert row == 1
+        assert col == 3
+
+
+async def test_multiline_j_moves_down() -> None:
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("l", "i", "n", "e", "1")
+        await pilot.press("enter")
+        await pilot.press("l", "i", "n", "e", "2")
+        # Switch to command mode and move cursor back to line 0, col 0
+        await pilot.press("escape")  # → command mode
+        vi._cursor = 0
+        await pilot.press("j")
+        row, col = vi._cursor_row_col()
+        assert row == 1
+
+
+async def test_multiline_k_moves_up() -> None:
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("l", "i", "n", "e", "1")
+        await pilot.press("enter")
+        await pilot.press("l", "i", "n", "e", "2")
+        await pilot.press("escape")  # → command mode; cursor on line 1
+        await pilot.press("k")
+        row, _ = vi._cursor_row_col()
+        assert row == 0
+
+
+async def test_multiline_enter_no_submitted_event() -> None:
+    """In multiline mode Enter must NOT emit Submitted."""
+    received: list[str] = []
+
+    class _TestApp(_MultiApp):
+        def on_vim_input_submitted(self, event: VimInput.Submitted) -> None:
+            received.append(event.value)
+
+    async with _TestApp().run_test() as pilot:
+        await pilot.press("h", "i")
+        await pilot.press("enter")
+        assert received == []  # no submission

@@ -22,6 +22,7 @@ from gtd_tui.gtd.operations import (
     delete_task,
     create_folder,
     delete_folder,
+    insert_folder,
     discard_folder_tasks,
     edit_task,
     folder_tasks,
@@ -203,13 +204,21 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str] | None]):
                 start_mode="command",
                 id="detail-title-input",
             )
-            yield Label("Notes", classes="field-label")
+            yield Label("Notes  (Enter = newline)", classes="field-label")
             yield VimInput(
                 value=self._gtd_task.notes,
                 placeholder="(optional)",
                 start_mode="command",
+                multiline=True,
                 id="detail-notes-input",
             )
+            if self._gtd_task.created_at:
+                from gtd_tui.gtd.dates import format_date
+                yield Label("Created", classes="field-label")
+                yield Label(
+                    format_date(self._gtd_task.created_at.date()),
+                    id="detail-created",
+                )
             yield Label(
                 "Repeat  (calendar-fixed — e.g. 7 days, 2 weeks — empty to clear)",
                 classes="field-label",
@@ -220,14 +229,15 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str] | None]):
                 classes="field-label",
             )
             yield Input(value=recur_val, placeholder="(none)", id="detail-recur-input")
-            yield Label("Enter: next field  Esc: save & close", id="detail-status")
+            yield Label("Enter/Tab: next field  Esc: save & close", id="detail-status")
 
     def on_mount(self) -> None:
         self.query_one("#detail-title-input", VimInput).focus()
 
     def action_save_and_close(self) -> None:
         title = self.query_one("#detail-title-input", VimInput).value.strip()
-        notes = self.query_one("#detail-notes-input", VimInput).value.strip()
+        # Preserve internal newlines in notes; only strip leading/trailing whitespace.
+        notes = self.query_one("#detail-notes-input", VimInput).value.strip("\n").rstrip()
         repeat = self.query_one("#detail-repeat-input", Input).value.strip()
         recur = self.query_one("#detail-recur-input", Input).value.strip()
         self.dismiss((title, notes, repeat, recur) if title else None)
@@ -507,14 +517,45 @@ class GtdApp(App[None]):
         self._delete_confirm_folder_id: str = ""
         # Rename folder in progress
         self._rename_folder_id: str = ""
+        # Positional folder creation: anchor + position tracked during name entry
+        self._folder_insert_position: str = "end"  # "after", "before", "end"
+        self._folder_insert_anchor_id: str = ""
+        # Sidebar placeholder shown while a folder name is being typed
+        self._sidebar_placeholder_insert: str = ""  # same values as above; "" = none
+        self._sidebar_placeholder_anchor_id: str = ""
 
     @property
     def _sidebar_view_ids(self) -> list[str]:
-        return (
-            ["today", "upcoming", "waiting_on"]
-            + [f.id for f in sorted(self._all_folders, key=lambda f: f.position)]
-            + ["someday", "logbook"]
-        )
+        """Ordered list of view IDs parallel to the sidebar ListView items.
+
+        When a new-folder placeholder is active, '__new_folder__' is included
+        at the position where the placeholder row appears.
+        """
+        user_folders = sorted(self._all_folders, key=lambda f: f.position)
+        ids: list[str] = ["today", "upcoming", "waiting_on"]
+
+        pos = self._sidebar_placeholder_insert
+        anchor = self._sidebar_placeholder_anchor_id
+        if not pos:
+            ids += [f.id for f in user_folders]
+        else:
+            anchor_idx = next(
+                (i for i, f in enumerate(user_folders) if f.id == anchor), None
+            )
+            if pos == "end" or anchor_idx is None:
+                ids += [f.id for f in user_folders]
+                ids.append("__new_folder__")
+            elif pos == "after":
+                ids += [f.id for f in user_folders[: anchor_idx + 1]]
+                ids.append("__new_folder__")
+                ids += [f.id for f in user_folders[anchor_idx + 1 :]]
+            else:  # "before"
+                ids += [f.id for f in user_folders[:anchor_idx]]
+                ids.append("__new_folder__")
+                ids += [f.id for f in user_folders[anchor_idx:]]
+
+        ids += ["someday", "logbook"]
+        return ids
 
     def _view_label(self, view_id: str) -> str:
         if view_id == "today":
@@ -585,16 +626,30 @@ class GtdApp(App[None]):
         sidebar = self.query_one("#sidebar", ListView)
         sidebar.clear()
 
+        folder_map = {f.id: f for f in self._all_folders}
+
         def _n(count: int) -> str:
             return f" ({count})"
 
-        sidebar.append(ListItem(Label(f"Today{_n(len(today_tasks(self._all_tasks)))}")))
-        sidebar.append(ListItem(Label(f"Upcoming{_n(len(upcoming_tasks(self._all_tasks)))}")))
-        sidebar.append(ListItem(Label(f"Waiting On{_n(len(waiting_on_tasks(self._all_tasks)))}")))
-        for folder in sorted(self._all_folders, key=lambda f: f.position):
-            sidebar.append(ListItem(Label(f"{folder.name}{_n(len(folder_tasks(self._all_tasks, folder.id)))}")))
-        sidebar.append(ListItem(Label(f"Someday{_n(len(someday_tasks(self._all_tasks)))}")))
-        sidebar.append(ListItem(Label(f"Logbook{_n(len(logbook_tasks(self._all_tasks)))}")))
+        for view_id in self._sidebar_view_ids:
+            if view_id == "today":
+                sidebar.append(ListItem(Label(f"Today{_n(len(today_tasks(self._all_tasks)))}")))
+            elif view_id == "upcoming":
+                sidebar.append(ListItem(Label(f"Upcoming{_n(len(upcoming_tasks(self._all_tasks)))}")))
+            elif view_id == "waiting_on":
+                sidebar.append(ListItem(Label(f"Waiting On{_n(len(waiting_on_tasks(self._all_tasks)))}")))
+            elif view_id == "someday":
+                sidebar.append(ListItem(Label(f"Someday{_n(len(someday_tasks(self._all_tasks)))}")))
+            elif view_id == "logbook":
+                sidebar.append(ListItem(Label(f"Logbook{_n(len(logbook_tasks(self._all_tasks)))}")))
+            elif view_id == "__new_folder__":
+                sidebar.append(ListItem(Label("▸ …", classes="sidebar-placeholder")))
+            else:
+                folder = folder_map.get(view_id)
+                if folder:
+                    sidebar.append(ListItem(Label(
+                        f"{folder.name}{_n(len(folder_tasks(self._all_tasks, folder.id)))}"
+                    )))
 
         view_ids = self._sidebar_view_ids
         try:
@@ -730,14 +785,19 @@ class GtdApp(App[None]):
         tasks = logbook_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Logbook ({len(tasks)})")
         for task in tasks:
-            timestamp = (
+            done = (
                 task.completed_at.strftime("%Y-%m-%d %H:%M")
                 if task.completed_at
                 else "unknown"
             )
+            created = (
+                f"  created {format_date(task.created_at.date())}"
+                if task.created_at
+                else ""
+            )
             marker = "D" if task.is_deleted else "C"
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(f"{marker}  {task.title}  [{timestamp}]")))
+            list_view.append(ListItem(Label(f"{marker}  {task.title}  [{done}]{created}")))
 
     def _render_folder_view(self, list_view: ListView, folder_id: str) -> None:
         label = self._view_label(folder_id)
@@ -878,9 +938,12 @@ class GtdApp(App[None]):
         elif event.key in ("l", "enter"):
             event.prevent_default()
             self.query_one("#task-list", ListView).focus()
-        elif event.key in ("o", "O", "N"):
+        elif event.key == "o":
             event.prevent_default()
-            self._start_create_folder()
+            self._start_create_folder("after")
+        elif event.key in ("O", "N"):
+            event.prevent_default()
+            self._start_create_folder("before" if event.key == "O" else "end")
         elif event.key == "r":
             event.prevent_default()
             self._start_rename_folder()
@@ -1022,7 +1085,7 @@ class GtdApp(App[None]):
         if idx >= len(view_ids):
             return
         new_view = view_ids[idx]
-        if new_view == self._current_view:
+        if new_view in ("__new_folder__", self._current_view):
             return
         self._current_view = new_view
         self._refresh_list()
@@ -1167,10 +1230,16 @@ class GtdApp(App[None]):
                 self._update_status(f"(unknown command: {value})")
 
         elif self._input_stage == "folder_name":
+            self._sidebar_placeholder_insert = ""
+            self._sidebar_placeholder_anchor_id = ""
             if value:
                 new_folder_id = str(uuid.uuid4())
-                self._all_folders = create_folder(
-                    self._all_folders, value, folder_id=new_folder_id
+                self._all_folders = insert_folder(
+                    self._all_folders,
+                    value,
+                    anchor_id=self._folder_insert_anchor_id or None,
+                    insert_position=self._folder_insert_position,
+                    folder_id=new_folder_id,
                 )
                 self._save()
                 self._current_view = new_folder_id
@@ -1179,6 +1248,7 @@ class GtdApp(App[None]):
                 self._cancel_input()
                 self.query_one("#task-list", ListView).focus()
             else:
+                self._rebuild_sidebar()
                 self._cancel_input()
 
         elif self._input_stage == "folder_rename":
@@ -1200,6 +1270,7 @@ class GtdApp(App[None]):
         inp.clear()
         inp.remove_class("active")
         had_placeholder = self._show_placeholder
+        had_sidebar_placeholder = bool(self._sidebar_placeholder_insert)
         self._mode = "NORMAL"
         self._input_stage = ""
         self._pending_title = ""
@@ -1208,10 +1279,14 @@ class GtdApp(App[None]):
         self._pending_insert_position = "after"
         self._show_placeholder = False
         self._placeholder_list_idx = None
+        self._sidebar_placeholder_insert = ""
+        self._sidebar_placeholder_anchor_id = ""
         self._update_status()
         if had_placeholder:
             self._refresh_list()  # removes placeholder; _apply_selection refocuses
         else:
+            if had_sidebar_placeholder:
+                self._rebuild_sidebar()
             self.query_one("#task-list", ListView).focus()
 
     # ------------------------------------------------------------------ #
@@ -1424,7 +1499,21 @@ class GtdApp(App[None]):
     # Folder creation / rename / delete                                   #
     # ------------------------------------------------------------------ #
 
-    def _start_create_folder(self) -> None:
+    def _start_create_folder(self, insert_position: str = "end") -> None:
+        # Determine which user folder to anchor relative to.
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        anchor_id = ""
+        if idx is not None and idx < len(view_ids):
+            candidate = view_ids[idx]
+            if candidate not in BUILTIN_FOLDER_IDS and candidate != "__new_folder__":
+                anchor_id = candidate
+        self._folder_insert_position = insert_position
+        self._folder_insert_anchor_id = anchor_id
+        self._sidebar_placeholder_insert = insert_position
+        self._sidebar_placeholder_anchor_id = anchor_id
+        self._rebuild_sidebar()  # shows the placeholder slot
         self._mode = "INSERT"
         self._input_stage = "folder_name"
         inp = self.query_one("#task-input", Input)

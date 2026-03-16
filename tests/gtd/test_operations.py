@@ -1165,3 +1165,30 @@ def test_complete_recurring_task_new_task_notes_preserved():
     tasks = complete_task(tasks, tasks[0].id)
     active = [t for t in tasks if t.folder_id != "logbook"]
     assert active[0].notes == "Use waxed floss"
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-21: created_at is set on task creation
+# ---------------------------------------------------------------------------
+
+
+def test_add_task_sets_created_at():
+    from datetime import datetime
+    tasks = add_task([], "Buy milk")
+    assert tasks[0].created_at is not None
+    assert isinstance(tasks[0].created_at, datetime)
+
+
+def test_insert_task_after_sets_created_at():
+    from gtd_tui.gtd.operations import insert_task_after
+    tasks = add_task([], "First")
+    anchor_id = tasks[0].id
+    tasks = insert_task_after(tasks, anchor_id, "Second")
+    new_task = next(t for t in tasks if t.title == "Second")
+    assert new_task.created_at is not None
+
+
+def test_add_task_to_folder_sets_created_at():
+    from gtd_tui.gtd.operations import add_task_to_folder
+    tasks = add_task_to_folder([], "myfolder", "Widget")
+    assert tasks[0].created_at is not None

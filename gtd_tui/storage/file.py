@@ -56,6 +56,7 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         "recur_rule": (
             _recur_rule_to_dict(task.recur_rule) if task.recur_rule else None
         ),
+        "created_at": task.created_at.isoformat() if task.created_at else None,
         "is_deleted": task.is_deleted,
     }
 
@@ -82,6 +83,11 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
         recur_rule=(
             _recur_rule_from_dict(data["recur_rule"])
             if data.get("recur_rule")
+            else None
+        ),
+        created_at=(
+            datetime.fromisoformat(data["created_at"])
+            if data.get("created_at")
             else None
         ),
         is_deleted=data.get("is_deleted", False),
