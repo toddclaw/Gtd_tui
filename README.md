@@ -36,6 +36,7 @@ The application follows the core GTD methodology: capture everything, process it
 - **Reorder tasks** — `J` / `K` move the selected task down or up within its folder
 - **Move tasks** — press `m` to move a task to any folder via the sidebar picker; `w` sends a task to Waiting On; `t` returns a Waiting On task to Today
 - **Waiting On auto-scheduling** — new tasks added to Waiting On automatically get a scheduled date of today + 7 days; they surface in Today on that date with a `[W]` prefix
+- **Visual mode bulk operations** — press `v` to enter VISUAL mode; extend the selection with `j`/`k`; then bulk-complete (`x`/`Space`), bulk-delete (`d`), bulk-schedule (`s`), bulk-move (`m`/`w`/`t`), or reorder the whole block (`J`/`K`); every bulk operation is a single undo step
 
 ### Keyboard Navigation (vi-style)
 
@@ -56,10 +57,29 @@ The application follows the core GTD methodology: capture everything, process it
 | `m` | Move task to a folder |
 | `w` | Move task to Waiting On |
 | `t` | Move task to Today (from Waiting On) |
+| `v` | Enter VISUAL mode (bulk selection) |
 | `u` | Undo last action |
 | `Ctrl+R` | Redo last undone action |
 | `q` | Quit |
-| `:help` | Show keybinding reference |
+| `:help` / `:h` | Show keybinding reference |
+
+### Visual Mode (Bulk Operations)
+
+Press `v` in NORMAL mode to enter VISUAL mode. Extend the selection with `j`/`k` — the anchor stays fixed while the cursor moves. Then apply any bulk operation:
+
+| Key | Action |
+|---|---|
+| `x` / `Space` | Complete all selected tasks |
+| `d` | Delete all selected tasks |
+| `s` | Schedule all selected tasks (same date picker as normal `s`) |
+| `m` | Move all selected tasks to a chosen folder |
+| `w` | Move all selected tasks to Waiting On |
+| `t` | Move all selected tasks to Today |
+| `J` / `K` | Move the entire selected block down / up |
+| `u` | Undo the bulk action (exits VISUAL mode) |
+| `Esc` | Cancel selection, return to NORMAL mode |
+
+Every bulk operation is recorded as a single undo step.
 
 ### Task Detail View
 

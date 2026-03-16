@@ -677,7 +677,7 @@ class RecurRule:
 
 ---
 
-### BACKLOG-15 — Visual mode block selection and bulk operations
+### ~~BACKLOG-15 — Visual mode block selection and bulk operations~~ ✅ DONE
 
 **Story points:** 8 — New modal state alongside NORMAL and INSERT; significant keybinding and rendering work.
 
@@ -687,18 +687,22 @@ class RecurRule:
 - Bulk operations apply to all selected tasks:
   - `s` — open date picker; date is applied to every selected task
   - `x` / Space — complete all selected tasks
-  - `d d` — delete all selected tasks (with confirmation)
+  - `d` — delete all selected tasks
+  - `m` — move selected tasks to the picked folder
+  - `w` — move selected tasks to Waiting On
+  - `t` — move selected tasks to Today
+  - `J` / `K` — move entire block of selected tasks down or up
 - Esc exits VISUAL mode without performing any action
 
 **Acceptance criteria:**
-- [ ] `v` enters VISUAL mode; status bar shows `VISUAL`
-- [ ] `j` / `k` extend selection downward / upward (anchor stays fixed)
-- [ ] Selected rows are visually distinct from the cursor row
-- [ ] `s` in VISUAL mode opens date picker; date applied to all selected tasks on confirm
-- [ ] `x` / Space in VISUAL mode completes all selected tasks
-- [ ] `d d` in VISUAL mode deletes all selected tasks after confirmation
-- [ ] Esc cancels selection and returns to NORMAL mode
-- [ ] All bulk operations are undoable as a single undo step
+- [x] `v` enters VISUAL mode; status bar shows `VISUAL`
+- [x] `j` / `k` extend selection downward / upward (anchor stays fixed)
+- [x] Selected rows are visually distinct from the cursor row
+- [x] `s` in VISUAL mode opens date picker; date applied to all selected tasks on confirm
+- [x] `x` / Space in VISUAL mode completes all selected tasks
+- [x] `d` in VISUAL mode deletes all selected tasks
+- [x] Esc cancels selection and returns to NORMAL mode
+- [x] All bulk operations are undoable as a single undo step
 
 ---
 
@@ -785,18 +789,14 @@ class RecurRule:
 
 ---
 
-### BACKLOG-19 — Waiting-on reminder & Weekly review
+### BACKLOG-19 — Weekly review
 
-**Story points:** 13 — Two significant new features: a background scheduling concept (waiting-on auto-reminder) and a new full-screen view (weekly review).
+**Story points:** 13 — a new full-screen view (weekly review).
 
 **Description:**
-
-1. **Waiting-on reminder** — when a task is added to Waiting On with no date, automatically schedule a reminder 7 days out; the task surfaces in Today on that date with a visual indicator that it came from Waiting On
 2. **Weekly review** — a new view (accessible via a keybinding, e.g. `W`) showing all tasks completed in the last 7 days, grouped by folder, with completion timestamps
 
 **Acceptance criteria:**
-- [x] New Waiting On task with no date auto-gets a date of today+7
-- [x] On the reminder date, task surfaces in Today with a `[W]` indicator
 - [ ] `W` (or similar) opens the Weekly Review view
 - [ ] Weekly Review lists completed tasks from the past 7 days, grouped by folder
 - [ ] Folder name is shown as a section header in the review
@@ -857,7 +857,7 @@ class RecurRule:
 
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 21, 22 are **complete**. BACKLOG-19 is partially complete (WO auto-scheduling done; weekly review view not yet built). The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22 are **complete**. BACKLOG-19 is partially complete (WO auto-scheduling done; weekly review view not yet built). The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.

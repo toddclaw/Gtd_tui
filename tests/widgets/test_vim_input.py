@@ -161,7 +161,7 @@ async def test_dollar_moves_to_last_char() -> None:
     async with _App(value="hello", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 0
-        await pilot.press("dollar")
+        await pilot.press("dollar_sign")
         assert vi._cursor == 4  # index of last char 'o'
 
 
@@ -216,7 +216,7 @@ async def test_d_dollar_deletes_to_end() -> None:
     async with _App(value="hello world", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 5  # on space
-        await pilot.press("d", "dollar")
+        await pilot.press("d", "dollar_sign")
         assert vi.value == "hello"
 
 
@@ -492,3 +492,179 @@ async def test_O_multiline_opens_line_above() -> None:
         await pilot.press("escape")
         lines = vi.value.split("\n")
         assert lines == ["line1", "X", "line2"]
+
+
+# ---------------------------------------------------------------------------
+# New vim commands: e, db, dB, ~, r, s, (, )
+# ---------------------------------------------------------------------------
+
+
+async def test_e_moves_to_end_of_current_word() -> None:
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("e")
+        assert vi._cursor == 4  # last char of "hello"
+
+
+async def test_e_skips_whitespace_and_moves_to_end_of_next_word() -> None:
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 4  # already at end of "hello"
+        await pilot.press("e")
+        assert vi._cursor == 10  # last char of "world"
+
+
+async def test_db_deletes_to_start_of_previous_word() -> None:
+    async with _App(value="foo bar", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 6  # on 'r' (last char of "bar")
+        await pilot.press("d", "b")
+        assert vi.value == "foo r"
+        assert vi._cursor == 4
+
+
+async def test_dB_deletes_to_start_of_previous_WORD() -> None:
+    async with _App(value="foo bar", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 6  # on 'r'
+        await pilot.press("d", "B")
+        assert vi.value == "foo r"
+        assert vi._cursor == 4
+
+
+async def test_tilde_toggles_lowercase_to_upper() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("tilde")
+        assert vi.value == "Hello"
+        assert vi._cursor == 1
+
+
+async def test_tilde_toggles_uppercase_to_lower() -> None:
+    async with _App(value="HELLO", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("tilde")
+        assert vi.value == "hELLO"
+        assert vi._cursor == 1
+
+
+async def test_r_replaces_char_under_cursor() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("r", "H")
+        assert vi.value == "Hello"
+        assert vi._cursor == 0
+        assert vi._vim_mode == "command"
+
+
+async def test_s_deletes_char_and_enters_insert() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("s")
+        assert vi.value == "ello"
+        assert vi._cursor == 0
+        assert vi._vim_mode == "insert"
+
+
+async def test_right_paren_moves_to_next_sentence() -> None:
+    async with _App(value="Hello world. Foo bar.", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("right_parenthesis")
+        assert vi._cursor == 13  # start of "Foo"
+
+
+async def test_left_paren_moves_to_previous_sentence() -> None:
+    async with _App(value="Hello world. Foo bar.", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 13  # on 'F' of "Foo"
+        await pilot.press("left_parenthesis")
+        assert vi._cursor == 0
+
+
+# ---------------------------------------------------------------------------
+# $ fixes: c$ and d$ (multiline-aware)
+# ---------------------------------------------------------------------------
+
+
+async def test_c_dollar_changes_to_end_of_line_and_enters_insert() -> None:
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 6  # on 'w'
+        await pilot.press("c", "dollar_sign")
+        assert vi.value == "hello "
+        assert vi._cursor == 5
+        assert vi._vim_mode == "insert"
+
+
+async def test_d_dollar_multiline_deletes_only_current_line_remainder() -> None:
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        await pilot.press("h", "e", "l", "l", "o")
+        await pilot.press("enter")
+        await pilot.press("w", "o", "r", "l", "d")
+        await pilot.press("escape")   # command mode, cursor on line 1
+        await pilot.press("k")        # move to line 0
+        vi._cursor = 2                # on 'l' of "hello"
+        await pilot.press("d", "dollar_sign")
+        assert vi.value == "he\nworld"
+
+
+# ---------------------------------------------------------------------------
+# VimInput undo (u) and redo (ctrl+r)
+# ---------------------------------------------------------------------------
+
+
+async def test_u_undoes_x_delete() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("x")        # delete 'h' → "ello"
+        assert vi.value == "ello"
+        await pilot.press("u")        # undo → "hello"
+        assert vi.value == "hello"
+
+
+async def test_u_undoes_insert_session() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 4
+        await pilot.press("a")        # enter insert after last char
+        await pilot.press("!", "!")   # type "!!"
+        await pilot.press("escape")   # back to command → value is "hello!!"
+        assert vi.value == "hello!!"
+        await pilot.press("u")        # undo entire insert session
+        assert vi.value == "hello"
+
+
+async def test_ctrl_r_redoes_undone_change() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("x")        # delete 'h' → "ello"
+        await pilot.press("u")        # undo → "hello"
+        await pilot.press("ctrl+r")   # redo → "ello"
+        assert vi.value == "ello"
+
+
+async def test_u_does_nothing_on_empty_undo_stack() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        await pilot.press("u")
+        assert vi.value == "hello"    # unchanged, no crash
+
+
+async def test_new_mutation_clears_redo_stack() -> None:
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("x")        # delete 'h'
+        await pilot.press("u")        # undo
+        await pilot.press("x")        # new mutation — clears redo
+        await pilot.press("ctrl+r")   # redo stack is empty, should be no-op
+        assert vi.value == "ello"     # still at the x-deleted state

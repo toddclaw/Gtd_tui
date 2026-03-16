@@ -4,6 +4,7 @@ import copy
 import uuid
 from pathlib import Path
 
+from rich.markup import escape as markup_escape
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -101,6 +102,19 @@ class HelpScreen(ModalScreen[None]):
   Ctrl+R       Redo last undone action
   /            Global search
 
+[bold]VISUAL Mode  (press v to enter)[/bold]
+  v            Enter VISUAL mode — anchor selection at cursor
+  j / k        Extend selection down / up
+  x / Space    Complete all selected tasks
+  d            Delete all selected tasks
+  s            Schedule all selected tasks
+  m            Move all selected tasks to a folder
+  w            Move all selected tasks to Waiting On
+  t            Move all selected tasks to Today
+  J / K        Move selected block down / up
+  u            Undo last bulk action (exits VISUAL mode)
+  Esc          Cancel selection and return to NORMAL mode
+
 [bold]Task Detail View (opened with Enter)[/bold]
   j / k        Move to next / previous field
   i / a        Enter INSERT mode at / after cursor
@@ -120,7 +134,7 @@ class HelpScreen(ModalScreen[None]):
   Ctrl+c       Cancel new task without saving
 
 [bold]Commands  (type : then the command)[/bold]
-  :help        Show this help screen
+  :help / :h   Show this help screen
 
 [bold]CLI[/bold]
   gtd-tui -s   Print today's tasks to stdout and exit
@@ -390,14 +404,13 @@ class SearchScreen(ModalScreen[str | None]):
         logbook_results = [(t, mt) for t, mt in results if t.folder_id == "logbook"]
 
         def _highlight(text: str, query: str) -> str:
-            from rich.markup import escape as rich_escape
             q_lower = query.lower()
             idx = text.lower().find(q_lower)
             if idx == -1:
-                return rich_escape(text)
-            before = rich_escape(text[:idx])
-            match = rich_escape(text[idx : idx + len(query)])
-            after = rich_escape(text[idx + len(query) :])
+                return markup_escape(text)
+            before = markup_escape(text[:idx])
+            match = markup_escape(text[idx : idx + len(query)])
+            after = markup_escape(text[idx + len(query) :])
             return f"{before}[bold yellow]{match}[/bold yellow]{after}"
 
         def _folder_tag(task: Task) -> str:
@@ -542,6 +555,10 @@ class GtdApp(App[None]):
         color: $text;
         padding: 0 2;
     }
+
+    #task-list > ListItem.visual-selected {
+        background: $accent 30%;
+    }
     """
 
     def __init__(self, data_file: Path | None = None) -> None:
@@ -581,6 +598,11 @@ class GtdApp(App[None]):
         # Sidebar placeholder shown while a folder name is being typed
         self._sidebar_placeholder_insert: str = ""  # same values as above; "" = none
         self._sidebar_placeholder_anchor_id: str = ""
+        # VISUAL mode state
+        self._visual_mode: bool = False
+        self._visual_anchor_idx: int | None = None
+        # Pending task IDs for bulk operations (schedule, move)
+        self._pending_task_ids: list[str] = []
 
     @property
     def _sidebar_view_ids(self) -> list[str]:
@@ -732,7 +754,7 @@ class GtdApp(App[None]):
     def _task_label(task: Task) -> str:
         """Build the display label for a task row, with a recurrence marker."""
         marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
-        return f"{task.title}{marker}"
+        return f"{markup_escape(task.title)}{marker}"
 
     def _refresh_list(self, select_task_id: str | None = None) -> None:
         list_view = self.query_one("#task-list", ListView)
@@ -871,7 +893,7 @@ class GtdApp(App[None]):
             )
             marker = "D" if task.is_deleted else "C"
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(f"{marker}  {task.title}  [{done}]{created}")))
+            list_view.append(ListItem(Label(f"{marker}  {markup_escape(task.title)}  [{done}]{created}")))
 
     def _render_folder_view(self, list_view: ListView, folder_id: str) -> None:
         label = self._view_label(folder_id)
@@ -940,7 +962,13 @@ class GtdApp(App[None]):
         self._redo_stack.clear()
 
     def _update_status(self, message: str = "") -> None:
-        mode = "INSERT" if self._mode == "INSERT" else "NORMAL"
+        if self._mode == "INSERT":
+            mode = "INSERT"
+        elif self._visual_mode:
+            n = len(self._visual_selected_tasks)
+            mode = f"VISUAL ({n})"
+        else:
+            mode = "NORMAL"
         view_name = self._view_label(self._current_view)
         suffix = f"  {message}" if message else ""
         self.query_one("#status", Label).update(f"{mode}  |  {view_name}{suffix}")
@@ -971,6 +999,8 @@ class GtdApp(App[None]):
         if self._mode == "INSERT":
             if event.key == "escape":
                 self._cancel_input()
+        elif self._visual_mode:
+            self._handle_visual_key(event)
         elif self.query_one("#sidebar", ListView).has_focus:
             self._handle_sidebar_key(event)
         else:
@@ -1107,6 +1137,9 @@ class GtdApp(App[None]):
         elif event.key == "O":
             event.prevent_default()
             self._start_add_task("before")
+        elif event.key == "v":
+            event.prevent_default()
+            self._enter_visual_mode()
         elif event.key == "s":
             event.prevent_default()
             self._start_schedule()
@@ -1318,7 +1351,7 @@ class GtdApp(App[None]):
 
         elif self._input_stage == "command":
             self._cancel_input()
-            if value == "help":
+            if value in ("help", "h"):
                 self.push_screen(HelpScreen())
             elif value:
                 self._update_status(f"(unknown command: {value})")
@@ -1369,6 +1402,7 @@ class GtdApp(App[None]):
         self._input_stage = ""
         self._pending_title = ""
         self._pending_task_id = ""
+        self._pending_task_ids = []
         self._pending_anchor_id = ""
         self._pending_insert_position = "after"
         self._show_placeholder = False
@@ -1402,12 +1436,12 @@ class GtdApp(App[None]):
         self._update_status()
 
     def _apply_date(self, value: str) -> None:
+        task_ids = self._pending_task_ids if self._pending_task_ids else [self._pending_task_id]
         if value.strip().lower() == "someday":
             self._push_undo()
-            self._all_tasks = unschedule_task(self._all_tasks, self._pending_task_id)
-            self._all_tasks = move_task_to_folder(
-                self._all_tasks, self._pending_task_id, "someday"
-            )
+            for tid in task_ids:
+                self._all_tasks = unschedule_task(self._all_tasks, tid)
+                self._all_tasks = move_task_to_folder(self._all_tasks, tid, "someday")
             self._rebuild_sidebar()
             self._save()
             self._refresh_list()
@@ -1422,12 +1456,11 @@ class GtdApp(App[None]):
             return
 
         self._push_undo()
-        if parsed is None:
-            self._all_tasks = unschedule_task(self._all_tasks, self._pending_task_id)
-        else:
-            self._all_tasks = schedule_task(
-                self._all_tasks, self._pending_task_id, parsed
-            )
+        for tid in task_ids:
+            if parsed is None:
+                self._all_tasks = unschedule_task(self._all_tasks, tid)
+            else:
+                self._all_tasks = schedule_task(self._all_tasks, tid, parsed)
 
         self._save()
         self._refresh_list()
@@ -1459,12 +1492,13 @@ class GtdApp(App[None]):
             self._cancel_move_mode()
             return
         self._push_undo()
-        self._all_tasks = move_task_to_folder(
-            self._all_tasks, self._pending_task_id, target_folder_id
-        )
+        task_ids = self._pending_task_ids if self._pending_task_ids else [self._pending_task_id]
+        for tid in task_ids:
+            self._all_tasks = move_task_to_folder(self._all_tasks, tid, target_folder_id)
         self._save()
         self._move_mode = False
         self._pending_task_id = ""
+        self._pending_task_ids = []
         self._current_view = target_folder_id
         self._rebuild_sidebar()
         self._refresh_list()
@@ -1474,6 +1508,7 @@ class GtdApp(App[None]):
     def _cancel_move_mode(self) -> None:
         self._move_mode = False
         self._pending_task_id = ""
+        self._pending_task_ids = []
         self._update_status()
         self.query_one("#task-list", ListView).focus()
 
@@ -1585,6 +1620,279 @@ class GtdApp(App[None]):
             self._refresh_list(select_task_id=task_id)
 
         self.push_screen(SearchScreen(self._all_tasks), _on_search_close)
+
+    # ------------------------------------------------------------------ #
+    # VISUAL mode                                                          #
+    # ------------------------------------------------------------------ #
+
+    @property
+    def _visual_selected_tasks(self) -> list[Task]:
+        """Tasks in the current VISUAL selection range (separators excluded)."""
+        list_view = self.query_one("#task-list", ListView)
+        cursor = list_view.index
+        if self._visual_anchor_idx is None or cursor is None:
+            return []
+        lo = min(self._visual_anchor_idx, cursor)
+        hi = max(self._visual_anchor_idx, cursor)
+        return [t for t in self._list_entries[lo : hi + 1] if t is not None]
+
+    def _enter_visual_mode(self) -> None:
+        if self._get_selected_task() is None:
+            return
+        list_view = self.query_one("#task-list", ListView)
+        self._visual_mode = True
+        self._visual_anchor_idx = list_view.index
+        self._refresh_visual_highlights()
+        self._update_status()
+
+    def _exit_visual_mode(self) -> None:
+        self._visual_mode = False
+        self._visual_anchor_idx = None
+        self._clear_visual_highlights()
+        self._update_status()
+
+    def _refresh_visual_highlights(self) -> None:
+        list_view = self.query_one("#task-list", ListView)
+        cursor = list_view.index
+        items = list(list_view.query(ListItem))
+        lo = min(self._visual_anchor_idx or 0, cursor or 0)
+        hi = max(self._visual_anchor_idx or 0, cursor or 0)
+        for i, item in enumerate(items):
+            in_range = (
+                lo <= i <= hi
+                and i < len(self._list_entries)
+                and self._list_entries[i] is not None
+            )
+            if in_range:
+                item.add_class("visual-selected")
+            else:
+                item.remove_class("visual-selected")
+
+    def _clear_visual_highlights(self) -> None:
+        for item in self.query_one("#task-list", ListView).query(ListItem):
+            item.remove_class("visual-selected")
+
+    def _handle_visual_key(self, event: events.Key) -> None:
+        list_view = self.query_one("#task-list", ListView)
+
+        if event.key == "escape":
+            event.prevent_default()
+            self._exit_visual_mode()
+
+        elif event.key == "j":
+            event.prevent_default()
+            list_view.action_cursor_down()
+            self._skip_separator(direction=1)
+            self._refresh_visual_highlights()
+            self._update_status()
+
+        elif event.key == "k":
+            event.prevent_default()
+            list_view.action_cursor_up()
+            self._skip_separator(direction=-1)
+            self._refresh_visual_highlights()
+            self._update_status()
+
+        elif event.key in ("x", "space"):
+            event.prevent_default()
+            self._bulk_complete()
+
+        elif event.key == "d":
+            event.prevent_default()
+            self._bulk_delete()
+
+        elif event.key == "s":
+            event.prevent_default()
+            self._bulk_start_schedule()
+
+        elif event.key == "m":
+            event.prevent_default()
+            self._bulk_start_move()
+
+        elif event.key == "w":
+            event.prevent_default()
+            self._bulk_move_to_waiting_on()
+
+        elif event.key == "t":
+            event.prevent_default()
+            self._bulk_move_to_today()
+
+        elif event.key == "J":
+            event.prevent_default()
+            self._bulk_move_block_down()
+
+        elif event.key == "K":
+            event.prevent_default()
+            self._bulk_move_block_up()
+
+        elif event.key == "u":
+            event.prevent_default()
+            self._exit_visual_mode()
+            self._undo()
+
+        elif event.key == "ctrl+r":
+            event.prevent_default()
+            self._exit_visual_mode()
+            self._redo()
+
+    def _bulk_complete(self) -> None:
+        tasks = self._visual_selected_tasks
+        if not tasks:
+            self._exit_visual_mode()
+            return
+        self._push_undo()
+        for task in tasks:
+            self._all_tasks = complete_task(self._all_tasks, task.id)
+        self._exit_visual_mode()
+        self._save()
+        self._rebuild_sidebar()
+        self._refresh_list()
+
+    def _bulk_delete(self) -> None:
+        tasks = self._visual_selected_tasks
+        if not tasks:
+            self._exit_visual_mode()
+            return
+        self._push_undo()
+        if self._current_view == "logbook":
+            for task in tasks:
+                self._all_tasks = purge_logbook_task(self._all_tasks, task.id)
+        else:
+            for task in tasks:
+                self._all_tasks = delete_task(self._all_tasks, task.id)
+        self._exit_visual_mode()
+        self._save()
+        self._rebuild_sidebar()
+        self._refresh_list()
+
+    def _bulk_start_schedule(self) -> None:
+        tasks = self._visual_selected_tasks
+        if not tasks:
+            self._exit_visual_mode()
+            return
+        self._pending_task_ids = [t.id for t in tasks]
+        self._exit_visual_mode()
+        self._mode = "INSERT"
+        self._input_stage = "date"
+        inp = self.query_one("#task-input", Input)
+        inp.value = ""
+        inp.placeholder = (
+            f"Date for {len(self._pending_task_ids)} tasks: tomorrow/+3d/... (empty=clear)"
+        )
+        inp.add_class("active")
+        inp.focus()
+        self._update_status()
+
+    def _bulk_start_move(self) -> None:
+        tasks = self._visual_selected_tasks
+        if not tasks:
+            self._exit_visual_mode()
+            return
+        self._pending_task_ids = [t.id for t in tasks]
+        self._exit_visual_mode()
+        self._move_mode = True
+        self.query_one("#sidebar", ListView).focus()
+        self._update_status(
+            f"Move {len(self._pending_task_ids)} tasks to: j/k select, Enter confirm, Esc cancel"
+        )
+
+    def _bulk_move_to_waiting_on(self) -> None:
+        tasks = self._visual_selected_tasks
+        if not tasks:
+            self._exit_visual_mode()
+            return
+        self._push_undo()
+        for task in tasks:
+            self._all_tasks = move_to_waiting_on(self._all_tasks, task.id)
+        self._exit_visual_mode()
+        self._save()
+        self._rebuild_sidebar()
+        self._refresh_list()
+
+    def _bulk_move_to_today(self) -> None:
+        tasks = self._visual_selected_tasks
+        if not tasks:
+            self._exit_visual_mode()
+            return
+        self._push_undo()
+        for task in tasks:
+            self._all_tasks = move_to_today(self._all_tasks, task.id)
+        self._exit_visual_mode()
+        self._save()
+        self._rebuild_sidebar()
+        self._refresh_list()
+
+    def _bulk_move_block_down(self) -> None:
+        tasks = self._visual_selected_tasks
+        if not tasks or any(not self._can_reorder(t) for t in tasks):
+            return
+        anchor_id = (
+            self._list_entries[self._visual_anchor_idx].id
+            if self._visual_anchor_idx is not None
+            and self._visual_anchor_idx < len(self._list_entries)
+            and self._list_entries[self._visual_anchor_idx] is not None
+            else None
+        )
+        selected_ids = {t.id for t in tasks}
+        self._push_undo()
+        for task in sorted(tasks, key=lambda t: t.position, reverse=True):
+            self._all_tasks = move_task_down(self._all_tasks, task.id)
+        self._save()
+        self._refresh_list()
+        self.call_after_refresh(
+            lambda: self._restore_visual_after_block_move(selected_ids, anchor_id)
+        )
+
+    def _bulk_move_block_up(self) -> None:
+        tasks = self._visual_selected_tasks
+        if not tasks or any(not self._can_reorder(t) for t in tasks):
+            return
+        anchor_id = (
+            self._list_entries[self._visual_anchor_idx].id
+            if self._visual_anchor_idx is not None
+            and self._visual_anchor_idx < len(self._list_entries)
+            and self._list_entries[self._visual_anchor_idx] is not None
+            else None
+        )
+        selected_ids = {t.id for t in tasks}
+        self._push_undo()
+        for task in sorted(tasks, key=lambda t: t.position):
+            self._all_tasks = move_task_up(self._all_tasks, task.id)
+        self._save()
+        self._refresh_list()
+        self.call_after_refresh(
+            lambda: self._restore_visual_after_block_move(selected_ids, anchor_id)
+        )
+
+    def _restore_visual_after_block_move(
+        self, selected_ids: set[str], anchor_id: str | None
+    ) -> None:
+        """Re-establish VISUAL selection on moved tasks after a DOM rebuild."""
+        selected_indices = [
+            i
+            for i, entry in enumerate(self._list_entries)
+            if entry is not None and entry.id in selected_ids
+        ]
+        if not selected_indices:
+            return
+        new_anchor = (
+            next(
+                (
+                    i
+                    for i, e in enumerate(self._list_entries)
+                    if e is not None and e.id == anchor_id
+                ),
+                selected_indices[0],
+            )
+            if anchor_id
+            else selected_indices[0]
+        )
+        list_view = self.query_one("#task-list", ListView)
+        self._visual_mode = True
+        self._visual_anchor_idx = new_anchor
+        list_view.index = max(selected_indices)
+        self._refresh_visual_highlights()
+        self._update_status()
 
     def _move_selected_to_waiting_on(self) -> None:
         task = self._get_selected_task()
