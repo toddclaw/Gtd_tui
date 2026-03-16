@@ -7,7 +7,7 @@ from pathlib import Path
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
@@ -68,9 +68,9 @@ class HelpScreen(ModalScreen[None]):
         align: center middle;
     }
 
-    #help-panel {
-        width: 64;
-        height: auto;
+    #help-scroll {
+        width: 66;
+        height: 30;
         background: $surface;
         border: solid $primary;
         padding: 1 2;
@@ -80,48 +80,70 @@ class HelpScreen(ModalScreen[None]):
     _HELP_TEXT = """\
 [bold]Navigation[/bold]
   j / k        Move cursor down / up
+  H / M / L    Jump to top / middle / bottom of list
   g g          Jump to top of list
   G            Jump to bottom of list
   h / l        Focus sidebar / task list
   1–9          Jump to nth sidebar item
 
 [bold]Task Actions[/bold]
-  Enter        Open task detail / edit (title, notes, repeat, recurring)
-  o            Add new task after selected (INSERT mode)
-  O            Add new task before selected (INSERT mode)
+  Enter        Open task detail / edit
+  o            Add new task after selected
+  O            Add new task before selected
   x / Space    Complete selected task
-  s            Schedule selected task
-  m            Move selected task to a folder (sidebar picker)
+  d            Delete selected task
+  s            Schedule selected task (supports +3d, tomorrow, next monday, someday)
+  m            Move selected task to a folder
   J / K        Move selected task down / up
-  w            Move selected task to Waiting On  (Today view)
-  t            Move selected task to Today       (Waiting On view)
+  w            Move task to Waiting On  (Today view)
+  t            Move task to Today       (Waiting On view)
   u            Undo last action
   Ctrl+R       Redo last undone action
-  /            Global search (Esc to cancel, Enter to go to task)
+  /            Global search
 
-[bold]Sidebar Folder Actions[/bold]
-  N            Create new folder
+[bold]Task Detail View (opened with Enter)[/bold]
+  j / k        Move to next / previous field
+  i / a        Enter INSERT mode at / after cursor
+  o / O        Edit field from end / start (single-line)
+              or open new line below / above (notes)
+  Enter        Confirm and advance to next field
+  Esc          Save and close
+
+[bold]Sidebar Folder Actions (sidebar focused)[/bold]
+  o / O        Create new folder after / before selected
+  N            Create new folder at end
   r            Rename selected folder
   d            Delete selected folder
 
 [bold]INSERT Mode[/bold]
-  Enter        Confirm input / advance to next field
-  Esc          Cancel and return to NORMAL mode
+  Esc          Return to COMMAND mode
+  Ctrl+c       Cancel new task without saving
 
 [bold]Commands  (type : then the command)[/bold]
   :help        Show this help screen
 
+[bold]CLI[/bold]
+  gtd-tui -s   Print today's tasks to stdout and exit
+
 [bold]General[/bold]
   q            Quit
 
-  Press Esc, Enter, or q to close\
+  j / k to scroll  ·  Esc, Enter, or q to close\
 """
 
     def compose(self) -> ComposeResult:
-        yield Static(self._HELP_TEXT, id="help-panel")
+        with VerticalScroll(id="help-scroll"):
+            yield Static(self._HELP_TEXT)
 
     def on_key(self, event: events.Key) -> None:
-        if event.key in ("escape", "q", "enter"):
+        scroll = self.query_one("#help-scroll", VerticalScroll)
+        if event.key == "j":
+            scroll.scroll_down()
+            event.prevent_default()
+        elif event.key == "k":
+            scroll.scroll_up()
+            event.prevent_default()
+        elif event.key in ("escape", "q", "enter"):
             self.dismiss()
 
 

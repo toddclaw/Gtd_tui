@@ -629,25 +629,20 @@ class RecurRule:
 
 ---
 
-### BACKLOG-12 — Vim motions in text input fields
+### ~~BACKLOG-12 — Vim motions in text input fields~~ ✅ DONE
 
-**Story points:** 8 — Requires a custom Input widget; Textual's built-in Input does not support vi motions.
-
-**Description:**
-- Text fields (task title, notes, date entry) support a vim-style normal/insert sub-mode
-- In normal sub-mode: `h`/`l` move the cursor, `w`/`b` jump by word, `0`/`$` go to line start/end, `x` deletes the character under the cursor, `cw` changes a word
-- `i` / `a` enter insert sub-mode; `Esc` returns to normal sub-mode
-- Builds on BACKLOG-11 (detail view is the primary editing surface for notes)
+**Story points:** 8
 
 **Acceptance criteria:**
-- [ ] Custom vi-aware input widget replaces standard Input in all editing contexts
-- [ ] `h` / `l` move cursor left / right in normal sub-mode
-- [ ] `w` / `b` jump forward / backward by word
-- [ ] `0` / `$` move to start / end of line
-- [ ] `x` deletes character under cursor
-- [ ] `cw` deletes to end of word and enters insert sub-mode
-- [ ] `i` enters insert sub-mode at cursor; `a` enters after cursor
-- [ ] Esc always returns to normal sub-mode (never exits the field)
+- [x] Custom vi-aware input widget (`VimInput`) replaces standard Input in all editing contexts
+- [x] `h` / `l` move cursor left / right in COMMAND mode
+- [x] `w` / `b` / `W` / `B` jump forward / backward by word / WORD
+- [x] `0` / `$` move to start / end of line
+- [x] `x` deletes character under cursor
+- [x] `cw` / `dw` / `dW` delete to end of word / WORD (cw enters INSERT mode)
+- [x] `i` / `a` enter INSERT mode at / after cursor
+- [x] `Esc` always returns to COMMAND mode (never exits the field)
+- [x] Multiline mode: `Enter` inserts newline; `j` / `k` navigate lines; boundary j/k bubbles to parent
 
 ---
 
@@ -800,8 +795,8 @@ class RecurRule:
 2. **Weekly review** — a new view (accessible via a keybinding, e.g. `W`) showing all tasks completed in the last 7 days, grouped by folder, with completion timestamps
 
 **Acceptance criteria:**
-- [ ] New Waiting On task with no date auto-gets a date of today+7
-- [ ] On the reminder date, task surfaces in Today with a `[W]` indicator
+- [x] New Waiting On task with no date auto-gets a date of today+7
+- [x] On the reminder date, task surfaces in Today with a `[W]` indicator
 - [ ] `W` (or similar) opens the Weekly Review view
 - [ ] Weekly Review lists completed tasks from the past 7 days, grouped by folder
 - [ ] Folder name is shown as a section header in the review
@@ -844,9 +839,25 @@ class RecurRule:
 
 ---
 
+### ~~BACKLOG-22 — UX polish III (detail view date field, j/k navigation, o/O in VimInput, universal placeholder)~~ ✅ DONE
+
+**Story points:** 8
+
+**Acceptance criteria:**
+- [x] Task detail view has a **Date** field (between Title and Notes) for editing the scheduled date
+- [x] All detail view fields open in COMMAND mode; `j` / `k` move between fields
+- [x] `o` / `O` in COMMAND mode: single-line fields jump to end/start + enter INSERT mode; multiline notes open a new line below/above + enter INSERT mode
+- [x] Multiline VimInput: `j` at last line and `k` at first line bubble to parent for field navigation
+- [x] Placeholder row (empty inline entry) shown immediately on `o` / `O` in Waiting On, Someday, and all user folders — consistent with Today behavior
+- [x] Waiting On tasks created without a date auto-receive `scheduled_date = today + 7d`
+- [x] Waiting On tasks moved from another folder also receive `scheduled_date = today + 7d` (only if no existing date)
+- [x] Scrollable help screen: `j` / `k` scroll the help panel; panel has fixed height so overflow is reachable
+
+---
+
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 21 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 18, 21, 22 are **complete**. BACKLOG-19 is partially complete (WO auto-scheduling done; weekly review view not yet built). The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.

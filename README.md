@@ -29,17 +29,20 @@ The application follows the core GTD methodology: capture everything, process it
 
 - **Create tasks** with `o` (below selection) or `O` (above selection)
 - **Title and notes** — each task has a one-line title and an optional multi-line notes field
-- **Edit tasks** — press `Enter` to open a detail/edit view for any task; changes save on close
+- **Edit tasks** — press `Enter` to open a detail/edit view; edit title, date, notes, repeat, and recurring fields; `j`/`k` navigate between fields; changes save on close
 - **Complete tasks** — press `x` or `Space`; completed tasks move to the Logbook with a timestamp
-- **Schedule tasks** — press `s` to attach a date; supports `YYYY-MM-DD`, relative (`+3d`, `+1w`), and natural language (`tomorrow`, `next monday`, `in 2 weeks`)
+- **Delete tasks** — press `d` to delete the selected task
+- **Schedule tasks** — press `s` to attach a date; supports `YYYY-MM-DD`, relative (`+3d`, `+1w`), and natural language (`tomorrow`, `next monday`, `in 2 weeks`, `someday`)
 - **Reorder tasks** — `J` / `K` move the selected task down or up within its folder
 - **Move tasks** — press `m` to move a task to any folder via the sidebar picker; `w` sends a task to Waiting On; `t` returns a Waiting On task to Today
+- **Waiting On auto-scheduling** — new tasks added to Waiting On automatically get a scheduled date of today + 7 days; they surface in Today on that date with a `[W]` prefix
 
 ### Keyboard Navigation (vi-style)
 
 | Key | Action |
 |---|---|
 | `j` / `k` | Move cursor down / up |
+| `H` / `M` / `L` | Jump to top / middle / bottom of list |
 | `g g` | Jump to top of list |
 | `G` | Jump to bottom of list |
 | `h` / `l` | Focus sidebar / task list |
@@ -48,6 +51,7 @@ The application follows the core GTD methodology: capture everything, process it
 | `o` / `O` | Add task after / before selection |
 | `Enter` | Open task detail / edit view |
 | `x` / `Space` | Complete selected task |
+| `d` | Delete selected task |
 | `s` | Schedule selected task |
 | `m` | Move task to a folder |
 | `w` | Move task to Waiting On |
@@ -57,13 +61,48 @@ The application follows the core GTD methodology: capture everything, process it
 | `q` | Quit |
 | `:help` | Show keybinding reference |
 
+### Task Detail View
+
+The detail view (opened with `Enter`) lets you edit all task fields in a single screen:
+
+| Field | Notes |
+|---|---|
+| **Title** | One-line task name |
+| **Date** | Scheduled date — same formats as `s` (`+7d`, `tomorrow`, `next monday`, etc.) |
+| **Notes** | Multi-line free text |
+| **Repeat** | Calendar-fixed schedule, e.g. `7 days`, `2 weeks` |
+| **Recurring** | Completion-relative schedule, e.g. `1 day` (next instance spawns from completion date) |
+
+Navigation within the detail view:
+
+| Key | Action |
+|---|---|
+| `j` / `k` | Move to next / previous field (in COMMAND mode) |
+| `i` / `a` | Enter INSERT mode at / after cursor |
+| `o` / `O` | Edit from end / start on single-line fields; open new line below / above in notes |
+| `Enter` | Confirm and advance to next field |
+| `Esc` | Save and close |
+
 ### Folder Management (sidebar focused)
 
 | Key | Action |
 |---|---|
-| `N` | Create new folder |
+| `o` / `O` | Create new folder after / before selected |
+| `N` | Create new folder at end |
 | `r` | Rename selected folder |
 | `d` | Delete selected folder (prompts if non-empty) |
+
+### CLI Summary
+
+Run `gtd-tui -s` (or `--summary`) to print today's tasks to stdout and exit — no TUI required. Useful for shell prompts and scripts:
+
+```bash
+gtd-tui -s
+# Today (3):
+#   - Review project proposal
+#   - Send invoice
+#     Don't forget to attach the time sheet
+```
 
 ### Data and Privacy
 
