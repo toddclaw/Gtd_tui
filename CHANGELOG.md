@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- MIT `LICENSE` file; `pyproject.toml` now declares `license = {text = "MIT"}` (BACKLOG-34)
+- `gg` / `G` jump to first / last item in the sidebar when sidebar is focused (BACKLOG-35)
+- `0` now jumps to Inbox; numbering is now 0-indexed (`0`=Inbox, `1`=Today, `2`=Upcoming, `3`=Waiting On, `4`=Someday, `5`–`9`=user folders) (BACKLOG-36)
+- Context-aware `t` key: in Inbox or Waiting On it moves the task to Today; in a user-created folder it sets `scheduled_date = today` so the task surfaces in the Today smart view without changing folder (BACKLOG-37)
+- Ctrl-Z suspends the app to the background (`fg` to resume) (BACKLOG-38)
+
+### Fixed
+- All 14 mypy errors resolved: `_on_key` made async in VimInput; `_UnitLiteral` type alias for repeat unit fields; `parsed_repeat` variable to separate date vs repeat parsing; `focused.id or ""` for `_normalize_field`; `_anchor_entry` extraction for VISUAL block-move
+
 ---
 
 ## [1.2.3] — 2026-03-17

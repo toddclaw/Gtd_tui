@@ -1188,8 +1188,8 @@ def test_search_active_before_logbook():
     logbook_id = tasks[-1].id
     tasks = complete_task(tasks, logbook_id)
     results = search_tasks(tasks, "buy")
-    active = [r for r in results if r[0].folder_id != "logbook"]
-    logbook = [r for r in results if r[0].folder_id == "logbook"]
+    [r for r in results if r[0].folder_id != "logbook"]
+    [r for r in results if r[0].folder_id == "logbook"]
     # active results appear first in the list
     active_indices = [i for i, r in enumerate(results) if r[0].folder_id != "logbook"]
     logbook_indices = [i for i, r in enumerate(results) if r[0].folder_id == "logbook"]
@@ -1272,7 +1272,9 @@ def test_complete_repeat_rule_task_spawns_new_template():
     schedule is not lost. The new template has a future scheduled_date so it
     only appears in Upcoming, not in Today's active list."""
     tasks = add_task([], "Weekly review")
-    rule = RepeatRule(interval=7, unit="days", next_due=date.today() + timedelta(days=7))
+    rule = RepeatRule(
+        interval=7, unit="days", next_due=date.today() + timedelta(days=7)
+    )
     tasks = set_repeat_rule(tasks, tasks[0].id, rule)
     task_id = tasks[0].id
     tasks = complete_task(tasks, task_id)

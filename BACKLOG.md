@@ -742,7 +742,7 @@ The audit identified several untested paths that carry real risk:
 
 ## Group: Housekeeping
 
-### BACKLOG-34 — Change license to MIT
+### ~~BACKLOG-34 — Change license to MIT~~ ✅ DONE
 
 **Story points:** 1
 
@@ -750,14 +750,14 @@ The audit identified several untested paths that carry real risk:
 Add an MIT `LICENSE` file and update `pyproject.toml` to declare `license = {text = "MIT"}`.
 
 **Acceptance criteria:**
-- [ ] `LICENSE` file at repo root contains the standard MIT license text with current year and author
-- [ ] `pyproject.toml` declares `license = {text = "MIT"}`
+- [x] `LICENSE` file at repo root contains the standard MIT license text with current year and author
+- [x] `pyproject.toml` declares `license = {text = "MIT"}`
 
 ---
 
 ## Group: Navigation improvements
 
-### BACKLOG-35 — gg / G navigation in the sidebar folder list
+### ~~BACKLOG-35 — gg / G navigation in the sidebar folder list~~ ✅ DONE
 
 **Story points:** 2
 
@@ -767,14 +767,14 @@ for the sidebar. When the sidebar is focused, these keys should jump to the firs
 sidebar entry respectively, consistent with the task-list behaviour described in CLAUDE.md.
 
 **Acceptance criteria:**
-- [ ] `gg` while sidebar is focused moves the selection to the first sidebar item
-- [ ] `G` while sidebar is focused moves the selection to the last sidebar item
-- [ ] Both keys are no-ops when the sidebar is empty
-- [ ] Existing task-list `gg` / `G` behaviour is unaffected
+- [x] `gg` while sidebar is focused moves the selection to the first sidebar item
+- [x] `G` while sidebar is focused moves the selection to the last sidebar item
+- [x] Both keys are no-ops when the sidebar is empty
+- [x] Existing task-list `gg` / `G` behaviour is unaffected
 
 ---
 
-### BACKLOG-36 — Folder number shortcuts start at 0
+### ~~BACKLOG-36 — Folder number shortcuts start at 0~~ ✅ DONE
 
 **Story points:** 2
 
@@ -791,17 +791,17 @@ This aligns with zero-indexed muscle memory and leaves `1`–`9` covering up to 
 after the 5 built-in slots.
 
 **Acceptance criteria:**
-- [ ] `0` focuses Inbox; `1` focuses Today; `2` focuses Upcoming; `3` focuses Waiting On; `4` focuses Someday
-- [ ] `5`–`9` focus the 1st–5th user-created folder (in sidebar order)
-- [ ] Keys beyond the available folder count are silently ignored
-- [ ] Help screen keybinding table updated to reflect new numbering
-- [ ] Tests updated / added for the new mapping
+- [x] `0` focuses Inbox; `1` focuses Today; `2` focuses Upcoming; `3` focuses Waiting On; `4` focuses Someday
+- [x] `5`–`9` focus the 1st–5th user-created folder (in sidebar order)
+- [x] Keys beyond the available folder count are silently ignored
+- [x] Help screen keybinding table updated to reflect new numbering
+- [x] Tests updated / added for the new mapping
 
 ---
 
 ## Group: Task movement semantics
 
-### BACKLOG-37 — Context-aware `t` key (Inbox → move to Today; other folders → schedule today)
+### ~~BACKLOG-37 — Context-aware `t` key (Inbox → move to Today; other folders → schedule today)~~ ✅ DONE
 
 **Story points:** 3
 
@@ -817,18 +817,18 @@ behaviour to cover all folders, with two distinct semantics:
 | **Today / Upcoming / Someday / Logbook** | No-op (already in the right place or archived) |
 
 **Acceptance criteria:**
-- [ ] `t` in Inbox moves the task to the Today folder and refreshes the sidebar count
-- [ ] `t` in Waiting On continues to move the task to Today (existing behaviour preserved)
-- [ ] `t` in a user-created folder sets `scheduled_date = date.today()` and the task appears in Today's smart view
-- [ ] `t` is a no-op when the current folder is Today, Upcoming, Someday, or Logbook
-- [ ] Undo reverses the action in all cases
-- [ ] Unit tests cover all four branches; integration test covers Inbox → Today
+- [x] `t` in Inbox moves the task to the Today folder and refreshes the sidebar count
+- [x] `t` in Waiting On continues to move the task to Today (existing behaviour preserved)
+- [x] `t` in a user-created folder sets `scheduled_date = date.today()` and the task appears in Today's smart view
+- [x] `t` is a no-op when the current folder is Today, Upcoming, Someday, or Logbook
+- [x] Undo reverses the action in all cases
+- [x] Unit tests cover all four branches; integration test covers Inbox → Today
 
 ---
 
 ## Group: System integration
 
-### BACKLOG-38 — Allow Ctrl-Z to suspend (background) the app
+### ~~BACKLOG-38 — Allow Ctrl-Z to suspend (background) the app~~ ✅ DONE
 
 **Story points:** 1
 
@@ -838,9 +838,9 @@ Ctrl-Z is the standard Unix terminal shortcut for suspending a foreground proces
 can background the TUI and return with `fg`.
 
 **Acceptance criteria:**
-- [ ] Pressing Ctrl-Z suspends the app and returns to the shell prompt (standard `fg`/`bg` flow works)
-- [ ] The app resumes correctly when brought back to the foreground
-- [ ] No other keybindings are affected
+- [x] Pressing Ctrl-Z suspends the app and returns to the shell prompt (standard `fg`/`bg` flow works)
+- [x] The app resumes correctly when brought back to the foreground
+- [x] No other keybindings are affected
 
 ---
 

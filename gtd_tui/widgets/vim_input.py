@@ -62,7 +62,7 @@ class VimInput(Widget, can_focus=True):
         multiline: bool = False,
         **kwargs: object,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(**kwargs)  # type: ignore[arg-type]
         self._text: str = value
         self._placeholder: str = placeholder
         self._vim_mode: str = start_mode
@@ -252,8 +252,8 @@ class VimInput(Widget, can_focus=True):
 
         lines = self._text.split("\n")
         cursor_row, cursor_col = self._cursor_row_col()
-        cursor_sub = cursor_col // width   # which visual sub-row within cursor_row
-        cursor_rel = cursor_col % width    # column within that sub-row
+        cursor_sub = cursor_col // width  # which visual sub-row within cursor_row
+        cursor_rel = cursor_col % width  # column within that sub-row
 
         # Belt-and-suspenders: re-apply scroll at render time using the actual
         # content_size, in case _update_scroll ran with a stale value.
@@ -264,8 +264,8 @@ class VimInput(Widget, can_focus=True):
             self._view_row = cursor_visual - height + 1
 
         t = Text(no_wrap=True)
-        visual_idx = 0   # running count of visual rows from top of text
-        rendered = 0     # visual rows written to `t`
+        visual_idx = 0  # running count of visual rows from top of text
+        rendered = 0  # visual rows written to `t`
 
         for i, line in enumerate(lines):
             # Number of visual sub-rows this logical line occupies.
@@ -326,7 +326,7 @@ class VimInput(Widget, can_focus=True):
         self._update_scroll()
         self.refresh()
 
-    def _on_key(self, event: events.Key) -> None:
+    async def _on_key(self, event: events.Key) -> None:
         if self._vim_mode == "insert":
             self._handle_insert(event)
         else:

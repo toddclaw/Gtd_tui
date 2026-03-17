@@ -3,9 +3,12 @@ from __future__ import annotations
 import calendar
 import re
 from datetime import date, datetime, timedelta
+from typing import Literal
 
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
+
+_UnitLiteral = Literal["days", "weeks", "months", "years"]
 
 # Folders whose tasks never auto-surface in Today or Upcoming smart views.
 _EXCLUDED_FROM_SMART_VIEWS: frozenset[str] = frozenset({"inbox", "someday", "logbook"})
@@ -851,7 +854,7 @@ def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
 # Repeat rule parsing
 # ---------------------------------------------------------------------------
 
-_UNIT_ALIASES: dict[str, str] = {
+_UNIT_ALIASES: dict[str, _UnitLiteral] = {
     "d": "days",
     "day": "days",
     "days": "days",
@@ -871,7 +874,7 @@ class InvalidRepeatError(ValueError):
     """Raised when a repeat input string cannot be parsed."""
 
 
-def parse_repeat_input(text: str) -> tuple[int, str] | None:
+def parse_repeat_input(text: str) -> tuple[int, _UnitLiteral] | None:
     """Parse a repeat interval string into (interval, unit).
 
     Accepted formats: '7 days', '7d', '2 weeks', '2w', '1 month', '1 year'.
@@ -891,7 +894,7 @@ def parse_repeat_input(text: str) -> tuple[int, str] | None:
 
 
 def make_repeat_rule(
-    interval: int, unit: str, from_date: date | None = None
+    interval: int, unit: _UnitLiteral, from_date: date | None = None
 ) -> RepeatRule:
     """Create a RepeatRule whose next_due is one interval after from_date (default: today)."""
     base = from_date or date.today()
