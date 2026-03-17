@@ -458,7 +458,7 @@ class RecurRule:
 
 ---
 
-### BACKLOG-23 — Encrypted database
+### ~~BACKLOG-23 — Encrypted database~~ ✅ DONE
 
 **Story points:** 13 — New dependency (`cryptography`), key-derivation layer, auto-detection of file format, one-time CLI migration flag, interactive password prompt (no echo), atomic encrypted writes, and unit tests for all crypto paths. Security-critical code requires careful review.
 
@@ -483,16 +483,257 @@ class RecurRule:
 - `gtd-tui --summary` / `-s` also auto-detects and prompts if needed
 
 **Acceptance criteria:**
-- [ ] `gtd-tui --encrypt` on a plaintext file: prompts for password + confirmation, encrypts file in-place, prints confirmation
-- [ ] `gtd-tui` (no flag) on an encrypted file: auto-detects, prompts for password, opens normally
-- [ ] `gtd-tui` (no flag) on a plaintext file: opens normally, no password prompt
-- [ ] Wrong password: prints `"Incorrect password"` and exits with code 1
-- [ ] `gtd-tui --decrypt`: prompts for password, writes plaintext file, prints confirmation
-- [ ] Atomic write: a crash mid-save never corrupts the file
-- [ ] Unit tests: encrypt→decrypt round-trip, wrong-password rejection, magic-byte detection, corrupt-file rejection, plaintext passthrough
-- [ ] `cryptography` added to `pyproject.toml` dependencies
+- [x] `gtd-tui --encrypt` on a plaintext file: prompts for password + confirmation, encrypts file in-place, prints confirmation
+- [x] `gtd-tui` (no flag) on an encrypted file: auto-detects, prompts for password, opens normally
+- [x] `gtd-tui` (no flag) on a plaintext file: opens normally, no password prompt
+- [x] Wrong password: prints `"Incorrect password"` and exits with code 1
+- [x] `gtd-tui --decrypt`: prompts for password, writes plaintext file, prints confirmation
+- [x] Atomic write: a crash mid-save never corrupts the file
+- [x] Unit tests: encrypt→decrypt round-trip, wrong-password rejection, magic-byte detection, corrupt-file rejection, plaintext passthrough
+- [x] `cryptography` added to `pyproject.toml` dependencies
 
 **Implementation notes:**
 - All crypto logic lives in `gtd_tui/storage/crypto.py`; `file.py` calls into it after detecting the file format
 - Never log or print the password or derived key
 - `--encrypt` and `--decrypt` are migration utilities only — they do not start the TUI
+
+---
+
+### BACKLOG-24 — Fix CI pipeline
+
+**Story points:** 2 — Configuration-only changes; no source code.
+
+**Description:**
+The CI workflow at `.github/workflows/ci.yml` has three problems:
+1. It triggers on `branches: [main]` but the repo's default branch is `master` — CI never runs on push
+2. It runs only `pytest`; black, ruff, and mypy are documented as required pre-merge checks in CLAUDE.md but are not enforced
+3. The test matrix covers Python 3.11 and 3.12 only; Python 3.13 is not tested
+
+**Acceptance criteria:**
+- [ ] Branch trigger changed to `master` (or to `[master, main]` to be forward-compatible)
+- [ ] CI step added: `black --check .`
+- [ ] CI step added: `ruff check .`
+- [ ] CI step added: `mypy gtd_tui/`
+- [ ] Python 3.13 added to the test matrix
+- [ ] All steps run successfully (green) on current codebase before merging
+
+---
+
+### BACKLOG-25 — Dependency lock file and pre-commit hooks
+
+**Story points:** 3 — Tooling setup; no source code changes.
+
+**Description:**
+- All three production dependencies (`textual`, `platformdirs`, `cryptography`) use `>=` lower
+  bounds only, making installs non-reproducible across machines and CI runs
+- Formatting and type checks are documented in CLAUDE.md but not enforced at commit time, so
+  non-conforming commits can reach the branch
+
+**Acceptance criteria:**
+- [ ] `uv.lock` generated and committed (`uv lock`)
+- [ ] README Getting Started updated: `uv sync` as primary install path, `pip install -e ".[dev]"` kept as fallback
+- [ ] CLAUDE.md Getting Started updated similarly
+- [ ] `.pre-commit-config.yaml` added with black, ruff, and mypy hooks
+- [ ] `pre-commit run --all-files` passes on the current codebase
+- [ ] CLAUDE.md pre-commit checklist updated to include `pre-commit install` step
+
+---
+
+### BACKLOG-26 — Missing vi keybindings from CLAUDE.md spec
+
+**Story points:** 3 — Three small independent additions; no new state required.
+
+**Description:**
+CLAUDE.md lists these as first-class vi keybinding requirements; none are implemented:
+
+1. **`Ctrl+d` / `Ctrl+u`** — half-page scroll down / up in the task list
+2. **`n` / `N`** — jump to next / previous search match from NORMAL mode (without reopening the
+   search screen); only meaningful after a search has been performed
+3. **`Ctrl+c`** — cancel edit without saving and return to NORMAL mode (currently Esc is the
+   only cancel path; `Ctrl+c` is documented but does nothing)
+
+**Acceptance criteria:**
+- [ ] `Ctrl+d` scrolls down by half the visible task list height; `Ctrl+u` scrolls up
+- [ ] After a search, `n` moves the cursor to the next matching task (wrapping); `N` moves to
+  the previous
+- [ ] `Ctrl+c` in INSERT mode cancels the current edit without saving, identical to `Esc`
+- [ ] All three keybindings documented in `:help`
+- [ ] Unit/integration tests for each new binding
+
+---
+
+### BACKLOG-27 — Inbox folder
+
+**Story points:** 3 — New built-in folder; sidebar infrastructure already exists (BACKLOG-3/4 done).
+
+**Description:**
+The GTD methodology places the **Inbox** as the primary capture point — a zero-friction bucket
+where everything lands before being triaged into Today, Someday, a folder, or Waiting On.
+Currently, new tasks go directly to Today, which conflates capture with commitment.
+
+- Inbox appears at the top of the sidebar, above Today
+- Tasks in Inbox are never automatically promoted to Today or Upcoming
+- The user processes Inbox tasks using the existing `m`, `t`, `s`, and `d` keys
+
+**Acceptance criteria:**
+- [ ] Inbox is a built-in folder (`folder_id = "inbox"`); `BUILTIN_FOLDER_IDS` updated
+- [ ] Inbox appears as the first sidebar item (above Today)
+- [ ] `o` / `O` create tasks in Inbox when the Inbox view is active
+- [ ] Tasks in Inbox never appear in Today, Upcoming, or any smart view automatically
+- [ ] Number key `1` jumps to Inbox; existing number shortcuts shift down by one
+- [ ] `BACKLOG-27` added to `BUILTIN_FOLDER_IDS` in `folder.py`; no new data model fields needed
+
+**Data model note:** `folder_id = "inbox"` suffices; no schema change required.
+
+---
+
+### BACKLOG-28 — "Waiting for" person field on Waiting On tasks
+
+**Story points:** 3 — New optional field on `Task`; storage round-trip; display in Waiting On view.
+
+**Description:**
+Waiting On tasks represent work delegated to or blocked on another person or entity. Without a
+"waiting for" label, the task list gives no reminder of who to follow up with.
+
+- `Task.waiting_for: str` — optional free-text name (e.g. `"Alice"`, `"Legal team"`)
+- Displayed alongside the task title in the Waiting On view: `Buy server quote  → Alice`
+- Editable in the task detail view (new field below the date field, only visible when the task
+  is in the Waiting On folder)
+
+**Acceptance criteria:**
+- [ ] `Task.waiting_for: str` field (default `""`); old JSON files without the field load without error
+- [ ] Waiting On task rows show `→ <person>` suffix when `waiting_for` is set
+- [ ] Task detail view has a Waiting For field when the task is in the Waiting On folder
+- [ ] Field is editable via VimInput (INSERT mode), consistent with other detail fields
+- [ ] Storage round-trip tested; display tested in integration tests
+
+---
+
+### BACKLOG-29 — Checklist sub-steps within a task
+
+**Story points:** 5 — New `ChecklistItem` model, storage, detail-view rendering, and completion tracking.
+
+**Description:**
+Many tasks in Things have numbered sub-steps (checklist items) that can be individually ticked
+off without creating full sub-tasks. This is lighter than Projects (BACKLOG-31) and useful for
+things like "Pack for trip: passport ☐, charger ☐, headphones ☐".
+
+- A task has an ordered list of `ChecklistItem` objects (label + checked state)
+- Checklist items are displayed and editable in the task detail view
+- Completing all checklist items does not auto-complete the parent task (unlike Projects)
+- A partial completion indicator is shown in the task list: `Pack for trip [1/3]`
+
+**Acceptance criteria:**
+- [ ] `ChecklistItem` dataclass: `id`, `label: str`, `checked: bool`
+- [ ] `Task.checklist: list[ChecklistItem]` field (default `[]`); old files load without error
+- [ ] Task detail view shows checklist section below notes
+- [ ] `o` / `O` in the checklist section add a new item; `x` / Space toggles the focused item
+- [ ] Completed items are visually struck-through or marked
+- [ ] Task list row shows `[N/M]` completion ratio when checklist is non-empty
+- [ ] Storage round-trip works; tests cover add/toggle/reorder/delete of checklist items
+
+---
+
+### BACKLOG-30 — Tags / Contexts
+
+**Story points:** 8 — New `Task.tags` field, storage migration, tag-filter view, inline display.
+
+**Description:**
+Tags implement GTD's **context** concept (`@home`, `@work`, `@errands`, `@computer`) and
+Things' flexible label system. A task can have zero or more tags. Tags allow cross-folder
+filtering: "show me everything I can do @computer right now".
+
+- `Task.tags: list[str]` — free-text labels, conventionally prefixed with `@`
+- Tags editable in task detail view (comma-separated input)
+- Tags section in the sidebar lists all unique tags across all tasks; selecting one filters
+- Inline tag display in the task list (dim/coloured suffix)
+
+**Acceptance criteria:**
+- [ ] `Task.tags: list[str]` (default `[]`); old JSON files without the field load without error
+- [ ] Task detail view has a Tags field (comma-separated, `@` prefix optional)
+- [ ] Tags display inline with the task title in the task list, visually distinct
+- [ ] Sidebar has a collapsible "Tags" section listing all unique tags with task counts
+- [ ] Selecting a tag in the sidebar shows a cross-folder filtered view of matching tasks
+- [ ] Tag filter view supports `x` / Space to complete and `m` to move tasks
+- [ ] Storage round-trip and tag filtering covered by unit tests
+
+---
+
+### BACKLOG-31 — Projects
+
+**Story points:** 13 — New `Project` dataclass, sub-task linking, sidebar section, progress
+display, and auto-completion logic. Significant new UI component.
+
+**Description:**
+GTD **Projects** are outcomes that require more than one action step. Things represents these
+as first-class containers in the sidebar, separate from folders. A project holds an ordered
+list of tasks; when all are complete, the project moves to Logbook automatically.
+
+- `Project` dataclass with title, notes, optional deadline, folder/area assignment
+- Sub-tasks link to a project via `Task.project_id`
+- Projects appear in the sidebar under a "Projects" section
+- Header shows live progress: `Deploy v2 (3/5)`
+
+**Acceptance criteria:**
+- [ ] `Project` dataclass: `id`, `title`, `notes`, `folder_id`, `position`, `deadline`,
+  `completed_at`
+- [ ] `Task.project_id: str | None` (default `None`); old files load without error
+- [ ] Projects appear in the sidebar under a "Projects" heading, sorted by position
+- [ ] `N` while sidebar is focused on the Projects section creates a new project
+- [ ] Selecting a project shows its sub-tasks in the main task list
+- [ ] Sub-tasks support `o`/`O`, `x`/Space, `J`/`K`, `m`, `s` within the project view
+- [ ] Project sidebar entry shows `Title (done/total)` progress
+- [ ] Completing all sub-tasks auto-completes the project and moves it to Logbook
+- [ ] Projects and sub-tasks survive save/load round-trips
+- [ ] Deadline field on projects renders with the same red/yellow urgency as task deadlines
+- [ ] Tests cover project CRUD, sub-task management, and auto-completion logic
+
+---
+
+### BACKLOG-32 — Areas of responsibility
+
+**Story points:** 8 — New `Area` dataclass, sidebar collapsible sections, folder/project
+assignment. Depends on BACKLOG-31 (Projects).
+
+**Description:**
+Things' **Areas** are high-level, non-time-bound responsibility domains (Work, Personal,
+Health) that group folders and projects. Areas are never "complete" — they represent ongoing
+life domains. This is the top of the GTD hierarchy: Area → Project → Task.
+
+**Acceptance criteria:**
+- [ ] `Area` dataclass: `id`, `name`, `position`
+- [ ] Folders and projects have an optional `area_id: str | None` (default `None`)
+- [ ] Sidebar renders Areas as collapsible section headings; their folders and projects appear
+  indented beneath when expanded
+- [ ] `A` while sidebar is focused creates a new Area
+- [ ] Folders and projects can be assigned to an Area via the `m` key (move destination picker
+  includes Areas)
+- [ ] Areas survive save/load round-trips
+- [ ] Tests cover Area CRUD and folder/project assignment logic
+
+---
+
+### BACKLOG-33 — Test coverage for identified gaps
+
+**Story points:** 3 — Tests only; no source changes.
+
+**Description:**
+The audit identified several untested paths that carry real risk:
+
+1. **CLI crypto functions** — `_cmd_encrypt`, `_cmd_decrypt`, and `_detect_password` in
+   `__main__.py` are untested; they use `getpass` and `sys.exit`, requiring mocks
+2. **Colon command parsing** — `:help` / `:h` dispatch via `_start_command()` has no test
+3. **`someday_tasks()`** — the domain function is only covered indirectly; no direct unit test
+4. **`purge_logbook_task()`** — covered at the app level but not at the domain level
+5. **Single-task move mode** — the `m` key flow in NORMAL mode (not VISUAL mode) has no
+   dedicated integration test
+6. **`spawn_repeating_tasks()` called on launch** — the on-mount integration (correct date
+   passed, tasks actually spawned) is untested
+
+**Acceptance criteria:**
+- [ ] `tests/test_main.py` extended with mocked-`getpass` tests for `--encrypt` and `--decrypt`
+- [ ] `test_app.py` has a test for `:help` opening `HelpScreen` via the colon command buffer
+- [ ] `test_operations.py` has a direct test for `someday_tasks()` return value
+- [ ] `test_operations.py` has a direct test for `purge_logbook_task()`
+- [ ] `test_app.py` has a test for `m` key in NORMAL mode moving a task to a different folder
+- [ ] `test_app.py` has an integration test verifying `spawn_repeating_tasks` fires on launch
