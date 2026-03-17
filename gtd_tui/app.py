@@ -332,7 +332,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                 start_mode="command",
                 id="detail-title-input",
             )
-            yield Label("Date  (e.g. 2026-03-20, tomorrow, +7d — empty to clear)", classes="field-label")
+            yield Label("Date  (e.g. 2026-03-20, tomorrow, +7d, someday — empty to clear)", classes="field-label")
             yield VimInput(
                 value=date_val,
                 placeholder="(none)",
@@ -1633,12 +1633,14 @@ class GtdApp(App[None]):
             new_title, new_notes, date_text, deadline_text, repeat_text, recur_text = result
 
             # Parse date field.
+            move_to_someday = date_text.strip().lower() == "someday"
             new_date = old_date
-            try:
-                new_date = parse_date_input(date_text)
-            except InvalidDateError:
-                self._update_status("(invalid date — changes saved, date unchanged)")
-                new_date = old_date
+            if not move_to_someday:
+                try:
+                    new_date = parse_date_input(date_text)
+                except InvalidDateError:
+                    self._update_status("(invalid date — changes saved, date unchanged)")
+                    new_date = old_date
 
             # Parse repeat field.
             new_repeat: RepeatRule | None = old_repeat
@@ -1687,7 +1689,7 @@ class GtdApp(App[None]):
                 new_deadline = old_deadline
 
             title_changed = new_title != task.title or new_notes != task.notes
-            date_changed = new_date != old_date
+            date_changed = move_to_someday or (new_date != old_date)
             deadline_changed = new_deadline != old_deadline
             repeat_changed = new_repeat != old_repeat
             recur_changed = new_recur != old_recur
@@ -1697,7 +1699,10 @@ class GtdApp(App[None]):
             self._push_undo()
             if title_changed:
                 self._all_tasks = edit_task(self._all_tasks, task_id, new_title, new_notes)
-            if date_changed:
+            if move_to_someday:
+                self._all_tasks = unschedule_task(self._all_tasks, task_id)
+                self._all_tasks = move_task_to_folder(self._all_tasks, task_id, "someday")
+            elif date_changed:
                 if new_date is None:
                     self._all_tasks = unschedule_task(self._all_tasks, task_id)
                 else:
@@ -1711,6 +1716,7 @@ class GtdApp(App[None]):
                 self._all_tasks = set_repeat_rule(self._all_tasks, task_id, new_repeat)
             if recur_changed:
                 self._all_tasks = set_recur_rule(self._all_tasks, task_id, new_recur)
+            self._rebuild_sidebar()
             self._save()
             self._refresh_list(select_task_id=task_id)
 

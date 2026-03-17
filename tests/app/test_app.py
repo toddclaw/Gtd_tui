@@ -336,6 +336,36 @@ async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
         assert saved_task.notes == "bar"
 
 
+async def test_detail_date_someday_moves_task_to_someday_folder(tmp_path: Path) -> None:
+    """Entering 'someday' in the Date field of TaskDetailScreen moves the task
+    to the Someday folder (case-insensitive, matches [Ss]omeday)."""
+    data_file = _prepopulate(tmp_path, "Read a book")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")          # open detail view
+        await pilot.pause()
+        assert isinstance(app.screen, TaskDetailScreen)
+
+        # Navigate from title (COMMAND mode) → Date field
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Type "someday" in the Date field (starts in COMMAND mode — 'i' enters INSERT)
+        await pilot.press("i")
+        for ch in "someday":
+            await pilot.press(ch)
+        await pilot.press("escape")         # back to COMMAND mode
+        await pilot.pause()
+        await pilot.press("escape")         # save and close
+        await pilot.pause()
+
+        assert not isinstance(app.screen, TaskDetailScreen)
+        task = next(t for t in app._all_tasks if t.title == "Read a book")
+        assert task.folder_id == "someday"
+        assert task.scheduled_date is None
+
+
 async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
     """Open the detail view for 'foo', navigate to the Repeat field, enter '7 days',
     save, then switch to the Upcoming view and verify the task appears there."""
