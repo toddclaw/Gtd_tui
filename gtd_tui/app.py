@@ -376,20 +376,22 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
 
     def _normalize_field(self, widget_id: str) -> None:
         """Rewrite a parseable field to its canonical form so the user can
-        confirm their input was understood before closing the modal."""
+        confirm their input was understood before closing the modal.
+        Always returns the field to COMMAND mode afterwards."""
         inp = self.query_one(f"#{widget_id}", VimInput)
         raw = inp.value.strip()
         if not raw:
+            inp.set_mode("command")
             return
         if widget_id in ("detail-date-input", "detail-deadline-input"):
             if widget_id == "detail-date-input" and raw.lower() == "someday":
                 inp.value = "someday"
-                return
-            try:
-                parsed = parse_date_input(raw)
-                inp.value = parsed.isoformat() if parsed else ""
-            except InvalidDateError:
-                inp.value = "(invalid)"
+            else:
+                try:
+                    parsed = parse_date_input(raw)
+                    inp.value = parsed.isoformat() if parsed else ""
+                except InvalidDateError:
+                    inp.value = "(invalid)"
         elif widget_id in ("detail-repeat-input", "detail-recur-input"):
             try:
                 parsed = parse_repeat_input(raw)
@@ -401,6 +403,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                     inp.value = f"{interval} {display_unit}"
             except InvalidRepeatError:
                 inp.value = "(invalid)"
+        inp.set_mode("command")
 
     def action_save_and_close(self) -> None:
         title = self.query_one("#detail-title-input", VimInput).value.strip()
