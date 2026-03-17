@@ -11,13 +11,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from textual.widgets import Label, ListView
 
 from gtd_tui.app import GtdApp, SearchScreen, TaskDetailScreen
 from gtd_tui.gtd.operations import add_task, add_task_to_folder, create_folder
 from gtd_tui.storage.file import save_data
 from gtd_tui.widgets.vim_input import VimInput
-from textual.widgets import Label, ListView
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -90,9 +89,9 @@ async def test_add_task_appears_in_task_list(tmp_path: Path) -> None:
         await pilot.pause()
         # Type "Eat" one character at a time
         await pilot.press("E", "a", "t")
-        await pilot.press("enter")   # confirm title, advance to notes
+        await pilot.press("enter")  # confirm title, advance to notes
         await pilot.pause()
-        await pilot.press("enter")   # skip notes, save task
+        await pilot.press("enter")  # skip notes, save task
         await pilot.pause()
         today_tasks = [t for t in app._all_tasks if t.folder_id == "today"]
         assert any(t.title == "Eat" for t in today_tasks)
@@ -113,6 +112,7 @@ async def test_add_task_saves_to_data_file(tmp_path: Path) -> None:
     # File must exist and contain the task
     assert data_file.exists()
     from gtd_tui.storage.file import load_tasks
+
     loaded = load_tasks(data_file)
     assert any(t.title == "Run" for t in loaded)
 
@@ -209,6 +209,7 @@ async def test_deleted_task_persists_to_data_file(tmp_path: Path) -> None:
         await pilot.press("d")
         await pilot.pause()
     from gtd_tui.storage.file import load_tasks
+
     loaded = load_tasks(data_file)
     assert loaded[0].is_deleted is True
     assert loaded[0].folder_id == "logbook"
@@ -220,7 +221,7 @@ async def test_o_in_logbook_does_not_add_task(tmp_path: Path) -> None:
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("x")        # complete → logbook
+        await pilot.press("x")  # complete → logbook
         await pilot.pause()
         app._current_view = "logbook"
         app._refresh_list()
@@ -231,7 +232,7 @@ async def test_o_in_logbook_does_not_add_task(tmp_path: Path) -> None:
         await pilot.press("O")
         await pilot.pause()
         assert len(app._all_tasks) == task_count  # no new tasks created
-        assert app._mode != "INSERT"              # not in insert mode
+        assert app._mode != "INSERT"  # not in insert mode
 
 
 async def test_d_in_logbook_purges_entry(tmp_path: Path) -> None:
@@ -239,13 +240,13 @@ async def test_d_in_logbook_purges_entry(tmp_path: Path) -> None:
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("x")        # complete → logbook
+        await pilot.press("x")  # complete → logbook
         await pilot.pause()
         # Switch to logbook view directly via app state
         app._current_view = "logbook"
         app._refresh_list()
         await pilot.pause()
-        await pilot.press("d")        # purge
+        await pilot.press("d")  # purge
         await pilot.pause()
         logbook = [t for t in app._all_tasks if t.folder_id == "logbook"]
         assert len(logbook) == 0
@@ -331,6 +332,7 @@ async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
         assert task.notes == "bar"
 
         from gtd_tui.storage.file import load_tasks
+
         saved = load_tasks(data_file)
         saved_task = next(t for t in saved if t.folder_id != "logbook")
         assert saved_task.title == "foo bar"
@@ -343,11 +345,12 @@ async def test_detail_fields_normalised_on_focus_advance(tmp_path: Path) -> None
     Date 'tomorrow' → ISO date string.  Invalid repeat → '(invalid)'.
     """
     from datetime import date, timedelta
+
     data_file = _prepopulate(tmp_path, "Buy milk")
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("enter")           # open detail view
+        await pilot.press("enter")  # open detail view
         await pilot.pause()
         assert isinstance(app.screen, TaskDetailScreen)
 
@@ -359,8 +362,8 @@ async def test_detail_fields_normalised_on_focus_advance(tmp_path: Path) -> None
         await pilot.press("i")
         for ch in "tomorrow":
             await pilot.press(ch)
-        await pilot.press("escape")          # back to COMMAND mode
-        await pilot.press("j")               # j → normalise + advance to Deadline
+        await pilot.press("escape")  # back to COMMAND mode
+        await pilot.press("j")  # j → normalise + advance to Deadline
         await pilot.pause()
 
         date_inp = app.screen.query_one("#detail-date-input", VimInput)
@@ -372,13 +375,13 @@ async def test_detail_fields_normalised_on_focus_advance(tmp_path: Path) -> None
         for ch in "not-a-date":
             await pilot.press(ch)
         await pilot.press("escape")
-        await pilot.press("j")               # j → normalise + advance to Notes
+        await pilot.press("j")  # j → normalise + advance to Notes
         await pilot.pause()
 
         deadline_inp = app.screen.query_one("#detail-deadline-input", VimInput)
         assert deadline_inp.value == "(invalid)"
 
-        await pilot.press("escape")          # save & close
+        await pilot.press("escape")  # save & close
         await pilot.pause()
         assert not isinstance(app.screen, TaskDetailScreen)
 
@@ -390,7 +393,7 @@ async def test_detail_date_someday_moves_task_to_someday_folder(tmp_path: Path) 
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("enter")          # open detail view
+        await pilot.press("enter")  # open detail view
         await pilot.pause()
         assert isinstance(app.screen, TaskDetailScreen)
 
@@ -402,9 +405,9 @@ async def test_detail_date_someday_moves_task_to_someday_folder(tmp_path: Path) 
         await pilot.press("i")
         for ch in "someday":
             await pilot.press(ch)
-        await pilot.press("escape")         # back to COMMAND mode
+        await pilot.press("escape")  # back to COMMAND mode
         await pilot.pause()
-        await pilot.press("escape")         # save and close
+        await pilot.press("escape")  # save and close
         await pilot.pause()
 
         assert not isinstance(app.screen, TaskDetailScreen)
@@ -427,23 +430,23 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
         assert isinstance(app.screen, TaskDetailScreen)
 
         # Advance: title → date (Enter), date → deadline (Enter), deadline → notes (Enter), notes → repeat (Tab)
-        await pilot.press("enter")   # title → date
+        await pilot.press("enter")  # title → date
         await pilot.pause()
-        await pilot.press("enter")   # date → deadline (empty date, no change)
+        await pilot.press("enter")  # date → deadline (empty date, no change)
         await pilot.pause()
-        await pilot.press("enter")   # deadline → notes (empty deadline, no change)
+        await pilot.press("enter")  # deadline → notes (empty deadline, no change)
         await pilot.pause()
-        await pilot.press("tab")     # notes → repeat (multiline: Tab advances)
+        await pilot.press("tab")  # notes → repeat (multiline: Tab advances)
         await pilot.pause()
 
         # Repeat is now VimInput in COMMAND mode — enter insert mode first
-        await pilot.press("i")       # command → insert mode
+        await pilot.press("i")  # command → insert mode
         await pilot.press("7", " ", "d", "a", "y", "s")
         await pilot.press("escape")  # insert → command mode
         await pilot.pause()
 
         # Advance repeat → recur (Enter in command mode fires Submitted)
-        await pilot.press("enter")   # repeat → recur
+        await pilot.press("enter")  # repeat → recur
         await pilot.pause()
         # Esc from recur command mode bubbles to screen → save and close
         await pilot.press("escape")
@@ -452,6 +455,7 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
 
         # The task must still be in Today (it stays actionable)
         from gtd_tui.gtd.operations import today_tasks, upcoming_tasks
+
         today = today_tasks(app._all_tasks)
         assert any(t.title == "foo" for t in today), "task should remain in Today"
 
@@ -463,11 +467,12 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
 async def test_set_date_via_detail_screen(tmp_path: Path) -> None:
     """Open detail view, type a date in the Date field, save — task is scheduled."""
     from datetime import date, timedelta
+
     data_file = _prepopulate(tmp_path, "foo")
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("enter")   # open detail
+        await pilot.press("enter")  # open detail
         await pilot.pause()
         assert isinstance(app.screen, TaskDetailScreen)
 
@@ -495,7 +500,7 @@ async def test_j_navigates_to_next_field_in_detail_screen(tmp_path: Path) -> Non
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("enter")   # open detail — title focused
+        await pilot.press("enter")  # open detail — title focused
         await pilot.pause()
         assert isinstance(app.screen, TaskDetailScreen)
 
@@ -602,9 +607,9 @@ async def test_l_from_sidebar_focuses_task_list(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("h")   # move to sidebar
+        await pilot.press("h")  # move to sidebar
         await pilot.pause()
-        await pilot.press("l")   # move back to task list
+        await pilot.press("l")  # move back to task list
         await pilot.pause()
         task_list = app.query_one("#task-list", ListView)
         assert task_list.has_focus
@@ -612,7 +617,8 @@ async def test_l_from_sidebar_focuses_task_list(tmp_path: Path) -> None:
 
 async def test_deleting_non_empty_folder_sends_tasks_to_logbook(tmp_path: Path) -> None:
     from textual.events import Key
-    from gtd_tui.gtd.operations import create_folder, add_task_to_folder
+
+    from gtd_tui.gtd.operations import add_task_to_folder, create_folder
 
     data_file = tmp_path / "data.json"
     app = GtdApp(data_file=data_file)
@@ -652,17 +658,20 @@ async def test_J_K_reorders_folders_in_sidebar(tmp_path: Path) -> None:
         await pilot.press("h")
         await pilot.pause()
         sidebar = app.query_one("#sidebar", ListView)
-        # built-ins: Today, Upcoming, Waiting On, Alpha, Beta, Someday, Logbook
-        # Alpha is at index 3, Beta at index 4
+        # built-ins: Inbox, Today, Upcoming, Waiting On, Alpha, Beta, Someday, Logbook
+        # Beta is at index 5 now
         beta_idx = next(
-            i for i, fid in enumerate(app._sidebar_view_ids)
-            if fid != "today" and fid != "upcoming" and fid != "waiting_on"
-            and fid != "someday" and fid != "logbook"
-            and next((f for f in app._all_folders if f.id == fid and f.name == "Beta"), None)
+            i
+            for i, fid in enumerate(app._sidebar_view_ids)
+            if fid
+            not in ("inbox", "today", "upcoming", "waiting_on", "someday", "logbook")
+            and next(
+                (f for f in app._all_folders if f.id == fid and f.name == "Beta"), None
+            )
         )
         sidebar.index = beta_idx
         await pilot.pause()
-        await pilot.press("K")   # move Beta above Alpha
+        await pilot.press("K")  # move Beta above Alpha
         await pilot.pause()
 
         ordered = sorted(app._all_folders, key=lambda f: f.position)
@@ -674,15 +683,17 @@ async def test_o_in_sidebar_creates_folder(tmp_path: Path) -> None:
     app = _make_app(tmp_path)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("h")   # focus sidebar
+        await pilot.press("h")  # focus sidebar
         await pilot.pause()
-        await pilot.press("o")   # open folder creation
+        await pilot.press("o")  # open folder creation
         await pilot.pause()
         await pilot.press("W", "o", "r", "k")
         await pilot.press("enter")
         await pilot.pause()
         assert any(f.name == "Work" for f in app._all_folders)
-        assert app._current_view == next(f.id for f in app._all_folders if f.name == "Work")
+        assert app._current_view == next(
+            f.id for f in app._all_folders if f.name == "Work"
+        )
         assert app.query_one("#task-list", ListView).has_focus
 
 
@@ -696,9 +707,9 @@ async def test_undo_restores_completed_task(tmp_path: Path) -> None:
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("x")     # complete the task
+        await pilot.press("x")  # complete the task
         await pilot.pause()
-        await pilot.press("u")     # undo
+        await pilot.press("u")  # undo
         await pilot.pause()
         today = [t for t in app._all_tasks if t.folder_id == "today"]
         assert any(t.title == "Write tests" for t in today)
@@ -756,18 +767,18 @@ async def test_recurring_task_shows_recurrence_marker(tmp_path: Path) -> None:
         # Open detail, advance to repeat field, set 7 days
         await pilot.press("enter")
         await pilot.pause()
-        await pilot.press("enter")   # title → date
+        await pilot.press("enter")  # title → date
         await pilot.pause()
-        await pilot.press("enter")   # date → deadline
+        await pilot.press("enter")  # date → deadline
         await pilot.pause()
-        await pilot.press("enter")   # deadline → notes
+        await pilot.press("enter")  # deadline → notes
         await pilot.pause()
-        await pilot.press("tab")     # notes → repeat (multiline: Tab advances)
+        await pilot.press("tab")  # notes → repeat (multiline: Tab advances)
         await pilot.pause()
-        await pilot.press("i")       # command → insert mode
+        await pilot.press("i")  # command → insert mode
         await pilot.press("7", " ", "d", "a", "y", "s")
         await pilot.press("escape")  # insert → command mode
-        await pilot.press("enter")   # repeat → recur
+        await pilot.press("enter")  # repeat → recur
         await pilot.pause()
         await pilot.press("escape")  # save and close
         await pilot.pause()
@@ -855,10 +866,14 @@ async def test_sidebar_shows_today_count(tmp_path: Path) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
         sidebar = app.query_one("#sidebar", ListView)
-        first_item = sidebar.children[0]
-        label_text = str(first_item.query_one(Label).render())
-        assert "Today" in label_text
-        assert "(2)" in label_text
+        # Find the Today item regardless of its index (Inbox is now first)
+        today_label = next(
+            str(item.query_one(Label).render())
+            for item in sidebar.query("ListItem")
+            if "Today" in str(item.query_one(Label).render())
+        )
+        assert "Today" in today_label
+        assert "(2)" in today_label
 
 
 # ---------------------------------------------------------------------------
@@ -870,7 +885,7 @@ async def test_sidebar_shows_today_count(tmp_path: Path) -> None:
 async def test_o_inserts_folder_after_selected(tmp_path: Path) -> None:
     """o in sidebar creates a new folder directly after the currently selected folder."""
     from gtd_tui.gtd.operations import create_folder
-    from gtd_tui.storage.file import save_data, load_folders
+    from gtd_tui.storage.file import load_folders, save_data
 
     data_file = tmp_path / "data.json"
     folders = create_folder([], "Alpha")
@@ -884,10 +899,10 @@ async def test_o_inserts_folder_after_selected(tmp_path: Path) -> None:
         await pilot.press("h")
         await pilot.pause()
         sidebar = app.query_one("#sidebar", ListView)
-        # Alpha is at sidebar index 3: Today=0, Upcoming=1, WaitingOn=2, Alpha=3
-        sidebar.index = 3
+        # Alpha is at sidebar index 4: Inbox=0, Today=1, Upcoming=2, WaitingOn=3, Alpha=4
+        sidebar.index = 4
         await pilot.pause()
-        await pilot.press("o")   # open folder slot after Alpha
+        await pilot.press("o")  # open folder slot after Alpha
         await pilot.pause()
         await pilot.press("m", "i", "d")
         await pilot.press("enter")
@@ -915,7 +930,9 @@ async def test_new_task_has_created_at(tmp_path: Path) -> None:
         await pilot.press("B", "u", "y", " ", "m", "i", "l", "k")
         await pilot.press("enter")
         await pilot.pause()
-    today = [t for t in app._all_tasks if t.folder_id == "today" and t.title == "Buy milk"]
+    today = [
+        t for t in app._all_tasks if t.folder_id == "today" and t.title == "Buy milk"
+    ]
     assert today
     assert today[0].created_at is not None
 
@@ -935,18 +952,18 @@ async def test_notes_support_newlines_in_detail_view(tmp_path: Path) -> None:
         await pilot.press("enter")
         await pilot.pause()
         # Skip title → date → deadline → notes
-        await pilot.press("enter")   # title → date
+        await pilot.press("enter")  # title → date
         await pilot.pause()
-        await pilot.press("enter")   # date → deadline
+        await pilot.press("enter")  # date → deadline
         await pilot.pause()
-        await pilot.press("enter")   # deadline → notes
+        await pilot.press("enter")  # deadline → notes
         await pilot.pause()
         # notes VimInput is now focused in COMMAND mode; enter INSERT
         await pilot.press("i")
         await pilot.pause()
         # Type two lines
         await pilot.press("L", "i", "n", "e", "1")
-        await pilot.press("enter")   # inserts newline in multiline mode
+        await pilot.press("enter")  # inserts newline in multiline mode
         await pilot.press("L", "i", "n", "e", "2")
         await pilot.press("escape")  # COMMAND mode
         await pilot.press("escape")  # save and close

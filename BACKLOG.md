@@ -499,7 +499,7 @@ class RecurRule:
 
 ---
 
-### BACKLOG-24 — Fix CI pipeline
+### ~~BACKLOG-24 — Fix CI pipeline~~ ✅ DONE
 
 **Story points:** 2 — Configuration-only changes; no source code.
 
@@ -510,16 +510,16 @@ The CI workflow at `.github/workflows/ci.yml` has three problems:
 3. The test matrix covers Python 3.11 and 3.12 only; Python 3.13 is not tested
 
 **Acceptance criteria:**
-- [ ] Branch trigger changed to `master` (or to `[master, main]` to be forward-compatible)
-- [ ] CI step added: `black --check .`
-- [ ] CI step added: `ruff check .`
-- [ ] CI step added: `mypy gtd_tui/`
-- [ ] Python 3.13 added to the test matrix
-- [ ] All steps run successfully (green) on current codebase before merging
+- [x] Branch trigger changed to `master` (or to `[master, main]` to be forward-compatible)
+- [x] CI step added: `black --check .`
+- [x] CI step added: `ruff check .`
+- [x] CI step added: `mypy gtd_tui/`
+- [x] Python 3.13 added to the test matrix
+- [x] All steps run successfully (green) on current codebase before merging
 
 ---
 
-### BACKLOG-25 — Dependency lock file and pre-commit hooks
+### ~~BACKLOG-25 — Dependency lock file and pre-commit hooks~~ ✅ DONE
 
 **Story points:** 3 — Tooling setup; no source code changes.
 
@@ -530,16 +530,16 @@ The CI workflow at `.github/workflows/ci.yml` has three problems:
   non-conforming commits can reach the branch
 
 **Acceptance criteria:**
-- [ ] `uv.lock` generated and committed (`uv lock`)
-- [ ] README Getting Started updated: `uv sync` as primary install path, `pip install -e ".[dev]"` kept as fallback
-- [ ] CLAUDE.md Getting Started updated similarly
-- [ ] `.pre-commit-config.yaml` added with black, ruff, and mypy hooks
-- [ ] `pre-commit run --all-files` passes on the current codebase
-- [ ] CLAUDE.md pre-commit checklist updated to include `pre-commit install` step
+- [x] `uv.lock` generated and committed (`uv lock`)
+- [x] README Getting Started updated: `uv sync` as primary install path, `pip install -e ".[dev]"` kept as fallback
+- [x] CLAUDE.md Getting Started updated similarly
+- [x] `.pre-commit-config.yaml` added with black, ruff, and mypy hooks
+- [x] `pre-commit run --all-files` passes on the current codebase
+- [x] CLAUDE.md pre-commit checklist updated to include `pre-commit install` step
 
 ---
 
-### BACKLOG-26 — Missing vi keybindings from CLAUDE.md spec
+### ~~BACKLOG-26 — Missing vi keybindings from CLAUDE.md spec~~ ✅ DONE
 
 **Story points:** 3 — Three small independent additions; no new state required.
 
@@ -553,16 +553,16 @@ CLAUDE.md lists these as first-class vi keybinding requirements; none are implem
    only cancel path; `Ctrl+c` is documented but does nothing)
 
 **Acceptance criteria:**
-- [ ] `Ctrl+d` scrolls down by half the visible task list height; `Ctrl+u` scrolls up
-- [ ] After a search, `n` moves the cursor to the next matching task (wrapping); `N` moves to
+- [x] `Ctrl+d` scrolls down by half the visible task list height; `Ctrl+u` scrolls up
+- [x] After a search, `n` moves the cursor to the next matching task (wrapping); `N` moves to
   the previous
-- [ ] `Ctrl+c` in INSERT mode cancels the current edit without saving, identical to `Esc`
-- [ ] All three keybindings documented in `:help`
-- [ ] Unit/integration tests for each new binding
+- [x] `Ctrl+c` in INSERT mode cancels the current edit without saving, identical to `Esc`
+- [x] All three keybindings documented in `:help`
+- [x] Unit/integration tests for each new binding
 
 ---
 
-### BACKLOG-27 — Inbox folder
+### ~~BACKLOG-27 — Inbox folder~~ ✅ DONE
 
 **Story points:** 3 — New built-in folder; sidebar infrastructure already exists (BACKLOG-3/4 done).
 
@@ -576,12 +576,12 @@ Currently, new tasks go directly to Today, which conflates capture with commitme
 - The user processes Inbox tasks using the existing `m`, `t`, `s`, and `d` keys
 
 **Acceptance criteria:**
-- [ ] Inbox is a built-in folder (`folder_id = "inbox"`); `BUILTIN_FOLDER_IDS` updated
-- [ ] Inbox appears as the first sidebar item (above Today)
-- [ ] `o` / `O` create tasks in Inbox when the Inbox view is active
-- [ ] Tasks in Inbox never appear in Today, Upcoming, or any smart view automatically
-- [ ] Number key `1` jumps to Inbox; existing number shortcuts shift down by one
-- [ ] `BACKLOG-27` added to `BUILTIN_FOLDER_IDS` in `folder.py`; no new data model fields needed
+- [x] Inbox is a built-in folder (`folder_id = "inbox"`); `BUILTIN_FOLDER_IDS` updated
+- [x] Inbox appears as the first sidebar item (above Today)
+- [x] `o` / `O` create tasks in Inbox when the Inbox view is active
+- [x] Tasks in Inbox never appear in Today, Upcoming, or any smart view automatically
+- [x] Number key `1` jumps to Inbox; existing number shortcuts shift down by one
+- [x] `"inbox"` added to `BUILTIN_FOLDER_IDS` in `folder.py`; no new data model fields needed
 
 **Data model note:** `folder_id = "inbox"` suffices; no schema change required.
 

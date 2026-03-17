@@ -1,4 +1,5 @@
 """Unit tests for gtd_tui.storage.crypto — BACKLOG-23."""
+
 from __future__ import annotations
 
 import pytest

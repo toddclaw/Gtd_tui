@@ -12,34 +12,32 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
-from gtd_tui.gtd.dates import format_date, InvalidDateError, parse_date_input
-from gtd_tui.widgets.vim_input import VimInput
+from gtd_tui.gtd.dates import InvalidDateError, format_date, parse_date_input
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.operations import (
+    InvalidRepeatError,
     add_task,
     add_task_to_folder,
     add_waiting_on_task,
     clear_deadline,
     complete_task,
     deadline_status,
-    delete_task,
-    create_folder,
     delete_folder,
-    insert_folder,
-    discard_folder_tasks,
+    delete_task,
     edit_task,
     folder_tasks,
-    insert_task_after,
-    insert_task_before,
+    inbox_tasks,
+    insert_folder,
     insert_folder_task_after,
     insert_folder_task_before,
+    insert_task_after,
+    insert_task_before,
     insert_waiting_on_task_after,
     insert_waiting_on_task_before,
-    InvalidRepeatError,
     logbook_tasks,
     make_repeat_rule,
-    move_folder_tasks_to_today,
     move_folder_down,
+    move_folder_tasks_to_today,
     move_folder_up,
     move_task_down,
     move_task_to_folder,
@@ -62,9 +60,9 @@ from gtd_tui.gtd.operations import (
     waiting_on_tasks,
     weekly_review_tasks,
 )
-from gtd_tui.gtd.task import RecurRule, RepeatRule
-from gtd_tui.gtd.task import Task
+from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
 from gtd_tui.storage.file import load_folders, load_tasks, save_data
+from gtd_tui.widgets.vim_input import VimInput
 
 
 class HelpScreen(ModalScreen[None]):
@@ -88,7 +86,10 @@ class HelpScreen(ModalScreen[None]):
   H / M / L    Jump to top / middle / bottom of list
   g g          Jump to top of list
   G            Jump to bottom of list
+  Ctrl+d       Half-page down
+  Ctrl+u       Half-page up
   h / l        Focus sidebar / task list
+  i            Jump to Inbox
   1–9          Jump to nth sidebar item
 
 [bold]Task Actions[/bold]
@@ -105,6 +106,7 @@ class HelpScreen(ModalScreen[None]):
   u            Undo last action
   Ctrl+R       Redo last undone action
   /            Global search
+  n / N        Next / previous search match
   W            Weekly review (tasks completed in past 7 days)
 
 [bold]VISUAL Mode  (press v to enter)[/bold]
@@ -194,7 +196,6 @@ class WeeklyReviewScreen(ModalScreen[None]):
         self._tasks = tasks
 
     def _build_review_text(self) -> str:
-        from datetime import date
 
         items = weekly_review_tasks(self._tasks)
         if not items:
@@ -479,10 +480,11 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
             event.prevent_default()
 
 
-class SearchScreen(ModalScreen[str | None]):
+class SearchScreen(ModalScreen[tuple[str | None, str]]):
     """Global search across all tasks.
 
-    Dismissed value: task_id of the selected task, or None if cancelled.
+    Dismissed value: (task_id, query) where task_id is the selected task or
+    None if cancelled, and query is the search string at dismiss time.
     """
 
     BINDINGS = [
@@ -531,6 +533,7 @@ class SearchScreen(ModalScreen[str | None]):
         self._tasks = tasks
         # list of (task_id, display_label, is_separator)
         self._result_entries: list[tuple[str, str, bool]] = []
+        self._last_query: str = ""
 
     def compose(self) -> ComposeResult:
         with Vertical(id="search-panel"):
@@ -548,6 +551,7 @@ class SearchScreen(ModalScreen[str | None]):
         self._run_search(event.value)
 
     def _run_search(self, query: str) -> None:
+        self._last_query = query
         results = search_tasks(self._tasks, query)
         list_view = self.query_one("#search-results", ListView)
         list_view.clear()
@@ -620,7 +624,7 @@ class SearchScreen(ModalScreen[str | None]):
                 return
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        self.dismiss((None, self._last_query))
 
     def action_cursor_up(self) -> None:
         list_view = self.query_one("#search-results", ListView)
@@ -651,7 +655,7 @@ class SearchScreen(ModalScreen[str | None]):
         task_id, _, is_sep = self._result_entries[idx]
         if is_sep:
             return
-        self.dismiss(task_id)
+        self.dismiss((task_id, self._last_query))
 
 
 class GtdApp(App[None]):
@@ -772,6 +776,10 @@ class GtdApp(App[None]):
         self._visual_anchor_idx: int | None = None
         # Pending task IDs for bulk operations (schedule, move)
         self._pending_task_ids: list[str] = []
+        # Search navigation state (n / N)
+        self._last_search_query: str = ""
+        self._search_match_ids: list[str] = []
+        self._search_match_idx: int = 0
 
     @property
     def _sidebar_view_ids(self) -> list[str]:
@@ -781,7 +789,7 @@ class GtdApp(App[None]):
         at the position where the placeholder row appears.
         """
         user_folders = sorted(self._all_folders, key=lambda f: f.position)
-        ids: list[str] = ["today", "upcoming", "waiting_on"]
+        ids: list[str] = ["inbox", "today", "upcoming", "waiting_on"]
 
         pos = self._sidebar_placeholder_insert
         anchor = self._sidebar_placeholder_anchor_id
@@ -807,6 +815,8 @@ class GtdApp(App[None]):
         return ids
 
     def _view_label(self, view_id: str) -> str:
+        if view_id == "inbox":
+            return "Inbox"
         if view_id == "today":
             return "Today"
         if view_id == "upcoming":
@@ -881,7 +891,11 @@ class GtdApp(App[None]):
             return f" ({count})"
 
         for view_id in self._sidebar_view_ids:
-            if view_id == "today":
+            if view_id == "inbox":
+                sidebar.append(
+                    ListItem(Label(f"Inbox{_n(len(inbox_tasks(self._all_tasks)))}"))
+                )
+            elif view_id == "today":
                 sidebar.append(
                     ListItem(Label(f"Today{_n(len(today_tasks(self._all_tasks)))}"))
                 )
@@ -961,7 +975,9 @@ class GtdApp(App[None]):
         self._list_entries = []
         self._placeholder_list_idx = None
 
-        if self._current_view == "today":
+        if self._current_view == "inbox":
+            self._render_inbox_view(list_view)
+        elif self._current_view == "today":
             self._render_today_view(list_view)
         elif self._current_view == "upcoming":
             self._render_upcoming_view(list_view)
@@ -1072,6 +1088,11 @@ class GtdApp(App[None]):
             return f"{self._task_label(task)}{date_str}"
 
         self._render_simple_list(list_view, tasks, _wo_label)
+
+    def _render_inbox_view(self, list_view: ListView) -> None:
+        tasks = inbox_tasks(self._all_tasks)
+        self.query_one("#header", Label).update(f"Inbox ({len(tasks)})")
+        self._render_simple_list(list_view, tasks, self._task_label)
 
     def _render_someday_view(self, list_view: ListView) -> None:
         tasks = someday_tasks(self._all_tasks)
@@ -1204,7 +1225,7 @@ class GtdApp(App[None]):
             self._handle_delete_confirm_key(event)
             return
         if self._mode == "INSERT":
-            if event.key == "escape":
+            if event.key in ("escape", "ctrl+c"):
                 self._cancel_input()
         elif self._visual_mode:
             self._handle_visual_key(event)
@@ -1259,6 +1280,9 @@ class GtdApp(App[None]):
         elif event.key == "d":
             event.prevent_default()
             self._delete_selected_folder()
+        elif event.key == "i":
+            event.prevent_default()
+            self._jump_to_view_id("inbox")
         elif event.key.isdigit() and event.key != "0":
             event.prevent_default()
             self._jump_to_view(int(event.key) - 1)
@@ -1274,6 +1298,20 @@ class GtdApp(App[None]):
         elif event.key == "ctrl+r":
             event.prevent_default()
             self._redo()
+        elif event.key == "ctrl+d":
+            event.prevent_default()
+            step = max(1, sidebar.size.height // 2)
+            n = len(self._sidebar_view_ids)
+            if n > 0:
+                sidebar.index = min(n - 1, (sidebar.index or 0) + step)
+        elif event.key == "ctrl+u":
+            event.prevent_default()
+            step = max(1, sidebar.size.height // 2)
+            if sidebar.index:
+                sidebar.index = max(0, sidebar.index - step)
+        elif event.key == "ctrl+c":
+            event.prevent_default()
+            # no-op in sidebar NORMAL mode; here for completeness
         elif event.key == "q":
             event.prevent_default()
             self.exit()
@@ -1329,6 +1367,28 @@ class GtdApp(App[None]):
             if n > 0:
                 list_view.index = n - 1
                 self._skip_separator(direction=-1)
+        elif event.key == "ctrl+d":
+            event.prevent_default()
+            n = len(self._list_entries)
+            if n > 0:
+                step = max(1, list_view.size.height // 2)
+                new_idx = min(n - 1, (list_view.index or 0) + step)
+                list_view.index = new_idx
+                self._skip_separator(direction=1)
+        elif event.key == "ctrl+u":
+            event.prevent_default()
+            n = len(self._list_entries)
+            if n > 0:
+                step = max(1, list_view.size.height // 2)
+                new_idx = max(0, (list_view.index or 0) - step)
+                list_view.index = new_idx
+                self._skip_separator(direction=-1)
+        elif event.key == "n":
+            event.prevent_default()
+            self._navigate_search_match(1)
+        elif event.key == "N":
+            event.prevent_default()
+            self._navigate_search_match(-1)
         elif event.key == "J":
             event.prevent_default()
             self._move_selected_down()
@@ -1338,6 +1398,9 @@ class GtdApp(App[None]):
         elif event.key == "h":
             event.prevent_default()
             self.query_one("#sidebar", ListView).focus()
+        elif event.key == "i":
+            event.prevent_default()
+            self._jump_to_view_id("inbox")
         elif event.key.isdigit() and event.key != "0":
             event.prevent_default()
             self._jump_to_view(int(event.key) - 1)
@@ -1417,6 +1480,14 @@ class GtdApp(App[None]):
             self.query_one("#sidebar", ListView).index = idx
             # on_list_view_highlighted handles the rest
 
+    def _jump_to_view_id(self, view_id: str) -> None:
+        view_ids = self._sidebar_view_ids
+        try:
+            idx = view_ids.index(view_id)
+        except ValueError:
+            return
+        self.query_one("#sidebar", ListView).index = idx
+
     def _skip_separator(self, direction: int) -> None:
         """If the current ListView selection is a separator, move past it."""
         list_view = self.query_one("#task-list", ListView)
@@ -1459,6 +1530,8 @@ class GtdApp(App[None]):
             vim.set_placeholder("Waiting On task title...")
         elif self._current_view == "someday":
             vim.set_placeholder("Someday task title...")
+        elif self._current_view == "inbox":
+            vim.set_placeholder("Inbox task title...")
         else:
             vim.set_placeholder("Task title...")
         vim.clear()
@@ -1521,7 +1594,7 @@ class GtdApp(App[None]):
                     self._all_tasks, self._pending_title, notes=notes, task_id=new_id
                 )
         elif (
-            self._current_view in ("someday",)
+            self._current_view in ("inbox", "someday")
             or self._current_view not in BUILTIN_FOLDER_IDS
         ):
             if self._pending_anchor_id:
@@ -1896,7 +1969,24 @@ class GtdApp(App[None]):
         self.push_screen(WeeklyReviewScreen(self._all_tasks))
 
     def _open_search(self) -> None:
-        def _on_search_close(task_id: str | None) -> None:
+        def _on_search_close(
+            result: tuple[str | None, str] | None,
+        ) -> None:
+            if result is None:
+                self.query_one("#task-list", ListView).focus()
+                return
+            task_id, query = result
+            # Store match list for n/N navigation (active tasks only)
+            if query:
+                matched = search_tasks(self._all_tasks, query)
+                self._last_search_query = query
+                self._search_match_ids = [
+                    t.id for t, _ in matched if t.folder_id != "logbook"
+                ]
+                if task_id and task_id in self._search_match_ids:
+                    self._search_match_idx = self._search_match_ids.index(task_id)
+                else:
+                    self._search_match_idx = 0
             if task_id is None:
                 self.query_one("#task-list", ListView).focus()
                 return
@@ -1905,20 +1995,26 @@ class GtdApp(App[None]):
                 self.query_one("#task-list", ListView).focus()
                 return
             # Navigate to the task's folder
-            if task.folder_id == "logbook":
-                self._current_view = "logbook"
-            elif task.folder_id == "waiting_on":
-                self._current_view = "waiting_on"
-            elif task.folder_id == "someday":
-                self._current_view = "someday"
-            elif task.folder_id == "today":
-                self._current_view = "today"
-            else:
-                self._current_view = task.folder_id
+            self._current_view = task.folder_id
             self._rebuild_sidebar()
             self._refresh_list(select_task_id=task_id)
 
         self.push_screen(SearchScreen(self._all_tasks), _on_search_close)
+
+    def _navigate_search_match(self, direction: int) -> None:
+        """Cycle through stored search matches (n = forward, N = backward)."""
+        if not self._search_match_ids:
+            return
+        self._search_match_idx = (self._search_match_idx + direction) % len(
+            self._search_match_ids
+        )
+        task_id = self._search_match_ids[self._search_match_idx]
+        task = next((t for t in self._all_tasks if t.id == task_id), None)
+        if task is None:
+            return
+        self._current_view = task.folder_id
+        self._rebuild_sidebar()
+        self._refresh_list(select_task_id=task_id)
 
     # ------------------------------------------------------------------ #
     # VISUAL mode                                                          #

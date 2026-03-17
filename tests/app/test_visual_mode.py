@@ -4,13 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 from textual.widgets import Label, ListItem, ListView
 
 from gtd_tui.app import GtdApp
 from gtd_tui.gtd.operations import add_task, add_waiting_on_task, create_folder
 from gtd_tui.storage.file import save_data
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -74,9 +72,9 @@ async def test_escape_exits_visual_mode(tmp_path: Path) -> None:
 async def test_j_extends_selection_downward(tmp_path: Path) -> None:
     async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
         await pilot.pause()
-        await pilot.press("v")          # enter visual at index 0
+        await pilot.press("v")  # enter visual at index 0
         await pilot.pause()
-        await pilot.press("j")          # extend down to index 1
+        await pilot.press("j")  # extend down to index 1
         await pilot.pause()
         lv = pilot.app.query_one("#task-list", ListView)
         assert lv.index == 1
@@ -86,11 +84,11 @@ async def test_j_extends_selection_downward(tmp_path: Path) -> None:
 async def test_k_extends_selection_upward(tmp_path: Path) -> None:
     async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
         await pilot.pause()
-        await pilot.press("j")          # move to index 1 in NORMAL
+        await pilot.press("j")  # move to index 1 in NORMAL
         await pilot.pause()
-        await pilot.press("v")          # enter visual at index 1
+        await pilot.press("v")  # enter visual at index 1
         await pilot.pause()
-        await pilot.press("k")          # extend up to index 0
+        await pilot.press("k")  # extend up to index 0
         await pilot.pause()
         lv = pilot.app.query_one("#task-list", ListView)
         assert lv.index == 0
@@ -107,7 +105,7 @@ async def test_visual_selected_rows_have_css_class(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("v")
         await pilot.pause()
-        await pilot.press("j")   # select A+B (indices 0 and 1)
+        await pilot.press("j")  # select A+B (indices 0 and 1)
         await pilot.pause()
         items = _list_items(pilot.app)
         assert "visual-selected" in items[0].classes
@@ -134,7 +132,7 @@ async def test_exit_visual_clears_css_classes(tmp_path: Path) -> None:
 async def test_bulk_complete_completes_selected_tasks(tmp_path: Path) -> None:
     async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
         await pilot.pause()
-        await pilot.press("v", "j")     # select A + B
+        await pilot.press("v", "j")  # select A + B
         await pilot.pause()
         await pilot.press("x")
         await pilot.pause()
@@ -163,9 +161,9 @@ async def test_bulk_complete_is_single_undo_step(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("v", "j")
         await pilot.pause()
-        await pilot.press("x")          # complete A + B
+        await pilot.press("x")  # complete A + B
         await pilot.pause()
-        await pilot.press("u")          # undo — both should come back
+        await pilot.press("u")  # undo — both should come back
         await pilot.pause()
         active = [t for t in pilot.app._all_tasks if t.folder_id != "logbook"]
         assert len(active) == 3
@@ -213,9 +211,9 @@ async def test_bulk_schedule_applies_date_to_selected_tasks(tmp_path: Path) -> N
 
     async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
         await pilot.pause()
-        await pilot.press("v", "j")     # select A + B
+        await pilot.press("v", "j")  # select A + B
         await pilot.pause()
-        await pilot.press("s")          # open schedule input (bulk)
+        await pilot.press("s")  # open schedule input (bulk)
         await pilot.pause()
         await pilot.press("+", "3", "d", "enter")  # type "+3d" and submit
         await pilot.pause()
@@ -255,8 +253,11 @@ async def test_bulk_w_moves_selected_to_waiting_on(tmp_path: Path) -> None:
         await pilot.press("w")
         await pilot.pause()
         wo = [t for t in pilot.app._all_tasks if t.folder_id == "waiting_on"]
-        today = [t for t in pilot.app._all_tasks
-                 if t.folder_id == "today" and t.completed_at is None]
+        today = [
+            t
+            for t in pilot.app._all_tasks
+            if t.folder_id == "today" and t.completed_at is None
+        ]
         assert len(wo) == 2
         assert len(today) == 1
         assert today[0].title == "C"
@@ -272,15 +273,18 @@ async def test_bulk_t_moves_selected_to_today(tmp_path: Path) -> None:
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        # Navigate to Waiting On view
-        await pilot.press("2")
+        # Navigate to Waiting On view (Inbox=1, Today=2, Upcoming=3, WaitingOn=4)
+        await pilot.press("4")
         await pilot.pause()
         await pilot.press("v", "j")
         await pilot.pause()
         await pilot.press("t")
         await pilot.pause()
-        today = [t for t in pilot.app._all_tasks if t.folder_id == "today"
-                 and t.completed_at is None]
+        today = [
+            t
+            for t in pilot.app._all_tasks
+            if t.folder_id == "today" and t.completed_at is None
+        ]
         assert len(today) == 2
 
 
@@ -293,8 +297,11 @@ async def test_bulk_w_is_single_undo_step(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("u")
         await pilot.pause()
-        today = [t for t in pilot.app._all_tasks
-                 if t.folder_id == "today" and t.completed_at is None]
+        today = [
+            t
+            for t in pilot.app._all_tasks
+            if t.folder_id == "today" and t.completed_at is None
+        ]
         assert len(today) == 2
 
 
@@ -304,7 +311,6 @@ async def test_bulk_w_is_single_undo_step(tmp_path: Path) -> None:
 
 
 async def test_bulk_m_moves_selected_to_chosen_folder(tmp_path: Path) -> None:
-    from gtd_tui.gtd.folder import Folder
 
     data_file = tmp_path / "data.json"
     tasks: list = []
@@ -317,9 +323,9 @@ async def test_bulk_m_moves_selected_to_chosen_folder(tmp_path: Path) -> None:
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("v", "j")     # select A + B
+        await pilot.press("v", "j")  # select A + B
         await pilot.pause()
-        await pilot.press("m")          # open folder picker (bulk)
+        await pilot.press("m")  # open folder picker (bulk)
         await pilot.pause()
         # Sidebar is focused. Navigate to "Work" folder.
         # Built-ins: Today(0), Upcoming(1), Waiting On(2), Work(3), Someday(4), Logbook(5)
@@ -334,7 +340,6 @@ async def test_bulk_m_moves_selected_to_chosen_folder(tmp_path: Path) -> None:
 
 
 async def test_bulk_m_is_single_undo_step(tmp_path: Path) -> None:
-    from gtd_tui.gtd.folder import Folder
 
     data_file = tmp_path / "data.json"
     tasks: list = []
@@ -355,10 +360,13 @@ async def test_bulk_m_is_single_undo_step(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
-        await pilot.press("u")          # undo
+        await pilot.press("u")  # undo
         await pilot.pause()
-        in_today = [t for t in pilot.app._all_tasks
-                    if t.folder_id == "today" and t.completed_at is None]
+        in_today = [
+            t
+            for t in pilot.app._all_tasks
+            if t.folder_id == "today" and t.completed_at is None
+        ]
         assert len(in_today) == 2
 
 
@@ -370,14 +378,17 @@ async def test_bulk_m_is_single_undo_step(tmp_path: Path) -> None:
 async def test_J_moves_selected_block_down(tmp_path: Path) -> None:
     async with _make_app(tmp_path, "A", "B", "C", "D").run_test() as pilot:
         await pilot.pause()
-        await pilot.press("j")          # cursor to index 1 (B)
+        await pilot.press("j")  # cursor to index 1 (B)
         await pilot.pause()
-        await pilot.press("v", "j")     # visual: anchor=1, extend to 2 (B + C)
+        await pilot.press("v", "j")  # visual: anchor=1, extend to 2 (B + C)
         await pilot.pause()
-        await pilot.press("J")          # move block down
+        await pilot.press("J")  # move block down
         await pilot.pause()
-        active = [t for t in pilot.app._all_tasks
-                  if t.folder_id == "today" and t.completed_at is None]
+        active = [
+            t
+            for t in pilot.app._all_tasks
+            if t.folder_id == "today" and t.completed_at is None
+        ]
         active_sorted = sorted(active, key=lambda t: t.position)
         titles = [t.title for t in active_sorted]
         assert titles == ["A", "D", "B", "C"]
@@ -387,14 +398,17 @@ async def test_J_moves_selected_block_down(tmp_path: Path) -> None:
 async def test_K_moves_selected_block_up(tmp_path: Path) -> None:
     async with _make_app(tmp_path, "A", "B", "C", "D").run_test() as pilot:
         await pilot.pause()
-        await pilot.press("j")          # cursor to index 1 (B)
+        await pilot.press("j")  # cursor to index 1 (B)
         await pilot.pause()
-        await pilot.press("v", "j")     # visual: anchor=1, extend to 2 (B + C)
+        await pilot.press("v", "j")  # visual: anchor=1, extend to 2 (B + C)
         await pilot.pause()
-        await pilot.press("K")          # move block up
+        await pilot.press("K")  # move block up
         await pilot.pause()
-        active = [t for t in pilot.app._all_tasks
-                  if t.folder_id == "today" and t.completed_at is None]
+        active = [
+            t
+            for t in pilot.app._all_tasks
+            if t.folder_id == "today" and t.completed_at is None
+        ]
         active_sorted = sorted(active, key=lambda t: t.position)
         titles = [t.title for t in active_sorted]
         assert titles == ["B", "C", "A", "D"]
@@ -404,14 +418,18 @@ async def test_K_moves_selected_block_up(tmp_path: Path) -> None:
 async def test_J_block_move_is_single_undo_step(tmp_path: Path) -> None:
     async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
         await pilot.pause()
-        await pilot.press("v", "j")     # select A + B
+        await pilot.press("v", "j")  # select A + B
         await pilot.pause()
-        await pilot.press("J")          # move down
+        await pilot.press("J")  # move down
         await pilot.pause()
-        await pilot.press("u")          # undo
+        await pilot.press("u")  # undo
         await pilot.pause()
         active = sorted(
-            [t for t in pilot.app._all_tasks if t.folder_id == "today" and t.completed_at is None],
+            [
+                t
+                for t in pilot.app._all_tasks
+                if t.folder_id == "today" and t.completed_at is None
+            ],
             key=lambda t: t.position,
         )
         assert [t.title for t in active] == ["A", "B", "C"]

@@ -43,12 +43,17 @@ This project was recently initialized. As of the initial commit, only a `README.
 git clone <repo-url>
 cd Gtd_tui
 
-# Create and activate a virtual environment
-python -m venv .venv
+# Recommended: use uv (generates reproducible environment from uv.lock)
+uv sync
 source .venv/bin/activate  # on Windows: .venv\Scripts\activate
 
-# Install dependencies (once requirements.txt / pyproject.toml exists)
+# Alternative: use pip directly
+python -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
+
+# Install pre-commit hooks (enforces black/ruff/mypy at commit time)
+pre-commit install
 
 # Run the application
 python -m gtd_tui
@@ -63,7 +68,10 @@ black .
 ruff check .
 
 # Type check
-mypy .
+mypy gtd_tui/
+
+# Run all pre-commit checks manually
+pre-commit run --all-files
 ```
 
 ---

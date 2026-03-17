@@ -159,6 +159,7 @@ def test_load_folders_file_without_folders_key_returns_empty(tmp_path: Path) -> 
     save_tasks(tasks, data_file=data_file)
     # Manually strip the folders key to simulate old file
     import json
+
     with open(data_file) as f:
         raw = json.load(f)
     raw.pop("folders", None)
@@ -222,6 +223,7 @@ def test_no_recur_rule_round_trip(tmp_path: Path) -> None:
 
 def test_deleted_task_round_trip(tmp_path: Path) -> None:
     from gtd_tui.gtd.operations import delete_task
+
     data_file = tmp_path / "data.json"
     tasks = add_task([], "Gone task")
     tasks = delete_task(tasks, tasks[0].id)
@@ -243,6 +245,7 @@ def test_non_deleted_task_round_trip(tmp_path: Path) -> None:
 def test_created_at_round_trips(tmp_path):
     """created_at is persisted and reloaded correctly."""
     from gtd_tui.gtd.operations import add_task
+
     data_file = tmp_path / "data.json"
     tasks = add_task([], "Buy stamps")
     assert tasks[0].created_at is not None
@@ -255,13 +258,26 @@ def test_created_at_round_trips(tmp_path):
 def test_created_at_missing_defaults_to_none(tmp_path):
     """Old tasks without created_at load without error, defaulting to None."""
     import json
+
     data_file = tmp_path / "data.json"
     # Write a task dict that lacks created_at (simulates old data).
-    payload = {"tasks": [{"id": "abc", "title": "Old task", "notes": "",
-                           "folder_id": "today", "position": 0,
-                           "completed_at": None, "scheduled_date": None,
-                           "repeat_rule": None, "recur_rule": None,
-                           "is_deleted": False}], "folders": []}
+    payload = {
+        "tasks": [
+            {
+                "id": "abc",
+                "title": "Old task",
+                "notes": "",
+                "folder_id": "today",
+                "position": 0,
+                "completed_at": None,
+                "scheduled_date": None,
+                "repeat_rule": None,
+                "recur_rule": None,
+                "is_deleted": False,
+            }
+        ],
+        "folders": [],
+    }
     data_file.write_text(json.dumps(payload))
     loaded = load_tasks(data_file=data_file)
     assert loaded[0].created_at is None
@@ -269,6 +285,7 @@ def test_created_at_missing_defaults_to_none(tmp_path):
 
 def test_deadline_round_trip(tmp_path: Path) -> None:
     from gtd_tui.gtd.operations import set_deadline
+
     data_file = tmp_path / "data.json"
     tasks = add_task([], "Buy cake")
     tasks = set_deadline(tasks, tasks[0].id, date(2026, 12, 1))
@@ -280,12 +297,25 @@ def test_deadline_round_trip(tmp_path: Path) -> None:
 def test_deadline_missing_defaults_to_none(tmp_path: Path) -> None:
     """Old tasks without a deadline key load without error."""
     import json
+
     data_file = tmp_path / "data.json"
-    payload = {"tasks": [{"id": "abc", "title": "Old task", "notes": "",
-                           "folder_id": "today", "position": 0,
-                           "completed_at": None, "scheduled_date": None,
-                           "repeat_rule": None, "recur_rule": None,
-                           "is_deleted": False}], "folders": []}
+    payload = {
+        "tasks": [
+            {
+                "id": "abc",
+                "title": "Old task",
+                "notes": "",
+                "folder_id": "today",
+                "position": 0,
+                "completed_at": None,
+                "scheduled_date": None,
+                "repeat_rule": None,
+                "recur_rule": None,
+                "is_deleted": False,
+            }
+        ],
+        "folders": [],
+    }
     data_file.write_text(json.dumps(payload))
     loaded = load_tasks(data_file=data_file)
     assert loaded[0].deadline is None
@@ -315,6 +345,7 @@ def test_encrypted_file_is_not_plaintext_json(tmp_path: Path) -> None:
 
 def test_wrong_password_raises_on_load(tmp_path: Path) -> None:
     from gtd_tui.storage.crypto import DecryptionError
+
     data_file = tmp_path / "data.json"
     tasks = add_task([], "Secret task")
     save_tasks(tasks, data_file=data_file, password="correct")

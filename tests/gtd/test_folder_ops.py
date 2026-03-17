@@ -1,7 +1,6 @@
 """Tests for BACKLOG-4: user-created folder operations."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.operations import (
@@ -18,7 +17,6 @@ from gtd_tui.gtd.operations import (
     rename_folder,
     today_tasks,
 )
-
 
 # ---------------------------------------------------------------------------
 # create_folder
@@ -114,6 +112,7 @@ def test_delete_folder_only_removes_target():
 def test_folder_tasks_returns_tasks_in_folder():
     tasks = add_task([], "Today task")
     from gtd_tui.gtd.operations import move_task_to_folder
+
     fid = "custom-folder"
     tasks = move_task_to_folder(tasks, tasks[0].id, fid)
     result = folder_tasks(tasks, fid)
@@ -287,7 +286,9 @@ def test_insert_folder_end_appends_after_all():
 def test_insert_folder_after_anchor():
     folders = _two_folders()
     alpha_id = next(f.id for f in folders if f.name == "Alpha")
-    folders = insert_folder(folders, "Middle", anchor_id=alpha_id, insert_position="after")
+    folders = insert_folder(
+        folders, "Middle", anchor_id=alpha_id, insert_position="after"
+    )
     names = [f.name for f in sorted(folders, key=lambda f: f.position)]
     assert names == ["Alpha", "Middle", "Beta"]
 
@@ -295,7 +296,9 @@ def test_insert_folder_after_anchor():
 def test_insert_folder_before_anchor():
     folders = _two_folders()
     beta_id = next(f.id for f in folders if f.name == "Beta")
-    folders = insert_folder(folders, "Middle", anchor_id=beta_id, insert_position="before")
+    folders = insert_folder(
+        folders, "Middle", anchor_id=beta_id, insert_position="before"
+    )
     names = [f.name for f in sorted(folders, key=lambda f: f.position)]
     assert names == ["Alpha", "Middle", "Beta"]
 
@@ -303,13 +306,17 @@ def test_insert_folder_before_anchor():
 def test_insert_folder_renumbers_positions():
     folders = _two_folders()
     alpha_id = next(f.id for f in folders if f.name == "Alpha")
-    folders = insert_folder(folders, "Middle", anchor_id=alpha_id, insert_position="after")
+    folders = insert_folder(
+        folders, "Middle", anchor_id=alpha_id, insert_position="after"
+    )
     positions = sorted(f.position for f in folders)
     assert positions == [0, 1, 2]
 
 
 def test_insert_folder_unknown_anchor_appends():
     folders = _two_folders()
-    folders = insert_folder(folders, "Orphan", anchor_id="nonexistent", insert_position="after")
+    folders = insert_folder(
+        folders, "Orphan", anchor_id="nonexistent", insert_position="after"
+    )
     names = [f.name for f in sorted(folders, key=lambda f: f.position)]
     assert names[-1] == "Orphan"

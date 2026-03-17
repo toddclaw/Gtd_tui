@@ -5,13 +5,11 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-import pytest
-from textual.widgets import Label, ListItem, ListView
+from textual.widgets import Label, ListView
 
 from gtd_tui.app import GtdApp, TaskDetailScreen, WeeklyReviewScreen
 from gtd_tui.gtd.operations import add_task, complete_task, set_deadline
 from gtd_tui.storage.file import save_data
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -61,6 +59,7 @@ async def test_escape_closes_weekly_review(tmp_path: Path) -> None:
 
 async def test_weekly_review_empty_message_when_no_completions(tmp_path: Path) -> None:
     from textual.widgets import Static
+
     async with _app_with_tasks(tmp_path, "T").run_test() as pilot:
         await pilot.pause()
         await pilot.press("W")
@@ -71,6 +70,7 @@ async def test_weekly_review_empty_message_when_no_completions(tmp_path: Path) -
 
 async def test_weekly_review_shows_recently_completed_task(tmp_path: Path) -> None:
     from textual.widgets import Static
+
     data_file = tmp_path / "data.json"
     tasks = add_task([], "Buy milk")
     tasks = complete_task(tasks, tasks[0].id)
@@ -86,6 +86,7 @@ async def test_weekly_review_shows_recently_completed_task(tmp_path: Path) -> No
 
 async def test_weekly_review_does_not_show_old_completions(tmp_path: Path) -> None:
     from textual.widgets import Static
+
     data_file = tmp_path / "data.json"
     tasks = add_task([], "Ancient task")
     task = tasks[0]
@@ -104,7 +105,7 @@ async def test_weekly_review_does_not_show_old_completions(tmp_path: Path) -> No
 async def test_W_works_from_sidebar_focus(tmp_path: Path) -> None:
     async with _app_with_tasks(tmp_path, "T").run_test() as pilot:
         await pilot.pause()
-        await pilot.press("h")   # focus sidebar
+        await pilot.press("h")  # focus sidebar
         await pilot.pause()
         await pilot.press("W")
         await pilot.pause()
@@ -118,7 +119,9 @@ async def test_W_works_from_sidebar_focus(tmp_path: Path) -> None:
 
 async def test_deadline_label_overdue_shown_in_task_list(tmp_path: Path) -> None:
     yesterday = date.today() - timedelta(days=1)
-    async with _app_with_deadline(tmp_path, "Overdue task", yesterday).run_test() as pilot:
+    async with _app_with_deadline(
+        tmp_path, "Overdue task", yesterday
+    ).run_test() as pilot:
         await pilot.pause()
         task_list = pilot.app.query_one("#task-list", ListView)
         labels = [str(item.query_one(Label).render()) for item in task_list.children]
@@ -145,13 +148,13 @@ async def test_no_deadline_label_when_unset(tmp_path: Path) -> None:
 async def test_set_deadline_via_detail_screen(tmp_path: Path) -> None:
     async with _app_with_tasks(tmp_path, "T").run_test() as pilot:
         await pilot.pause()
-        await pilot.press("enter")   # open detail
+        await pilot.press("enter")  # open detail
         await pilot.pause()
         assert isinstance(pilot.app.screen, TaskDetailScreen)
 
-        await pilot.press("enter")   # title → date
+        await pilot.press("enter")  # title → date
         await pilot.pause()
-        await pilot.press("enter")   # date → deadline
+        await pilot.press("enter")  # date → deadline
         await pilot.pause()
 
         # Type '+7d' in the Deadline field
@@ -171,21 +174,21 @@ async def test_clear_deadline_via_detail_screen(tmp_path: Path) -> None:
     deadline = date.today() + timedelta(days=5)
     async with _app_with_deadline(tmp_path, "T", deadline).run_test() as pilot:
         await pilot.pause()
-        await pilot.press("enter")   # open detail
+        await pilot.press("enter")  # open detail
         await pilot.pause()
 
-        await pilot.press("enter")   # title → date (no scheduled_date, enters empty)
+        await pilot.press("enter")  # title → date (no scheduled_date, enters empty)
         await pilot.pause()
-        await pilot.press("enter")   # date → deadline
+        await pilot.press("enter")  # date → deadline
         await pilot.pause()
 
         # Deadline field has value "2026-…"; enter INSERT, select-all, delete, Esc
-        await pilot.press("i")       # COMMAND → INSERT at cursor
+        await pilot.press("i")  # COMMAND → INSERT at cursor
         await pilot.pause()
         # Use ctrl+a equivalent: 0 (go to start) then D (delete to end) in COMMAND
         await pilot.press("escape")  # back to COMMAND
-        await pilot.press("0")       # move to start
-        await pilot.press("D")       # delete to end of line → empty string
+        await pilot.press("0")  # move to start
+        await pilot.press("D")  # delete to end of line → empty string
         await pilot.pause()
         await pilot.press("escape")  # save and close
         await pilot.pause()

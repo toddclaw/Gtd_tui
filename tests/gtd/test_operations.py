@@ -1,9 +1,10 @@
 from datetime import date, timedelta
 
 from gtd_tui.gtd.operations import (
+    InvalidRepeatError,
     add_task,
-    add_waiting_on_task,
     add_task_to_folder,
+    add_waiting_on_task,
     complete_task,
     delete_task,
     edit_task,
@@ -14,7 +15,6 @@ from gtd_tui.gtd.operations import (
     insert_task_before,
     insert_waiting_on_task_after,
     insert_waiting_on_task_before,
-    InvalidRepeatError,
     logbook_tasks,
     move_task_down,
     move_task_up,
@@ -35,8 +35,7 @@ from gtd_tui.gtd.operations import (
     upcoming_tasks,
     waiting_on_tasks,
 )
-from gtd_tui.gtd.task import RecurRule, RepeatRule
-from gtd_tui.gtd.task import Task
+from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
 
 
 def test_add_task_to_empty_list():
@@ -191,7 +190,7 @@ def test_delete_task_unknown_id_is_noop():
 def test_purge_logbook_task_removes_entry():
     tasks = add_task([], "Done task")
     task_id = tasks[0].id
-    tasks = delete_task(tasks, task_id)   # moves to logbook
+    tasks = delete_task(tasks, task_id)  # moves to logbook
     tasks = purge_logbook_task(tasks, task_id)
     assert logbook_tasks(tasks) == []
 
@@ -245,6 +244,7 @@ def test_edit_task_unknown_id_is_noop():
 
 def test_edit_task_preserves_other_fields():
     from datetime import date as dt
+
     tasks = add_task([], "Task")
     task_id = tasks[0].id
     tasks[0].scheduled_date = dt(2026, 5, 1)
@@ -281,6 +281,7 @@ def test_multiple_adds_maintain_correct_order():
 # ------------------------------------------------------------------ #
 # Scheduling                                                           #
 # ------------------------------------------------------------------ #
+
 
 def test_schedule_task_sets_date():
     tasks = add_task([], "Dentist")
@@ -378,6 +379,7 @@ def test_schedule_unknown_id_is_noop():
 # Reordering                                                           #
 # ------------------------------------------------------------------ #
 
+
 def test_move_task_up_swaps_with_previous():
     tasks: list[Task] = []
     tasks = add_task(tasks, "B")
@@ -437,6 +439,7 @@ def test_move_task_down_unknown_id_is_noop():
 # ------------------------------------------------------------------ #
 # Positional insertion                                                 #
 # ------------------------------------------------------------------ #
+
 
 def test_insert_task_after_places_below_anchor():
     tasks: list[Task] = []
@@ -571,6 +574,7 @@ def test_move_does_not_affect_other_folders():
 # ------------------------------------------------------------------ #
 # Waiting On folder                                                    #
 # ------------------------------------------------------------------ #
+
 
 def test_add_waiting_on_task_creates_in_correct_folder():
     tasks = add_waiting_on_task([], "Call Alice")
@@ -829,6 +833,7 @@ def test_move_to_today_unknown_id_is_noop():
 # Upcoming smart view                                                  #
 # ------------------------------------------------------------------ #
 
+
 def test_upcoming_tasks_returns_future_dated():
     tasks = add_task([], "Future")
     tasks = schedule_task(tasks, tasks[0].id, date.today() + timedelta(days=3))
@@ -881,6 +886,7 @@ def test_upcoming_tasks_as_of_parameter():
 # ------------------------------------------------------------------ #
 # Someday folder                                                       #
 # ------------------------------------------------------------------ #
+
 
 def test_someday_tasks_returns_someday_folder():
     tasks = add_task_to_folder([], "someday", "Park this")
@@ -948,6 +954,7 @@ def test_parse_repeat_input_empty_returns_none():
 
 def test_parse_repeat_input_invalid_raises():
     import pytest
+
     with pytest.raises(InvalidRepeatError):
         parse_repeat_input("every week")
     with pytest.raises(InvalidRepeatError):
@@ -1011,7 +1018,9 @@ def test_spawn_creates_copy_when_due():
 def test_spawn_copy_has_no_repeat_rule():
     tasks = _task_with_rule("Weekly review", 7, "days", _TODAY)
     result = spawn_repeating_tasks(tasks, as_of=_TODAY)
-    copies = [t for t in result if t.title == "Weekly review" and t.folder_id == "today"]
+    copies = [
+        t for t in result if t.title == "Weekly review" and t.folder_id == "today"
+    ]
     assert len(copies) == 1
     assert copies[0].repeat_rule is None
 
@@ -1269,6 +1278,7 @@ def test_complete_recurring_task_new_task_notes_preserved():
 
 def test_add_task_sets_created_at():
     from datetime import datetime
+
     tasks = add_task([], "Buy milk")
     assert tasks[0].created_at is not None
     assert isinstance(tasks[0].created_at, datetime)
@@ -1276,6 +1286,7 @@ def test_add_task_sets_created_at():
 
 def test_insert_task_after_sets_created_at():
     from gtd_tui.gtd.operations import insert_task_after
+
     tasks = add_task([], "First")
     anchor_id = tasks[0].id
     tasks = insert_task_after(tasks, anchor_id, "Second")
@@ -1285,5 +1296,6 @@ def test_insert_task_after_sets_created_at():
 
 def test_add_task_to_folder_sets_created_at():
     from gtd_tui.gtd.operations import add_task_to_folder
+
     tasks = add_task_to_folder([], "myfolder", "Widget")
     assert tasks[0].created_at is not None

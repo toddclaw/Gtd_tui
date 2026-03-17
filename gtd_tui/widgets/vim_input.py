@@ -69,7 +69,7 @@ class VimInput(Widget, can_focus=True):
         self._multiline: bool = multiline
         self._pending: str = ""  # for multi-key sequences like "cw"
         self._view_offset: int = 0  # horizontal scroll offset for the cursor line
-        self._view_row: int = 0    # vertical scroll: first visible logical line
+        self._view_row: int = 0  # vertical scroll: first visible logical line
         self._undo_stack: list[tuple[str, int]] = []
         self._redo_stack: list[tuple[str, int]] = []
         # In command mode the cursor stays within the text (not past last char).
@@ -347,7 +347,9 @@ class VimInput(Widget, can_focus=True):
             event.stop()
             event.prevent_default()
             self._text = (
-                self._text[: self._cursor] + event.character + self._text[self._cursor :]
+                self._text[: self._cursor]
+                + event.character
+                + self._text[self._cursor :]
             )
             self._cursor += 1
 
@@ -519,9 +521,7 @@ class VimInput(Widget, can_focus=True):
         elif key == "x":
             if self._cursor < len(self._text) and self._text[self._cursor] != "\n":
                 self._push_undo()
-                self._text = (
-                    self._text[: self._cursor] + self._text[self._cursor + 1 :]
-                )
+                self._text = self._text[: self._cursor] + self._text[self._cursor + 1 :]
                 if self._multiline:
                     row, col = self._cursor_row_col()
                     line = self._text.split("\n")[row]
@@ -539,7 +539,9 @@ class VimInput(Widget, can_focus=True):
                 row, col = self._cursor_row_col()
                 line_start = self._offset_from_row_col(row, 0)
                 line = self._text.split("\n")[row]
-                self._text = self._text[: self._cursor] + self._text[line_start + len(line) :]
+                self._text = (
+                    self._text[: self._cursor] + self._text[line_start + len(line) :]
+                )
                 self._clamp_cursor_for_command()
             else:
                 self._text = self._text[: self._cursor]
@@ -623,8 +625,10 @@ class VimInput(Widget, can_focus=True):
         while pos < len(text) and not text[pos].isspace():
             pos += 1
         # Skip whitespace (but not newlines in multi-line — stop at newline).
-        while pos < len(text) and text[pos].isspace() and (
-            not self._multiline or text[pos] != "\n"
+        while (
+            pos < len(text)
+            and text[pos].isspace()
+            and (not self._multiline or text[pos] != "\n")
         ):
             pos += 1
         if self._multiline:
@@ -699,7 +703,9 @@ class VimInput(Widget, can_focus=True):
             self._text = self._text[: self._cursor] + self._text[line_end:]
         else:
             self._text = self._text[: self._cursor]
-        self._cursor = max(0, min(self._cursor, len(self._text) - 1)) if self._text else 0
+        self._cursor = (
+            max(0, min(self._cursor, len(self._text) - 1)) if self._text else 0
+        )
         self._clamp_cursor_for_command()
 
     def _cmd_change_to_line_end(self) -> None:
