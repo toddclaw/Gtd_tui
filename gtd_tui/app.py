@@ -672,7 +672,10 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
         list_view = self.query_one("#search-results", ListView)
         if inp.has_focus:
             # First Enter: move focus to results so n/N/Enter can navigate them.
+            # Also force the highlight — the DOM is settled by the time the user
+            # presses Enter, so _select_first() is reliable here.
             list_view.focus()
+            self._select_first()
             return
         idx = list_view.index
         if idx is None or idx >= len(self._result_entries):
