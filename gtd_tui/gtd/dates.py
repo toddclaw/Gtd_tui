@@ -48,6 +48,7 @@ def parse_date_input(value: str, today: date | None = None) -> date | None:
         +Nm  — N calendar months from today
         +Ny  — N calendar years from today
         YYYY-MM-DD — absolute ISO date
+        today — today's date
         tomorrow — 1 day from today
         next week — 7 days from today
         in N day(s) / in N week(s) — relative natural language
@@ -63,6 +64,9 @@ def parse_date_input(value: str, today: date | None = None) -> date | None:
     lower = stripped.lower()
 
     # Natural language keywords
+    if lower == "today":
+        return ref
+
     if lower == "tomorrow":
         return ref + timedelta(days=1)
 

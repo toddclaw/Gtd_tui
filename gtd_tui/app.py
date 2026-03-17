@@ -100,7 +100,7 @@ class HelpScreen(ModalScreen[None]):
   O            Add new task before selected
   x / Space    Complete selected task
   d            Delete selected task
-  s            Schedule selected task (supports +3d, tomorrow, next monday, someday)
+  s            Schedule selected task (supports today, +3d, tomorrow, next monday, someday)
   m            Move selected task to a folder
   J / K        Move selected task down / up
   w            Move task to Waiting On  (Today view)
@@ -350,7 +350,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                 id="detail-title-input",
             )
             yield Label(
-                "Date  (e.g. 2026-03-20, tomorrow, +7d, someday — empty to clear)",
+                "Date  (e.g. today, 2026-03-20, tomorrow, +7d, someday — empty to clear)",
                 classes="field-label",
             )
             yield VimInput(
