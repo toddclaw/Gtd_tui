@@ -844,7 +844,7 @@ can background the TUI and return with `fg`.
 
 ---
 
-### BACKLOG-39 — y / p clipboard integration in title and notes VimInput fields
+### ~~BACKLOG-39 — y / p clipboard integration in title and notes VimInput fields~~ ✅ DONE
 
 **Story points:** 5
 
@@ -859,11 +859,11 @@ When editing a task's title or notes in the detail view, the user should be able
 This follows standard vim clipboard conventions, using `pyperclip` (already a dependency).
 
 **Acceptance criteria:**
-- [ ] `y` in COMMAND mode in any VimInput copies the current line to the system clipboard and internal register
-- [ ] `p` in COMMAND mode pastes register content after cursor (single-line) or as a new line below (multi-line)
-- [ ] `P` pastes before cursor / above current line
-- [ ] Pasting works even when the system clipboard is unavailable (falls back to internal register)
-- [ ] Unit tests cover yank and paste in both single-line and multi-line modes
+- [x] `y` in COMMAND mode in any VimInput copies the current line to the system clipboard and internal register
+- [x] `p` in COMMAND mode pastes register content after cursor (single-line) or as a new line below (multi-line)
+- [x] `P` pastes before cursor / above current line
+- [x] Pasting works even when the system clipboard is unavailable (falls back to internal register)
+- [x] Unit tests cover yank and paste in both single-line and multi-line modes
 
 ---
 

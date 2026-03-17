@@ -143,6 +143,8 @@ class HelpScreen(ModalScreen[None]):
   Enter        Confirm and advance to next field
   Esc          Save and close
   Deadline     Hard due date — [bold red]red[/bold red] if overdue, [yellow]yellow[/yellow] if ≤3 days
+  y            Yank current line to clipboard and internal register
+  p / P        Paste register after / before cursor (or below / above in notes)
 
 [bold]Sidebar Folder Actions (sidebar focused)[/bold]
   g g          Jump to top of sidebar
