@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
-import pytest
-
 from gtd_tui.gtd.operations import (
     clear_deadline,
     deadline_status,
@@ -13,7 +11,6 @@ from gtd_tui.gtd.operations import (
     weekly_review_tasks,
 )
 from gtd_tui.gtd.task import Task
-
 
 # ---------------------------------------------------------------------------
 # set_deadline / clear_deadline
@@ -117,7 +114,9 @@ def test_deadline_status_text_contains_formatted_date() -> None:
 
 def _completed_task(title: str, days_ago: int, as_of: date) -> Task:
     t = Task(title=title, folder_id="logbook")
-    t.completed_at = datetime.combine(as_of - timedelta(days=days_ago), datetime.min.time())
+    t.completed_at = datetime.combine(
+        as_of - timedelta(days=days_ago), datetime.min.time()
+    )
     return t
 
 

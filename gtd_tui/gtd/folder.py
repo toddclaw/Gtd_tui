@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass, field
 
 BUILTIN_FOLDER_IDS: frozenset[str] = frozenset(
-    {"today", "upcoming", "waiting_on", "someday", "logbook"}
+    {"inbox", "today", "upcoming", "waiting_on", "someday", "logbook"}
 )
 
 

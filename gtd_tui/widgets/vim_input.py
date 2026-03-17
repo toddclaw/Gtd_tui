@@ -69,7 +69,7 @@ class VimInput(Widget, can_focus=True):
         self._multiline: bool = multiline
         self._pending: str = ""  # for multi-key sequences like "cw"
         self._view_offset: int = 0  # horizontal scroll offset for the cursor line
-        self._view_row: int = 0    # vertical scroll: first visible logical line
+        self._view_row: int = 0  # vertical scroll: first visible logical line
         self._undo_stack: list[tuple[str, int]] = []
         self._redo_stack: list[tuple[str, int]] = []
         # In command mode the cursor stays within the text (not past last char).
@@ -100,6 +100,7 @@ class VimInput(Widget, can_focus=True):
     def value(self, text: str) -> None:
         self._text = text
         self._cursor = min(self._cursor, len(text))
+        self._update_scroll()
         self.refresh()
 
     def _push_undo(self) -> None:
@@ -128,6 +129,7 @@ class VimInput(Widget, can_focus=True):
             self._clamp_cursor_for_command()
         else:
             self.add_class("vim-insert-mode")
+        self._update_scroll()
         self.refresh()
 
     # ------------------------------------------------------------------
@@ -175,6 +177,33 @@ class VimInput(Widget, can_focus=True):
         elif self._cursor >= self._view_offset + width:
             self._view_offset = self._cursor - width + 1
 
+    def _cursor_visual_position(self, width: int) -> int:
+        """Return the 0-indexed visual row of the cursor, accounting for line wrapping.
+
+        Each logical line occupies ceil(len(line) / width) visual rows (minimum 1).
+        The cursor's visual row is the sum of all visual rows above it plus the
+        sub-row index within its own line (cursor_col // width).
+        """
+        lines = self._text.split("\n")
+        cursor_row, cursor_col = self._cursor_row_col()
+        visual = 0
+        for i in range(cursor_row):
+            visual += max(1, (len(lines[i]) + width - 1) // width)
+        visual += cursor_col // width
+        return visual
+
+    def _update_scroll(self) -> None:
+        """Ensure the cursor remains visible. Call after any cursor movement."""
+        if not self._multiline:
+            return
+        height = max(1, self.content_size.height or 4)
+        width = max(1, self.content_size.width or 40)
+        cursor_visual = self._cursor_visual_position(width)
+        if cursor_visual < self._view_row:
+            self._view_row = cursor_visual
+        elif cursor_visual >= self._view_row + height:
+            self._view_row = cursor_visual - height + 1
+
     def render(self) -> RenderableType:
         if self._multiline:
             return self._render_multiline()
@@ -213,8 +242,8 @@ class VimInput(Widget, can_focus=True):
     def _render_multiline(self) -> RenderableType:
         from rich.text import Text
 
-        height = self.content_size.height or 4
-        width = self.content_size.width or 40
+        height = max(1, self.content_size.height or 4)
+        width = max(1, self.content_size.width or 40)
 
         if not self._text:
             if not self.has_focus:
@@ -223,52 +252,86 @@ class VimInput(Widget, can_focus=True):
 
         lines = self._text.split("\n")
         cursor_row, cursor_col = self._cursor_row_col()
+        cursor_sub = cursor_col // width   # which visual sub-row within cursor_row
+        cursor_rel = cursor_col % width    # column within that sub-row
 
-        # Vertical scroll: keep cursor_row visible.
-        if cursor_row < self._view_row:
-            self._view_row = cursor_row
-        elif cursor_row >= self._view_row + height:
-            self._view_row = cursor_row - height + 1
-
-        # Horizontal scroll: tracks cursor column on its line.
-        if cursor_col < self._view_offset:
-            self._view_offset = cursor_col
-        elif cursor_col >= self._view_offset + width:
-            self._view_offset = cursor_col - width + 1
+        # Belt-and-suspenders: re-apply scroll at render time using the actual
+        # content_size, in case _update_scroll ran with a stale value.
+        cursor_visual = self._cursor_visual_position(width)
+        if cursor_visual < self._view_row:
+            self._view_row = cursor_visual
+        elif cursor_visual >= self._view_row + height:
+            self._view_row = cursor_visual - height + 1
 
         t = Text(no_wrap=True)
-        for i in range(self._view_row, self._view_row + height):
-            if i > self._view_row:
-                t.append("\n")
-            if i >= len(lines):
-                continue
-            line = lines[i]
-            if self.has_focus and i == cursor_row:
-                offset = self._view_offset
-                visible = line[offset:]
-                rel = cursor_col - offset
-                if 0 <= rel < len(visible):
-                    t.append(visible[:rel])
-                    t.append(visible[rel], style="reverse")
-                    t.append(visible[rel + 1 :])
-                elif rel == len(visible):
-                    t.append(visible)
-                    t.append(" ", style="reverse")
+        visual_idx = 0   # running count of visual rows from top of text
+        rendered = 0     # visual rows written to `t`
+
+        for i, line in enumerate(lines):
+            # Number of visual sub-rows this logical line occupies.
+            lh = max(1, (len(line) + width - 1) // width)
+
+            for sub in range(lh):
+                if visual_idx < self._view_row:
+                    visual_idx += 1
+                    continue
+                if rendered >= height:
+                    return t
+
+                if rendered > 0:
+                    t.append("\n")
+
+                col_start = sub * width
+                line_slice = line[col_start : col_start + width]
+
+                if self.has_focus and i == cursor_row and sub == cursor_sub:
+                    if cursor_rel < len(line_slice):
+                        t.append(line_slice[:cursor_rel])
+                        t.append(line_slice[cursor_rel], style="reverse")
+                        t.append(line_slice[cursor_rel + 1 :])
+                    else:
+                        # Cursor at end of this sub-row (insert mode).
+                        t.append(line_slice)
+                        t.append(" ", style="reverse")
                 else:
-                    t.append(visible)
-            else:
-                t.append(line)
+                    t.append(line_slice)
+
+                rendered += 1
+                visual_idx += 1
+
+            # Edge case: cursor in insert mode sits exactly at a width boundary
+            # (e.g. col 40 in a 40-char line with width=40).  That position maps
+            # to a new visual sub-row not covered by the loop above.
+            if (
+                self.has_focus
+                and i == cursor_row
+                and cursor_col == len(line)
+                and len(line) > 0
+                and len(line) % width == 0
+            ):
+                if visual_idx >= self._view_row and rendered < height:
+                    if rendered > 0:
+                        t.append("\n")
+                    t.append(" ", style="reverse")
+                    rendered += 1
+                visual_idx += 1
+
         return t
 
     # ------------------------------------------------------------------
     # Key handling
     # ------------------------------------------------------------------
 
+    def on_resize(self, event: events.Resize) -> None:
+        self._update_scroll()
+        self.refresh()
+
     def _on_key(self, event: events.Key) -> None:
         if self._vim_mode == "insert":
             self._handle_insert(event)
         else:
             self._handle_command(event)
+        self._update_scroll()
         self.refresh()
 
     def _handle_insert(self, event: events.Key) -> None:
@@ -347,7 +410,9 @@ class VimInput(Widget, can_focus=True):
             event.stop()
             event.prevent_default()
             self._text = (
-                self._text[: self._cursor] + event.character + self._text[self._cursor :]
+                self._text[: self._cursor]
+                + event.character
+                + self._text[self._cursor :]
             )
             self._cursor += 1
 
@@ -519,9 +584,7 @@ class VimInput(Widget, can_focus=True):
         elif key == "x":
             if self._cursor < len(self._text) and self._text[self._cursor] != "\n":
                 self._push_undo()
-                self._text = (
-                    self._text[: self._cursor] + self._text[self._cursor + 1 :]
-                )
+                self._text = self._text[: self._cursor] + self._text[self._cursor + 1 :]
                 if self._multiline:
                     row, col = self._cursor_row_col()
                     line = self._text.split("\n")[row]
@@ -539,7 +602,9 @@ class VimInput(Widget, can_focus=True):
                 row, col = self._cursor_row_col()
                 line_start = self._offset_from_row_col(row, 0)
                 line = self._text.split("\n")[row]
-                self._text = self._text[: self._cursor] + self._text[line_start + len(line) :]
+                self._text = (
+                    self._text[: self._cursor] + self._text[line_start + len(line) :]
+                )
                 self._clamp_cursor_for_command()
             else:
                 self._text = self._text[: self._cursor]
@@ -623,8 +688,10 @@ class VimInput(Widget, can_focus=True):
         while pos < len(text) and not text[pos].isspace():
             pos += 1
         # Skip whitespace (but not newlines in multi-line — stop at newline).
-        while pos < len(text) and text[pos].isspace() and (
-            not self._multiline or text[pos] != "\n"
+        while (
+            pos < len(text)
+            and text[pos].isspace()
+            and (not self._multiline or text[pos] != "\n")
         ):
             pos += 1
         if self._multiline:
@@ -699,7 +766,9 @@ class VimInput(Widget, can_focus=True):
             self._text = self._text[: self._cursor] + self._text[line_end:]
         else:
             self._text = self._text[: self._cursor]
-        self._cursor = max(0, min(self._cursor, len(self._text) - 1)) if self._text else 0
+        self._cursor = (
+            max(0, min(self._cursor, len(self._text) - 1)) if self._text else 0
+        )
         self._clamp_cursor_for_command()
 
     def _cmd_change_to_line_end(self) -> None:

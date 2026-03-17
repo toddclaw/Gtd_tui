@@ -4,6 +4,8 @@ import copy
 import uuid
 from pathlib import Path
 
+import pyperclip
+
 from rich.markup import escape as markup_escape
 from textual import events
 from textual.app import App, ComposeResult
@@ -12,34 +14,32 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
-from gtd_tui.gtd.dates import format_date, InvalidDateError, parse_date_input
-from gtd_tui.widgets.vim_input import VimInput
+from gtd_tui.gtd.dates import InvalidDateError, format_date, parse_date_input
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.operations import (
+    InvalidRepeatError,
     add_task,
     add_task_to_folder,
     add_waiting_on_task,
     clear_deadline,
     complete_task,
     deadline_status,
-    delete_task,
-    create_folder,
     delete_folder,
-    insert_folder,
-    discard_folder_tasks,
+    delete_task,
     edit_task,
     folder_tasks,
-    insert_task_after,
-    insert_task_before,
+    inbox_tasks,
+    insert_folder,
     insert_folder_task_after,
     insert_folder_task_before,
+    insert_task_after,
+    insert_task_before,
     insert_waiting_on_task_after,
     insert_waiting_on_task_before,
-    InvalidRepeatError,
     logbook_tasks,
     make_repeat_rule,
-    move_folder_tasks_to_today,
     move_folder_down,
+    move_folder_tasks_to_today,
     move_folder_up,
     move_task_down,
     move_task_to_folder,
@@ -62,9 +62,9 @@ from gtd_tui.gtd.operations import (
     waiting_on_tasks,
     weekly_review_tasks,
 )
-from gtd_tui.gtd.task import RecurRule, RepeatRule
-from gtd_tui.gtd.task import Task
+from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
 from gtd_tui.storage.file import load_folders, load_tasks, save_data
+from gtd_tui.widgets.vim_input import VimInput
 
 
 class HelpScreen(ModalScreen[None]):
@@ -88,7 +88,10 @@ class HelpScreen(ModalScreen[None]):
   H / M / L    Jump to top / middle / bottom of list
   g g          Jump to top of list
   G            Jump to bottom of list
+  Ctrl+d       Half-page down
+  Ctrl+u       Half-page up
   h / l        Focus sidebar / task list
+  i            Jump to Inbox
   1–9          Jump to nth sidebar item
 
 [bold]Task Actions[/bold]
@@ -97,14 +100,16 @@ class HelpScreen(ModalScreen[None]):
   O            Add new task before selected
   x / Space    Complete selected task
   d            Delete selected task
-  s            Schedule selected task (supports +3d, tomorrow, next monday, someday)
+  s            Schedule selected task (supports today, +3d, tomorrow, next monday, someday)
   m            Move selected task to a folder
   J / K        Move selected task down / up
   w            Move task to Waiting On  (Today view)
   t            Move task to Today       (Waiting On view)
+  y            Yank (copy) task title and notes to clipboard
   u            Undo last action
   Ctrl+R       Redo last undone action
   /            Global search
+  n / N        Next / previous search match
   W            Weekly review (tasks completed in past 7 days)
 
 [bold]VISUAL Mode  (press v to enter)[/bold]
@@ -116,6 +121,7 @@ class HelpScreen(ModalScreen[None]):
   m            Move all selected tasks to a folder
   w            Move all selected tasks to Waiting On
   t            Move all selected tasks to Today
+  y            Yank all selected tasks to clipboard (title + notes, blank line between)
   J / K        Move selected block down / up
   u            Undo last bulk action (exits VISUAL mode)
   Esc          Cancel selection and return to NORMAL mode
@@ -194,7 +200,7 @@ class WeeklyReviewScreen(ModalScreen[None]):
         self._tasks = tasks
 
     def _build_review_text(self) -> str:
-        from datetime import date
+
         items = weekly_review_tasks(self._tasks)
         if not items:
             return "[dim]No tasks completed in the past 7 days.[/dim]"
@@ -242,6 +248,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
         # Not priority — VimInput absorbs Esc in INSERT mode itself; in COMMAND
         # mode it lets Esc bubble here so we can save and close.
         Binding("escape", "save_and_close", show=False),
+        Binding("ctrl+c", "save_and_close", show=False),
     ]
 
     CSS = """
@@ -251,7 +258,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
 
     #detail-panel {
         width: 70;
-        height: auto;
+        height: 95%;
         background: $surface;
         border: solid $primary;
         padding: 1 2;
@@ -315,16 +322,28 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
 
     def compose(self) -> ComposeResult:
         repeat_val = (
-            self._interval_to_str(self._gtd_task.repeat_rule.interval, self._gtd_task.repeat_rule.unit)
-            if self._gtd_task.repeat_rule else ""
+            self._interval_to_str(
+                self._gtd_task.repeat_rule.interval, self._gtd_task.repeat_rule.unit
+            )
+            if self._gtd_task.repeat_rule
+            else ""
         )
         recur_val = (
-            self._interval_to_str(self._gtd_task.recur_rule.interval, self._gtd_task.recur_rule.unit)
-            if self._gtd_task.recur_rule else ""
+            self._interval_to_str(
+                self._gtd_task.recur_rule.interval, self._gtd_task.recur_rule.unit
+            )
+            if self._gtd_task.recur_rule
+            else ""
         )
-        date_val = self._gtd_task.scheduled_date.isoformat() if self._gtd_task.scheduled_date else ""
-        deadline_val = self._gtd_task.deadline.isoformat() if self._gtd_task.deadline else ""
-        with Vertical(id="detail-panel"):
+        date_val = (
+            self._gtd_task.scheduled_date.isoformat()
+            if self._gtd_task.scheduled_date
+            else ""
+        )
+        deadline_val = (
+            self._gtd_task.deadline.isoformat() if self._gtd_task.deadline else ""
+        )
+        with VerticalScroll(id="detail-panel"):
             yield Label("Edit Task", id="detail-header")
             yield Label("Title", classes="field-label")
             yield VimInput(
@@ -332,14 +351,19 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                 start_mode="command",
                 id="detail-title-input",
             )
-            yield Label("Date  (e.g. 2026-03-20, tomorrow, +7d, someday — empty to clear)", classes="field-label")
+            yield Label(
+                "Date  (e.g. today, 2026-03-20, tomorrow, +7d, someday — empty to clear)",
+                classes="field-label",
+            )
             yield VimInput(
                 value=date_val,
                 placeholder="(none)",
                 start_mode="command",
                 id="detail-date-input",
             )
-            yield Label("Deadline  (hard due date — empty to clear)", classes="field-label")
+            yield Label(
+                "Deadline  (hard due date — empty to clear)", classes="field-label"
+            )
             yield VimInput(
                 value=deadline_val,
                 placeholder="(none)",
@@ -358,18 +382,31 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                 "Repeat  (calendar-fixed — e.g. 7 days, 2 weeks — empty to clear)",
                 classes="field-label",
             )
-            yield VimInput(value=repeat_val, placeholder="(none)", start_mode="command", id="detail-repeat-input")
+            yield VimInput(
+                value=repeat_val,
+                placeholder="(none)",
+                start_mode="command",
+                id="detail-repeat-input",
+            )
             yield Label(
                 "Recurring  (after completion — e.g. 1 day, 3 weeks — empty to clear)",
                 classes="field-label",
             )
-            yield VimInput(value=recur_val, placeholder="(none)", start_mode="command", id="detail-recur-input")
+            yield VimInput(
+                value=recur_val,
+                placeholder="(none)",
+                start_mode="command",
+                id="detail-recur-input",
+            )
             if self._gtd_task.created_at:
                 yield Label(
                     f"Created: {format_date(self._gtd_task.created_at.date())}",
                     id="detail-created",
                 )
-            yield Label("j/k: next/prev field  Tab: next field  Esc: save & close", id="detail-status")
+            yield Label(
+                "j/k: next/prev field  Tab: next field  Esc: save & close",
+                id="detail-status",
+            )
 
     def on_mount(self) -> None:
         self.query_one("#detail-title-input", VimInput).focus()
@@ -410,10 +447,14 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
         date_text = self.query_one("#detail-date-input", VimInput).value.strip()
         deadline_text = self.query_one("#detail-deadline-input", VimInput).value.strip()
         # Preserve internal newlines in notes; only strip leading/trailing whitespace.
-        notes = self.query_one("#detail-notes-input", VimInput).value.strip("\n").rstrip()
+        notes = (
+            self.query_one("#detail-notes-input", VimInput).value.strip("\n").rstrip()
+        )
         repeat = self.query_one("#detail-repeat-input", VimInput).value.strip()
         recur = self.query_one("#detail-recur-input", VimInput).value.strip()
-        self.dismiss((title, notes, date_text, deadline_text, repeat, recur) if title else None)
+        self.dismiss(
+            (title, notes, date_text, deadline_text, repeat, recur) if title else None
+        )
 
     def on_vim_input_submitted(self, event: VimInput.Submitted) -> None:
         if event.vim_input.id in (
@@ -444,14 +485,16 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
             event.prevent_default()
 
 
-class SearchScreen(ModalScreen[str | None]):
+class SearchScreen(ModalScreen[tuple[str | None, str]]):
     """Global search across all tasks.
 
-    Dismissed value: task_id of the selected task, or None if cancelled.
+    Dismissed value: (task_id, query) where task_id is the selected task or
+    None if cancelled, and query is the search string at dismiss time.
     """
 
     BINDINGS = [
         Binding("escape", "cancel", show=False, priority=True),
+        Binding("ctrl+c", "cancel", show=False, priority=True),
         Binding("up", "cursor_up", show=False, priority=True),
         Binding("down", "cursor_down", show=False, priority=True),
         Binding("enter", "select", show=False, priority=True),
@@ -496,24 +539,29 @@ class SearchScreen(ModalScreen[str | None]):
         self._tasks = tasks
         # list of (task_id, display_label, is_separator)
         self._result_entries: list[tuple[str, str, bool]] = []
+        self._last_query: str = ""
 
     def compose(self) -> ComposeResult:
         with Vertical(id="search-panel"):
             yield Label("Search", id="search-header")
             yield Input(placeholder="Type to search...", id="search-input")
             yield ListView(id="search-results")
-            yield Label("↑/↓ navigate   Enter: go to task   Esc: cancel", id="search-status")
+            yield Label(
+                "Enter: jump to results   ↑/↓/n/N: navigate   Enter: go to task   Esc: cancel",
+                id="search-status",
+            )
 
     def on_mount(self) -> None:
         self.query_one("#search-input", Input).focus()
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        self._run_search(event.value)
+    async def on_input_changed(self, event: Input.Changed) -> None:
+        await self._run_search(event.value)
 
-    def _run_search(self, query: str) -> None:
+    async def _run_search(self, query: str) -> None:
+        self._last_query = query
         results = search_tasks(self._tasks, query)
         list_view = self.query_one("#search-results", ListView)
-        list_view.clear()
+        await list_view.clear()
         self._result_entries = []
 
         if not results:
@@ -545,31 +593,38 @@ class SearchScreen(ModalScreen[str | None]):
             }
             return folder_map.get(task.folder_id, task.folder_id[:8])
 
+        new_items: list[ListItem] = []
+
         for task, match_type in active_results:
             tag = _folder_tag(task)
             tag_prefix = markup_escape(f"[{tag}]")
             if match_type == "notes":
-                label_text = f"{tag_prefix} {_highlight(task.title, query)}  [dim](notes)[/dim]"
+                label_text = (
+                    f"{tag_prefix} {_highlight(task.title, query)}  [dim](notes)[/dim]"
+                )
             else:
                 label_text = f"{tag_prefix} {_highlight(task.title, query)}"
             self._result_entries.append((task.id, task.title, False))
-            list_view.append(ListItem(Label(label_text)))
+            new_items.append(ListItem(Label(label_text)))
 
         if active_results and logbook_results:
             self._result_entries.append(("", "", True))
-            list_view.append(ListItem(Label("── Logbook ──")))
+            new_items.append(ListItem(Label("── Logbook ──")))
 
         for task, match_type in logbook_results:
             tag_prefix = markup_escape("[Logbook]")
             if match_type == "notes":
-                label_text = f"{tag_prefix} {_highlight(task.title, query)}  [dim](notes)[/dim]"
+                label_text = (
+                    f"{tag_prefix} {_highlight(task.title, query)}  [dim](notes)[/dim]"
+                )
             else:
                 label_text = f"{tag_prefix} {_highlight(task.title, query)}"
             self._result_entries.append((task.id, task.title, False))
-            list_view.append(ListItem(Label(label_text)))
+            new_items.append(ListItem(Label(label_text)))
 
-        if self._result_entries:
-            self.call_after_refresh(self._select_first)
+        if new_items:
+            await list_view.extend(new_items)
+            self._select_first()
 
     def _select_first(self) -> None:
         list_view = self.query_one("#search-results", ListView)
@@ -579,7 +634,7 @@ class SearchScreen(ModalScreen[str | None]):
                 return
 
     def action_cancel(self) -> None:
-        self.dismiss(None)
+        self.dismiss((None, self._last_query))
 
     def action_cursor_up(self) -> None:
         list_view = self.query_one("#search-results", ListView)
@@ -602,15 +657,35 @@ class SearchScreen(ModalScreen[str | None]):
                 list_view.index = i
                 return
 
+    def on_key(self, event: events.Key) -> None:
+        """Handle j/k/n/N navigation when the search input is not focused."""
+        inp = self.query_one("#search-input", Input)
+        if inp.has_focus:
+            return  # let Input receive all keystrokes while typing
+        if event.key in ("n", "j"):
+            event.prevent_default()
+            self.action_cursor_down()
+        elif event.key in ("N", "k"):
+            event.prevent_default()
+            self.action_cursor_up()
+
     def action_select(self) -> None:
+        inp = self.query_one("#search-input", Input)
         list_view = self.query_one("#search-results", ListView)
+        if inp.has_focus:
+            # First Enter: move focus to results so n/N/Enter can navigate them.
+            # Also force the highlight — the DOM is settled by the time the user
+            # presses Enter, so _select_first() is reliable here.
+            list_view.focus()
+            self._select_first()
+            return
         idx = list_view.index
         if idx is None or idx >= len(self._result_entries):
             return
         task_id, _, is_sep = self._result_entries[idx]
         if is_sep:
             return
-        self.dismiss(task_id)
+        self.dismiss((task_id, self._last_query))
 
 
 class GtdApp(App[None]):
@@ -686,11 +761,14 @@ class GtdApp(App[None]):
     }
     """
 
-    def __init__(self, data_file: Path | None = None) -> None:
+    def __init__(
+        self, data_file: Path | None = None, password: str | None = None
+    ) -> None:
         super().__init__()
         self._data_file: Path | None = data_file
-        self._all_tasks: list[Task] = load_tasks(data_file)
-        self._all_folders: list[Folder] = load_folders(data_file)
+        self._password: str | None = password
+        self._all_tasks: list[Task] = load_tasks(data_file, password=password)
+        self._all_folders: list[Folder] = load_folders(data_file, password=password)
         self._mode: str = "NORMAL"
         self._input_stage: str = (
             ""  # "title", "notes", "date", "command", "folder_name", "folder_rename"
@@ -728,6 +806,10 @@ class GtdApp(App[None]):
         self._visual_anchor_idx: int | None = None
         # Pending task IDs for bulk operations (schedule, move)
         self._pending_task_ids: list[str] = []
+        # Search navigation state (n / N)
+        self._last_search_query: str = ""
+        self._search_match_ids: list[str] = []
+        self._search_match_idx: int = 0
 
     @property
     def _sidebar_view_ids(self) -> list[str]:
@@ -737,7 +819,7 @@ class GtdApp(App[None]):
         at the position where the placeholder row appears.
         """
         user_folders = sorted(self._all_folders, key=lambda f: f.position)
-        ids: list[str] = ["today", "upcoming", "waiting_on"]
+        ids: list[str] = ["inbox", "today", "upcoming", "waiting_on"]
 
         pos = self._sidebar_placeholder_insert
         anchor = self._sidebar_placeholder_anchor_id
@@ -763,6 +845,8 @@ class GtdApp(App[None]):
         return ids
 
     def _view_label(self, view_id: str) -> str:
+        if view_id == "inbox":
+            return "Inbox"
         if view_id == "today":
             return "Today"
         if view_id == "upcoming":
@@ -837,24 +921,46 @@ class GtdApp(App[None]):
             return f" ({count})"
 
         for view_id in self._sidebar_view_ids:
-            if view_id == "today":
-                sidebar.append(ListItem(Label(f"Today{_n(len(today_tasks(self._all_tasks)))}")))
+            if view_id == "inbox":
+                sidebar.append(
+                    ListItem(Label(f"Inbox{_n(len(inbox_tasks(self._all_tasks)))}"))
+                )
+            elif view_id == "today":
+                sidebar.append(
+                    ListItem(Label(f"Today{_n(len(today_tasks(self._all_tasks)))}"))
+                )
             elif view_id == "upcoming":
-                sidebar.append(ListItem(Label(f"Upcoming{_n(len(upcoming_tasks(self._all_tasks)))}")))
+                sidebar.append(
+                    ListItem(
+                        Label(f"Upcoming{_n(len(upcoming_tasks(self._all_tasks)))}")
+                    )
+                )
             elif view_id == "waiting_on":
-                sidebar.append(ListItem(Label(f"Waiting On{_n(len(waiting_on_tasks(self._all_tasks)))}")))
+                sidebar.append(
+                    ListItem(
+                        Label(f"Waiting On{_n(len(waiting_on_tasks(self._all_tasks)))}")
+                    )
+                )
             elif view_id == "someday":
-                sidebar.append(ListItem(Label(f"Someday{_n(len(someday_tasks(self._all_tasks)))}")))
+                sidebar.append(
+                    ListItem(Label(f"Someday{_n(len(someday_tasks(self._all_tasks)))}"))
+                )
             elif view_id == "logbook":
-                sidebar.append(ListItem(Label(f"Logbook{_n(len(logbook_tasks(self._all_tasks)))}")))
+                sidebar.append(
+                    ListItem(Label(f"Logbook{_n(len(logbook_tasks(self._all_tasks)))}"))
+                )
             elif view_id == "__new_folder__":
                 sidebar.append(ListItem(Label("▸ …", classes="sidebar-placeholder")))
             else:
                 folder = folder_map.get(view_id)
                 if folder:
-                    sidebar.append(ListItem(Label(
-                        f"{folder.name}{_n(len(folder_tasks(self._all_tasks, folder.id)))}"
-                    )))
+                    sidebar.append(
+                        ListItem(
+                            Label(
+                                f"{folder.name}{_n(len(folder_tasks(self._all_tasks, folder.id)))}"
+                            )
+                        )
+                    )
 
         view_ids = self._sidebar_view_ids
         try:
@@ -899,7 +1005,9 @@ class GtdApp(App[None]):
         self._list_entries = []
         self._placeholder_list_idx = None
 
-        if self._current_view == "today":
+        if self._current_view == "inbox":
+            self._render_inbox_view(list_view)
+        elif self._current_view == "today":
             self._render_today_view(list_view)
         elif self._current_view == "upcoming":
             self._render_upcoming_view(list_view)
@@ -976,7 +1084,9 @@ class GtdApp(App[None]):
             if task.folder_id != "today":
                 folder_hint = f"  [{self._view_label(task.folder_id)}]"
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(f"{self._task_label(task)}  {date_str}{folder_hint}")))
+            list_view.append(
+                ListItem(Label(f"{self._task_label(task)}  {date_str}{folder_hint}"))
+            )
 
     def _render_simple_list(self, list_view: ListView, tasks: list[Task], label_fn) -> None:  # type: ignore[type-arg]
         """Render a flat ordered task list with placeholder support."""
@@ -1002,10 +1112,17 @@ class GtdApp(App[None]):
         self.query_one("#header", Label).update(f"Waiting On ({len(tasks)})")
 
         def _wo_label(task: Task) -> str:
-            date_str = f"  [{format_date(task.scheduled_date)}]" if task.scheduled_date else ""
+            date_str = (
+                f"  [{format_date(task.scheduled_date)}]" if task.scheduled_date else ""
+            )
             return f"{self._task_label(task)}{date_str}"
 
         self._render_simple_list(list_view, tasks, _wo_label)
+
+    def _render_inbox_view(self, list_view: ListView) -> None:
+        tasks = inbox_tasks(self._all_tasks)
+        self.query_one("#header", Label).update(f"Inbox ({len(tasks)})")
+        self._render_simple_list(list_view, tasks, self._task_label)
 
     def _render_someday_view(self, list_view: ListView) -> None:
         tasks = someday_tasks(self._all_tasks)
@@ -1028,7 +1145,11 @@ class GtdApp(App[None]):
             )
             marker = "D" if task.is_deleted else "C"
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(f"{marker}  {markup_escape(task.title)}  [{done}]{created}")))
+            list_view.append(
+                ListItem(
+                    Label(f"{marker}  {markup_escape(task.title)}  [{done}]{created}")
+                )
+            )
 
     def _render_folder_view(self, list_view: ListView, folder_id: str) -> None:
         label = self._view_label(folder_id)
@@ -1117,7 +1238,40 @@ class GtdApp(App[None]):
         return self._list_entries[idx]
 
     def _save(self) -> None:
-        save_data(self._all_tasks, self._all_folders, self._data_file)
+        save_data(
+            self._all_tasks, self._all_folders, self._data_file, password=self._password
+        )
+
+    def _task_to_yank_text(self, task: Task) -> str:
+        """Return the clipboard representation of a single task."""
+        if task.notes:
+            return f"{task.title}\n{task.notes}"
+        return task.title
+
+    def _yank_task(self) -> None:
+        """Copy the selected task(s) title and notes to the clipboard.
+
+        In NORMAL mode: copies the single selected task.
+        In VISUAL mode: copies all selected tasks separated by blank lines,
+        then exits VISUAL mode.
+        """
+        if self._visual_mode:
+            tasks = self._visual_selected_tasks
+            if not tasks:
+                self._exit_visual_mode()
+                return
+            text = "\n\n".join(self._task_to_yank_text(t) for t in tasks)
+            self._exit_visual_mode()
+        else:
+            task = self._get_selected_task()
+            if task is None:
+                return
+            text = self._task_to_yank_text(task)
+        try:
+            pyperclip.copy(text)
+            self._update_status("(yanked to clipboard)")
+        except pyperclip.PyperclipException:
+            self._update_status("(clipboard not available)")
 
     # ------------------------------------------------------------------ #
     # Key handling                                                         #
@@ -1132,7 +1286,7 @@ class GtdApp(App[None]):
             self._handle_delete_confirm_key(event)
             return
         if self._mode == "INSERT":
-            if event.key == "escape":
+            if event.key in ("escape", "ctrl+c"):
                 self._cancel_input()
         elif self._visual_mode:
             self._handle_visual_key(event)
@@ -1187,6 +1341,9 @@ class GtdApp(App[None]):
         elif event.key == "d":
             event.prevent_default()
             self._delete_selected_folder()
+        elif event.key == "i":
+            event.prevent_default()
+            self._jump_to_view_id("inbox")
         elif event.key.isdigit() and event.key != "0":
             event.prevent_default()
             self._jump_to_view(int(event.key) - 1)
@@ -1202,6 +1359,20 @@ class GtdApp(App[None]):
         elif event.key == "ctrl+r":
             event.prevent_default()
             self._redo()
+        elif event.key == "ctrl+d":
+            event.prevent_default()
+            step = max(1, sidebar.size.height // 2)
+            n = len(self._sidebar_view_ids)
+            if n > 0:
+                sidebar.index = min(n - 1, (sidebar.index or 0) + step)
+        elif event.key == "ctrl+u":
+            event.prevent_default()
+            step = max(1, sidebar.size.height // 2)
+            if sidebar.index:
+                sidebar.index = max(0, sidebar.index - step)
+        elif event.key == "ctrl+c":
+            event.prevent_default()
+            # no-op in sidebar NORMAL mode; here for completeness
         elif event.key == "q":
             event.prevent_default()
             self.exit()
@@ -1257,6 +1428,28 @@ class GtdApp(App[None]):
             if n > 0:
                 list_view.index = n - 1
                 self._skip_separator(direction=-1)
+        elif event.key == "ctrl+d":
+            event.prevent_default()
+            n = len(self._list_entries)
+            if n > 0:
+                step = max(1, list_view.size.height // 2)
+                new_idx = min(n - 1, (list_view.index or 0) + step)
+                list_view.index = new_idx
+                self._skip_separator(direction=1)
+        elif event.key == "ctrl+u":
+            event.prevent_default()
+            n = len(self._list_entries)
+            if n > 0:
+                step = max(1, list_view.size.height // 2)
+                new_idx = max(0, (list_view.index or 0) - step)
+                list_view.index = new_idx
+                self._skip_separator(direction=-1)
+        elif event.key == "n":
+            event.prevent_default()
+            self._navigate_search_match(1)
+        elif event.key == "N":
+            event.prevent_default()
+            self._navigate_search_match(-1)
         elif event.key == "J":
             event.prevent_default()
             self._move_selected_down()
@@ -1266,6 +1459,9 @@ class GtdApp(App[None]):
         elif event.key == "h":
             event.prevent_default()
             self.query_one("#sidebar", ListView).focus()
+        elif event.key == "i":
+            event.prevent_default()
+            self._jump_to_view_id("inbox")
         elif event.key.isdigit() and event.key != "0":
             event.prevent_default()
             self._jump_to_view(int(event.key) - 1)
@@ -1307,6 +1503,9 @@ class GtdApp(App[None]):
                 self._purge_logbook_entry()
             else:
                 self._delete_selected()
+        elif event.key == "y":
+            event.prevent_default()
+            self._yank_task()
         elif event.key == "slash":
             event.prevent_default()
             self._open_search()
@@ -1345,6 +1544,14 @@ class GtdApp(App[None]):
             self.query_one("#sidebar", ListView).index = idx
             # on_list_view_highlighted handles the rest
 
+    def _jump_to_view_id(self, view_id: str) -> None:
+        view_ids = self._sidebar_view_ids
+        try:
+            idx = view_ids.index(view_id)
+        except ValueError:
+            return
+        self.query_one("#sidebar", ListView).index = idx
+
     def _skip_separator(self, direction: int) -> None:
         """If the current ListView selection is a separator, move past it."""
         list_view = self.query_one("#task-list", ListView)
@@ -1366,7 +1573,9 @@ class GtdApp(App[None]):
     def _start_add_task(self, insert_position: str = "after") -> None:
         # Upcoming is a read-only smart view — no task creation there.
         if self._current_view == "upcoming":
-            self._update_status("(cannot add tasks to Upcoming — use Today or a folder)")
+            self._update_status(
+                "(cannot add tasks to Upcoming — use Today or a folder)"
+            )
             return
         task = self._get_selected_task()
         # Anchor on tasks that actually live in the current view.  Today is a
@@ -1385,6 +1594,8 @@ class GtdApp(App[None]):
             vim.set_placeholder("Waiting On task title...")
         elif self._current_view == "someday":
             vim.set_placeholder("Someday task title...")
+        elif self._current_view == "inbox":
+            vim.set_placeholder("Inbox task title...")
         else:
             vim.set_placeholder("Task title...")
         vim.clear()
@@ -1428,34 +1639,54 @@ class GtdApp(App[None]):
             if self._pending_anchor_id:
                 if self._pending_insert_position == "before":
                     self._all_tasks = insert_waiting_on_task_before(
-                        self._all_tasks, self._pending_anchor_id,
-                        self._pending_title, notes=notes, task_id=new_id,
+                        self._all_tasks,
+                        self._pending_anchor_id,
+                        self._pending_title,
+                        notes=notes,
+                        task_id=new_id,
                     )
                 else:
                     self._all_tasks = insert_waiting_on_task_after(
-                        self._all_tasks, self._pending_anchor_id,
-                        self._pending_title, notes=notes, task_id=new_id,
+                        self._all_tasks,
+                        self._pending_anchor_id,
+                        self._pending_title,
+                        notes=notes,
+                        task_id=new_id,
                     )
             else:
                 self._all_tasks = add_waiting_on_task(
                     self._all_tasks, self._pending_title, notes=notes, task_id=new_id
                 )
-        elif self._current_view in ("someday",) or self._current_view not in BUILTIN_FOLDER_IDS:
+        elif (
+            self._current_view in ("inbox", "someday")
+            or self._current_view not in BUILTIN_FOLDER_IDS
+        ):
             if self._pending_anchor_id:
                 if self._pending_insert_position == "before":
                     self._all_tasks = insert_folder_task_before(
-                        self._all_tasks, self._current_view, self._pending_anchor_id,
-                        self._pending_title, notes=notes, task_id=new_id,
+                        self._all_tasks,
+                        self._current_view,
+                        self._pending_anchor_id,
+                        self._pending_title,
+                        notes=notes,
+                        task_id=new_id,
                     )
                 else:
                     self._all_tasks = insert_folder_task_after(
-                        self._all_tasks, self._current_view, self._pending_anchor_id,
-                        self._pending_title, notes=notes, task_id=new_id,
+                        self._all_tasks,
+                        self._current_view,
+                        self._pending_anchor_id,
+                        self._pending_title,
+                        notes=notes,
+                        task_id=new_id,
                     )
             else:
                 self._all_tasks = add_task_to_folder(
-                    self._all_tasks, self._current_view,
-                    self._pending_title, notes=notes, task_id=new_id,
+                    self._all_tasks,
+                    self._current_view,
+                    self._pending_title,
+                    notes=notes,
+                    task_id=new_id,
                 )
         elif not self._pending_anchor_id:
             self._all_tasks = add_task(
@@ -1579,7 +1810,11 @@ class GtdApp(App[None]):
         self._update_status()
 
     def _apply_date(self, value: str) -> None:
-        task_ids = self._pending_task_ids if self._pending_task_ids else [self._pending_task_id]
+        task_ids = (
+            self._pending_task_ids
+            if self._pending_task_ids
+            else [self._pending_task_id]
+        )
         if value.strip().lower() == "someday":
             self._push_undo()
             for tid in task_ids:
@@ -1631,20 +1866,29 @@ class GtdApp(App[None]):
             return
         target_folder_id = view_ids[idx]
         if target_folder_id == "upcoming":
-            self._update_status("(cannot move to Upcoming — schedule a date with 's' instead)")
+            self._update_status(
+                "(cannot move to Upcoming — schedule a date with 's' instead)"
+            )
             self._cancel_move_mode()
             return
         self._push_undo()
-        task_ids = self._pending_task_ids if self._pending_task_ids else [self._pending_task_id]
+        task_ids = (
+            self._pending_task_ids
+            if self._pending_task_ids
+            else [self._pending_task_id]
+        )
         for tid in task_ids:
-            self._all_tasks = move_task_to_folder(self._all_tasks, tid, target_folder_id)
+            self._all_tasks = move_task_to_folder(
+                self._all_tasks, tid, target_folder_id
+            )
+        first_task_id = task_ids[0] if task_ids else None
         self._save()
         self._move_mode = False
         self._pending_task_id = ""
         self._pending_task_ids = []
         self._current_view = target_folder_id
         self._rebuild_sidebar()
-        self._refresh_list()
+        self._refresh_list(select_task_id=first_task_id)
         self._update_status()
         self.query_one("#task-list", ListView).focus()
 
@@ -1665,10 +1909,14 @@ class GtdApp(App[None]):
         old_date = task.scheduled_date
         old_deadline = task.deadline
 
-        def _on_detail_close(result: tuple[str, str, str, str, str, str] | None) -> None:
+        def _on_detail_close(
+            result: tuple[str, str, str, str, str, str] | None,
+        ) -> None:
             if result is None:
                 return
-            new_title, new_notes, date_text, deadline_text, repeat_text, recur_text = result
+            new_title, new_notes, date_text, deadline_text, repeat_text, recur_text = (
+                result
+            )
 
             # Parse date field.
             move_to_someday = date_text.strip().lower() == "someday"
@@ -1677,7 +1925,9 @@ class GtdApp(App[None]):
                 try:
                     new_date = parse_date_input(date_text)
                 except InvalidDateError:
-                    self._update_status("(invalid date — changes saved, date unchanged)")
+                    self._update_status(
+                        "(invalid date — changes saved, date unchanged)"
+                    )
                     new_date = old_date
 
             # Parse repeat field.
@@ -1697,7 +1947,9 @@ class GtdApp(App[None]):
                     else:
                         new_repeat = make_repeat_rule(interval, unit)
             except InvalidRepeatError:
-                self._update_status("(invalid repeat — changes saved, repeat unchanged)")
+                self._update_status(
+                    "(invalid repeat — changes saved, repeat unchanged)"
+                )
                 new_repeat = old_repeat
 
             # Parse recur field.
@@ -1710,20 +1962,26 @@ class GtdApp(App[None]):
                     interval_r, unit_r = parsed_recur
                     new_recur = RecurRule(interval=interval_r, unit=unit_r)
             except InvalidRepeatError:
-                self._update_status("(invalid recurring — changes saved, recurring unchanged)")
+                self._update_status(
+                    "(invalid recurring — changes saved, recurring unchanged)"
+                )
                 new_recur = old_recur
 
             # Mutual exclusivity: if both are set, repeat wins and recur is cleared.
             if new_repeat is not None and new_recur is not None:
                 new_recur = None
-                self._update_status("(both repeat and recurring set — repeat takes precedence)")
+                self._update_status(
+                    "(both repeat and recurring set — repeat takes precedence)"
+                )
 
             # Parse deadline field.
             new_deadline = old_deadline
             try:
                 new_deadline = parse_date_input(deadline_text)
             except InvalidDateError:
-                self._update_status("(invalid deadline — changes saved, deadline unchanged)")
+                self._update_status(
+                    "(invalid deadline — changes saved, deadline unchanged)"
+                )
                 new_deadline = old_deadline
 
             title_changed = new_title != task.title or new_notes != task.notes
@@ -1731,15 +1989,25 @@ class GtdApp(App[None]):
             deadline_changed = new_deadline != old_deadline
             repeat_changed = new_repeat != old_repeat
             recur_changed = new_recur != old_recur
-            if not (title_changed or date_changed or deadline_changed or repeat_changed or recur_changed):
+            if not (
+                title_changed
+                or date_changed
+                or deadline_changed
+                or repeat_changed
+                or recur_changed
+            ):
                 return
 
             self._push_undo()
             if title_changed:
-                self._all_tasks = edit_task(self._all_tasks, task_id, new_title, new_notes)
+                self._all_tasks = edit_task(
+                    self._all_tasks, task_id, new_title, new_notes
+                )
             if move_to_someday:
                 self._all_tasks = unschedule_task(self._all_tasks, task_id)
-                self._all_tasks = move_task_to_folder(self._all_tasks, task_id, "someday")
+                self._all_tasks = move_task_to_folder(
+                    self._all_tasks, task_id, "someday"
+                )
             elif date_changed:
                 if new_date is None:
                     self._all_tasks = unschedule_task(self._all_tasks, task_id)
@@ -1749,7 +2017,9 @@ class GtdApp(App[None]):
                 if new_deadline is None:
                     self._all_tasks = clear_deadline(self._all_tasks, task_id)
                 else:
-                    self._all_tasks = set_deadline(self._all_tasks, task_id, new_deadline)
+                    self._all_tasks = set_deadline(
+                        self._all_tasks, task_id, new_deadline
+                    )
             if repeat_changed:
                 self._all_tasks = set_repeat_rule(self._all_tasks, task_id, new_repeat)
             if recur_changed:
@@ -1764,7 +2034,24 @@ class GtdApp(App[None]):
         self.push_screen(WeeklyReviewScreen(self._all_tasks))
 
     def _open_search(self) -> None:
-        def _on_search_close(task_id: str | None) -> None:
+        def _on_search_close(
+            result: tuple[str | None, str] | None,
+        ) -> None:
+            if result is None:
+                self.query_one("#task-list", ListView).focus()
+                return
+            task_id, query = result
+            # Store match list for n/N navigation (active tasks only)
+            if query:
+                matched = search_tasks(self._all_tasks, query)
+                self._last_search_query = query
+                self._search_match_ids = [
+                    t.id for t, _ in matched if t.folder_id != "logbook"
+                ]
+                if task_id and task_id in self._search_match_ids:
+                    self._search_match_idx = self._search_match_ids.index(task_id)
+                else:
+                    self._search_match_idx = 0
             if task_id is None:
                 self.query_one("#task-list", ListView).focus()
                 return
@@ -1773,20 +2060,26 @@ class GtdApp(App[None]):
                 self.query_one("#task-list", ListView).focus()
                 return
             # Navigate to the task's folder
-            if task.folder_id == "logbook":
-                self._current_view = "logbook"
-            elif task.folder_id == "waiting_on":
-                self._current_view = "waiting_on"
-            elif task.folder_id == "someday":
-                self._current_view = "someday"
-            elif task.folder_id == "today":
-                self._current_view = "today"
-            else:
-                self._current_view = task.folder_id
+            self._current_view = task.folder_id
             self._rebuild_sidebar()
             self._refresh_list(select_task_id=task_id)
 
         self.push_screen(SearchScreen(self._all_tasks), _on_search_close)
+
+    def _navigate_search_match(self, direction: int) -> None:
+        """Cycle through stored search matches (n = forward, N = backward)."""
+        if not self._search_match_ids:
+            return
+        self._search_match_idx = (self._search_match_idx + direction) % len(
+            self._search_match_ids
+        )
+        task_id = self._search_match_ids[self._search_match_idx]
+        task = next((t for t in self._all_tasks if t.id == task_id), None)
+        if task is None:
+            return
+        self._current_view = task.folder_id
+        self._rebuild_sidebar()
+        self._refresh_list(select_task_id=task_id)
 
     # ------------------------------------------------------------------ #
     # VISUAL mode                                                          #
@@ -1892,6 +2185,10 @@ class GtdApp(App[None]):
             event.prevent_default()
             self._bulk_move_block_up()
 
+        elif event.key == "y":
+            event.prevent_default()
+            self._yank_task()
+
         elif event.key == "u":
             event.prevent_default()
             self._exit_visual_mode()
@@ -1943,9 +2240,7 @@ class GtdApp(App[None]):
         self._input_stage = "date"
         inp = self.query_one("#task-input", Input)
         inp.value = ""
-        inp.placeholder = (
-            f"Date for {len(self._pending_task_ids)} tasks: tomorrow/+3d/... (empty=clear)"
-        )
+        inp.placeholder = f"Date for {len(self._pending_task_ids)} tasks: tomorrow/+3d/... (empty=clear)"
         inp.add_class("active")
         inp.focus()
         self._update_status()
@@ -2068,7 +2363,9 @@ class GtdApp(App[None]):
         self._push_undo()
         self._all_tasks = move_to_waiting_on(self._all_tasks, task.id)
         self._save()
-        self._refresh_list()
+        self._current_view = "waiting_on"
+        self._rebuild_sidebar()
+        self._refresh_list(select_task_id=task.id)
 
     def _move_selected_to_today(self) -> None:
         task = self._get_selected_task()
@@ -2077,11 +2374,18 @@ class GtdApp(App[None]):
         self._push_undo()
         self._all_tasks = move_to_today(self._all_tasks, task.id)
         self._save()
-        self._refresh_list()
+        self._current_view = "today"
+        self._rebuild_sidebar()
+        self._refresh_list(select_task_id=task.id)
 
     # ------------------------------------------------------------------ #
     # Folder creation / rename / delete                                   #
     # ------------------------------------------------------------------ #
+
+    # Builtin folders that appear in the sidebar above the user-folder section.
+    _BEFORE_USER_FOLDERS: frozenset[str] = frozenset(
+        {"inbox", "today", "upcoming", "waiting_on"}
+    )
 
     def _start_create_folder(self, insert_position: str = "end") -> None:
         # Determine which user folder to anchor relative to.
@@ -2093,6 +2397,14 @@ class GtdApp(App[None]):
             candidate = view_ids[idx]
             if candidate not in BUILTIN_FOLDER_IDS and candidate != "__new_folder__":
                 anchor_id = candidate
+            elif candidate in self._BEFORE_USER_FOLDERS and insert_position == "after":
+                # Pressing `o` on a builtin that precedes user folders: insert at the
+                # very start of the user-folder section (before the first user folder).
+                user_folders = sorted(self._all_folders, key=lambda f: f.position)
+                if user_folders:
+                    anchor_id = user_folders[0].id
+                    insert_position = "before"
+                # else: no user folders yet — fall through to "end" (first folder)
         self._folder_insert_position = insert_position
         self._folder_insert_anchor_id = anchor_id
         self._sidebar_placeholder_insert = insert_position
@@ -2227,6 +2539,7 @@ class GtdApp(App[None]):
         self._push_undo()
         self._all_tasks = complete_task(self._all_tasks, task.id)
         self._save()
+        self._rebuild_sidebar()
         self._refresh_list()
 
     def _delete_selected(self) -> None:
@@ -2236,6 +2549,7 @@ class GtdApp(App[None]):
         self._push_undo()
         self._all_tasks = delete_task(self._all_tasks, task.id)
         self._save()
+        self._rebuild_sidebar()
         self._refresh_list()
 
     def _purge_logbook_entry(self) -> None:

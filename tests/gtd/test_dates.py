@@ -1,5 +1,6 @@
-import pytest
 from datetime import date
+
+import pytest
 
 from gtd_tui.gtd.dates import InvalidDateError, parse_date_input
 
@@ -86,6 +87,15 @@ def test_year_to_another_leap_year():
 # ------------------------------------------------------------------ #
 
 # TODAY = date(2026, 3, 13) — a Friday
+
+
+def test_today():
+    assert parse_date_input("today", today=TODAY) == TODAY
+
+
+def test_today_case_insensitive():
+    assert parse_date_input("Today", today=TODAY) == TODAY
+
 
 def test_tomorrow():
     assert parse_date_input("tomorrow", today=TODAY) == date(2026, 3, 14)

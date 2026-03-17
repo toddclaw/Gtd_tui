@@ -18,6 +18,7 @@ The application follows the core GTD methodology: capture everything, process it
 
 | View / Folder | Description |
 |---|---|
+| **Inbox** | Quick-capture bucket; tasks never surface in Today automatically |
 | **Today** | Smart view — shows tasks in the Today folder, plus tasks from any other folder whose scheduled date has arrived |
 | **Upcoming** | Smart view — all tasks with a future scheduled date, sorted by date |
 | **Waiting On** | Tasks blocked on someone else; optional follow-up date surfaces them in Today when the date arrives |
@@ -46,7 +47,9 @@ The application follows the core GTD methodology: capture everything, process it
 | `H` / `M` / `L` | Jump to top / middle / bottom of list |
 | `g g` | Jump to top of list |
 | `G` | Jump to bottom of list |
+| `Ctrl+d` / `Ctrl+u` | Half-page down / up |
 | `h` / `l` | Focus sidebar / task list |
+| `i` | Jump to Inbox |
 | `1`–`9` | Jump to nth sidebar item |
 | `J` / `K` | Move selected task down / up |
 | `o` / `O` | Add task after / before selection |
@@ -60,6 +63,8 @@ The application follows the core GTD methodology: capture everything, process it
 | `v` | Enter VISUAL mode (bulk selection) |
 | `u` | Undo last action |
 | `Ctrl+R` | Redo last undone action |
+| `/` | Global search |
+| `n` / `N` | Next / previous search match |
 | `q` | Quit |
 | `:help` / `:h` | Show keybinding reference |
 
@@ -136,17 +141,39 @@ gtd-tui -s
 
 Requires Python 3.11+.
 
+**Clipboard support** (for the `y` yank keybinding) requires a system clipboard tool:
+
+| Platform | Install |
+|---|---|
+| Linux / X11 | `sudo apt-get install xclip` (or `xsel`) |
+| Linux / Wayland | `sudo apt-get install wl-clipboard` |
+| macOS / Windows | No extra install needed |
+
+> **tmux users:** tmux may not inherit your `DISPLAY` variable. Add `set-environment -g DISPLAY ":1"` to `~/.tmux.conf` (replace `:1` with your actual display) and run `tmux source ~/.tmux.conf`.
+
+**Recommended — using [uv](https://github.com/astral-sh/uv):**
+
 ```bash
-# Clone the repository
 git clone <repo-url>
 cd Gtd_tui
+uv sync
+source .venv/bin/activate  # on Windows: .venv\Scripts\activate
+```
 
-# Create and activate a virtual environment
+**Alternative — using pip:**
+
+```bash
+git clone <repo-url>
+cd Gtd_tui
 python -m venv .venv
 source .venv/bin/activate  # on Windows: .venv\Scripts\activate
-
-# Install the package and all dependencies (including dev tools)
 pip install -e ".[dev]"
+```
+
+**Set up pre-commit hooks (recommended for contributors):**
+
+```bash
+pre-commit install
 ```
 
 ## Running the Application
@@ -163,4 +190,17 @@ python -m gtd_tui
 
 ```bash
 pytest
+```
+
+## Development
+
+```bash
+# Run all checks
+black --check .    # formatting
+ruff check .       # linting
+mypy gtd_tui/      # type checking
+pytest             # tests
+
+# Or let pre-commit run them all at commit time
+pre-commit run --all-files
 ```

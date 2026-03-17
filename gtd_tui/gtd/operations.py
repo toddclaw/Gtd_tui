@@ -8,7 +8,7 @@ from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
 
 # Folders whose tasks never auto-surface in Today or Upcoming smart views.
-_EXCLUDED_FROM_SMART_VIEWS: frozenset[str] = frozenset({"someday", "logbook"})
+_EXCLUDED_FROM_SMART_VIEWS: frozenset[str] = frozenset({"inbox", "someday", "logbook"})
 
 
 def add_task(
@@ -97,7 +97,9 @@ def insert_task_before(
     return tasks + [new_task]
 
 
-def edit_task(tasks: list[Task], task_id: str, title: str, notes: str = "") -> list[Task]:
+def edit_task(
+    tasks: list[Task], task_id: str, title: str, notes: str = ""
+) -> list[Task]:
     """Update a task's title and notes. No-op if task_id is not found."""
     for task in tasks:
         if task.id == task_id:
@@ -109,12 +111,18 @@ def edit_task(tasks: list[Task], task_id: str, title: str, notes: str = "") -> l
 def complete_task(tasks: list[Task], task_id: str) -> list[Task]:
     """Mark a task complete and move it to the logbook.
 
-    If the task has a recur_rule, also spawns a new copy in Today with
+    If the task has a recur_rule, spawns a new copy in Today with
     scheduled_date = completion_date + interval, carrying the same recur_rule.
+
+    If the task has a repeat_rule (calendar-fixed), spawns a new template task
+    in the same folder with scheduled_date = next_due (future), so that the
+    repeat schedule survives the completion and stays visible in Upcoming.
     """
     spawned: list[Task] = []
+    ref = date.today()
     for task in tasks:
         if task.id == task_id:
+            original_folder_id = task.folder_id
             task.complete()
             if task.recur_rule is not None:
                 rule = task.recur_rule
@@ -128,6 +136,28 @@ def complete_task(tasks: list[Task], task_id: str) -> list[Task]:
                         folder_id="today",
                         scheduled_date=new_date,
                         recur_rule=rule,
+                    )
+                )
+            elif task.repeat_rule is not None:
+                # Advance next_due to be strictly in the future so the new
+                # template only appears in Upcoming, not in Today's active list.
+                next_due = task.repeat_rule.next_due
+                while next_due <= ref:
+                    next_due = _advance_date(
+                        next_due, task.repeat_rule.interval, task.repeat_rule.unit
+                    )
+                new_rule = RepeatRule(
+                    interval=task.repeat_rule.interval,
+                    unit=task.repeat_rule.unit,
+                    next_due=next_due,
+                )
+                spawned.append(
+                    Task(
+                        title=task.title,
+                        notes=task.notes,
+                        folder_id=original_folder_id,
+                        scheduled_date=next_due,
+                        repeat_rule=new_rule,
                     )
                 )
     return tasks + spawned
@@ -182,6 +212,7 @@ def deadline_status(task: Task, as_of: date | None = None) -> tuple[str, str] | 
     if task.deadline is None:
         return None
     from gtd_tui.gtd.dates import format_date
+
     ref = as_of or date.today()
     delta = (task.deadline - ref).days
     date_str = format_date(task.deadline)
@@ -247,8 +278,7 @@ def upcoming_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     result = [
         t
         for t in tasks
-        if t.folder_id not in _EXCLUDED_FROM_SMART_VIEWS
-        and _future_date(t) is not None
+        if t.folder_id not in _EXCLUDED_FROM_SMART_VIEWS and _future_date(t) is not None
     ]
     return sorted(result, key=lambda t: (_future_date(t), t.position))
 
@@ -267,6 +297,14 @@ def scheduled_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
             and t.scheduled_date > ref
         ],
         key=lambda t: (t.scheduled_date, t.position),
+    )
+
+
+def inbox_tasks(tasks: list[Task]) -> list[Task]:
+    """Return tasks in the Inbox folder, sorted by position."""
+    return sorted(
+        [t for t in tasks if t.folder_id == "inbox"],
+        key=lambda t: t.position,
     )
 
 
@@ -348,9 +386,7 @@ def logbook_tasks(tasks: list[Task]) -> list[Task]:
     )
 
 
-def weekly_review_tasks(
-    tasks: list[Task], as_of: date | None = None
-) -> list[Task]:
+def weekly_review_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     """Return tasks completed (not deleted) in the past 7 days, most recent first.
 
     Note: completed tasks all have folder_id='logbook', so folder grouping by
@@ -398,13 +434,19 @@ def add_waiting_on_task(
 
 
 def insert_waiting_on_task_after(
-    tasks: list[Task], anchor_id: str, title: str, notes: str = "", task_id: str | None = None
+    tasks: list[Task],
+    anchor_id: str,
+    title: str,
+    notes: str = "",
+    task_id: str | None = None,
 ) -> list[Task]:
     """Insert a new WO task immediately after the anchor WO task.
 
     Falls back to add_waiting_on_task if anchor_id is not found.
     """
-    wo = sorted([t for t in tasks if t.folder_id == "waiting_on"], key=lambda t: t.position)
+    wo = sorted(
+        [t for t in tasks if t.folder_id == "waiting_on"], key=lambda t: t.position
+    )
     anchor = next((t for t in wo if t.id == anchor_id), None)
     if anchor is None:
         return add_waiting_on_task(tasks, title, notes, task_id)
@@ -413,8 +455,11 @@ def insert_waiting_on_task_after(
         if task.folder_id == "waiting_on" and task.position >= insert_pos:
             task.position += 1
     kwargs: dict = {
-        "title": title, "notes": notes, "folder_id": "waiting_on",
-        "position": insert_pos, "created_at": datetime.now(),
+        "title": title,
+        "notes": notes,
+        "folder_id": "waiting_on",
+        "position": insert_pos,
+        "created_at": datetime.now(),
         "scheduled_date": date.today() + timedelta(days=7),
     }
     if task_id is not None:
@@ -423,13 +468,19 @@ def insert_waiting_on_task_after(
 
 
 def insert_waiting_on_task_before(
-    tasks: list[Task], anchor_id: str, title: str, notes: str = "", task_id: str | None = None
+    tasks: list[Task],
+    anchor_id: str,
+    title: str,
+    notes: str = "",
+    task_id: str | None = None,
 ) -> list[Task]:
     """Insert a new WO task immediately before the anchor WO task.
 
     Falls back to add_waiting_on_task if anchor_id is not found.
     """
-    wo = sorted([t for t in tasks if t.folder_id == "waiting_on"], key=lambda t: t.position)
+    wo = sorted(
+        [t for t in tasks if t.folder_id == "waiting_on"], key=lambda t: t.position
+    )
     anchor = next((t for t in wo if t.id == anchor_id), None)
     if anchor is None:
         return add_waiting_on_task(tasks, title, notes, task_id)
@@ -438,8 +489,11 @@ def insert_waiting_on_task_before(
         if task.folder_id == "waiting_on" and task.position >= insert_pos:
             task.position += 1
     kwargs: dict = {
-        "title": title, "notes": notes, "folder_id": "waiting_on",
-        "position": insert_pos, "created_at": datetime.now(),
+        "title": title,
+        "notes": notes,
+        "folder_id": "waiting_on",
+        "position": insert_pos,
+        "created_at": datetime.now(),
         "scheduled_date": date.today() + timedelta(days=7),
     }
     if task_id is not None:
@@ -448,13 +502,14 @@ def insert_waiting_on_task_before(
 
 
 def move_to_waiting_on(tasks: list[Task], task_id: str) -> list[Task]:
-    """Move a task to the Waiting On folder, appending at the end. Preserves any scheduled date."""
-    existing = folder_tasks(tasks, "waiting_on")
-    next_pos = existing[-1].position + 1 if existing else 0
+    """Move a task to the Waiting On folder at position 0 (top). Preserves any scheduled date."""
+    for task in tasks:
+        if task.folder_id == "waiting_on":
+            task.position += 1
     for task in tasks:
         if task.id == task_id:
             task.folder_id = "waiting_on"
-            task.position = next_pos
+            task.position = 0
             if task.scheduled_date is None:
                 task.scheduled_date = date.today() + timedelta(days=7)
     return tasks
@@ -558,6 +613,7 @@ def insert_folder(
     All folders are renumbered 0, 1, 2… after insertion.
     """
     import copy as _copy
+
     result = [_copy.copy(f) for f in folders]
     sorted_result = sorted(result, key=lambda f: f.position)
     new_kwargs: dict = {"name": name, "position": 0}
@@ -638,14 +694,20 @@ def folder_tasks(tasks: list[Task], folder_id: str) -> list[Task]:
 
 
 def insert_folder_task_after(
-    tasks: list[Task], folder_id: str, anchor_id: str,
-    title: str, notes: str = "", task_id: str | None = None,
+    tasks: list[Task],
+    folder_id: str,
+    anchor_id: str,
+    title: str,
+    notes: str = "",
+    task_id: str | None = None,
 ) -> list[Task]:
     """Insert a new task immediately after the anchor task in the given folder.
 
     Falls back to add_task_to_folder if anchor_id is not found.
     """
-    members = sorted([t for t in tasks if t.folder_id == folder_id], key=lambda t: t.position)
+    members = sorted(
+        [t for t in tasks if t.folder_id == folder_id], key=lambda t: t.position
+    )
     anchor = next((t for t in members if t.id == anchor_id), None)
     if anchor is None:
         return add_task_to_folder(tasks, folder_id, title, notes, task_id)
@@ -654,8 +716,11 @@ def insert_folder_task_after(
         if task.folder_id == folder_id and task.position >= insert_pos:
             task.position += 1
     kwargs: dict = {
-        "title": title, "notes": notes, "folder_id": folder_id,
-        "position": insert_pos, "created_at": datetime.now(),
+        "title": title,
+        "notes": notes,
+        "folder_id": folder_id,
+        "position": insert_pos,
+        "created_at": datetime.now(),
     }
     if task_id is not None:
         kwargs["id"] = task_id
@@ -663,14 +728,20 @@ def insert_folder_task_after(
 
 
 def insert_folder_task_before(
-    tasks: list[Task], folder_id: str, anchor_id: str,
-    title: str, notes: str = "", task_id: str | None = None,
+    tasks: list[Task],
+    folder_id: str,
+    anchor_id: str,
+    title: str,
+    notes: str = "",
+    task_id: str | None = None,
 ) -> list[Task]:
     """Insert a new task immediately before the anchor task in the given folder.
 
     Falls back to add_task_to_folder if anchor_id is not found.
     """
-    members = sorted([t for t in tasks if t.folder_id == folder_id], key=lambda t: t.position)
+    members = sorted(
+        [t for t in tasks if t.folder_id == folder_id], key=lambda t: t.position
+    )
     anchor = next((t for t in members if t.id == anchor_id), None)
     if anchor is None:
         return add_task_to_folder(tasks, folder_id, title, notes, task_id)
@@ -679,8 +750,11 @@ def insert_folder_task_before(
         if task.folder_id == folder_id and task.position >= insert_pos:
             task.position += 1
     kwargs: dict = {
-        "title": title, "notes": notes, "folder_id": folder_id,
-        "position": insert_pos, "created_at": datetime.now(),
+        "title": title,
+        "notes": notes,
+        "folder_id": folder_id,
+        "position": insert_pos,
+        "created_at": datetime.now(),
     }
     if task_id is not None:
         kwargs["id"] = task_id
@@ -688,13 +762,14 @@ def insert_folder_task_before(
 
 
 def move_task_to_folder(tasks: list[Task], task_id: str, folder_id: str) -> list[Task]:
-    """Move a task to a different folder, appending it at the end."""
-    target_tasks = folder_tasks(tasks, folder_id)
-    new_pos = target_tasks[-1].position + 1 if target_tasks else 0
+    """Move a task to a different folder, inserting it at position 0 (top)."""
+    for task in tasks:
+        if task.folder_id == folder_id:
+            task.position += 1
     for task in tasks:
         if task.id == task_id:
             task.folder_id = folder_id
-            task.position = new_pos
+            task.position = 0
     return tasks
 
 
@@ -777,10 +852,18 @@ def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
 # ---------------------------------------------------------------------------
 
 _UNIT_ALIASES: dict[str, str] = {
-    "d": "days", "day": "days", "days": "days",
-    "w": "weeks", "week": "weeks", "weeks": "weeks",
-    "m": "months", "month": "months", "months": "months",
-    "y": "years", "year": "years", "years": "years",
+    "d": "days",
+    "day": "days",
+    "days": "days",
+    "w": "weeks",
+    "week": "weeks",
+    "weeks": "weeks",
+    "m": "months",
+    "month": "months",
+    "months": "months",
+    "y": "years",
+    "year": "years",
+    "years": "years",
 }
 
 
@@ -812,7 +895,9 @@ def make_repeat_rule(
 ) -> RepeatRule:
     """Create a RepeatRule whose next_due is one interval after from_date (default: today)."""
     base = from_date or date.today()
-    return RepeatRule(interval=interval, unit=unit, next_due=_advance_date(base, interval, unit))
+    return RepeatRule(
+        interval=interval, unit=unit, next_due=_advance_date(base, interval, unit)
+    )
 
 
 def set_repeat_rule(
@@ -840,9 +925,7 @@ def set_recur_rule(
 # ---------------------------------------------------------------------------
 
 
-def spawn_repeating_tasks(
-    tasks: list[Task], as_of: date | None = None
-) -> list[Task]:
+def spawn_repeating_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     """Spawn copies of repeating tasks whose next_due has arrived.
 
     For each task with a repeat_rule where next_due <= today:
@@ -862,6 +945,12 @@ def spawn_repeating_tasks(
         spawned.append(Task(title=task.title, notes=task.notes, folder_id="today"))
         while rule.next_due <= ref:
             rule.next_due = _advance_date(rule.next_due, rule.interval, rule.unit)
+        # If the original lives in Today, give it a future scheduled_date equal to
+        # next_due so it no longer appears in Today's active list — only in Upcoming.
+        # This prevents the user from accidentally completing the template instead of
+        # the spawned copy, which would remove the repeat from Upcoming.
+        if task.folder_id == "today":
+            task.scheduled_date = rule.next_due
 
     if not spawned:
         return tasks
