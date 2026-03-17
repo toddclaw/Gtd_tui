@@ -213,6 +213,26 @@ async def test_deleted_task_persists_to_data_file(tmp_path: Path) -> None:
     assert loaded[0].folder_id == "logbook"
 
 
+async def test_o_in_logbook_does_not_add_task(tmp_path: Path) -> None:
+    """o and O must be no-ops in the Logbook — new tasks cannot be added there."""
+    data_file = _prepopulate(tmp_path, "Done task")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("x")        # complete → logbook
+        await pilot.pause()
+        app._current_view = "logbook"
+        app._refresh_list()
+        await pilot.pause()
+        task_count = len(app._all_tasks)
+        await pilot.press("o")
+        await pilot.pause()
+        await pilot.press("O")
+        await pilot.pause()
+        assert len(app._all_tasks) == task_count  # no new tasks created
+        assert app._mode != "INSERT"              # not in insert mode
+
+
 async def test_d_in_logbook_purges_entry(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Done task")
     app = GtdApp(data_file=data_file)

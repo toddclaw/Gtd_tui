@@ -1233,10 +1233,12 @@ class GtdApp(App[None]):
             self._jump_to_view(int(event.key) - 1)
         elif event.key == "o":
             event.prevent_default()
-            self._start_add_task("after")
+            if self._current_view != "logbook":
+                self._start_add_task("after")
         elif event.key == "O":
             event.prevent_default()
-            self._start_add_task("before")
+            if self._current_view != "logbook":
+                self._start_add_task("before")
         elif event.key == "v":
             event.prevent_default()
             self._enter_visual_mode()
