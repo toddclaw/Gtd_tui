@@ -874,9 +874,50 @@ class RecurRule:
 
 ---
 
+### BACKLOG-23 — Encrypted database
+
+**Story points:** 13 — New dependency (`cryptography`), key-derivation layer, auto-detection of file format, one-time CLI migration flag, interactive password prompt (no echo), atomic encrypted writes, and unit tests for all crypto paths. Security-critical code requires careful review.
+
+**Description:**
+- The data file is either plaintext JSON or an encrypted binary blob. The app detects which it is from a magic header — no flag is needed at runtime once encryption is set up.
+- **First-time encryption:** `gtd-tui --encrypt` migrates an existing plaintext file to encrypted format. Prompts for password + confirmation, then all future runs work without any flag.
+- **All subsequent runs:** if the file header indicates ciphertext, the app automatically prompts for the password (via `getpass`), decrypts to an in-memory buffer, and re-encrypts on every save. The flag is never needed again.
+- **Runs on a plaintext file (no flag):** opens normally, no password prompt.
+- **`--decrypt`:** one-time reverse migration — prompts for password, writes plaintext file, no further prompts needed after that.
+
+**Encryption design:**
+- Key derivation: **scrypt** (`cryptography` package), random 32-byte salt stored in file header; parameters `N=2^17, r=8, p=1`
+- Cipher: **AES-256-GCM** — authenticated encryption guards against tampering and corruption
+- File format (binary): `[4-byte magic][1-byte version][32-byte salt][12-byte nonce][ciphertext][16-byte GCM tag]`
+- Atomic write: encrypt to a temp file, then `os.replace()` — same as existing plaintext writes
+- File permissions remain `600`
+
+**CLI changes:**
+- `gtd-tui --encrypt` — one-time command: prompts for password + confirmation, encrypts plaintext file, exits with confirmation message
+- `gtd-tui --decrypt` — one-time command: prompts for password, writes plaintext file, exits with confirmation message
+- Normal `gtd-tui` (no flags): auto-detects encryption from file header and prompts for password if needed
+- `gtd-tui --summary` / `-s` also auto-detects and prompts if needed
+
+**Acceptance criteria:**
+- [ ] `gtd-tui --encrypt` on a plaintext file: prompts for password + confirmation, encrypts file in-place, prints confirmation
+- [ ] `gtd-tui` (no flag) on an encrypted file: auto-detects, prompts for password, opens normally
+- [ ] `gtd-tui` (no flag) on a plaintext file: opens normally, no password prompt
+- [ ] Wrong password: prints `"Incorrect password"` and exits with code 1
+- [ ] `gtd-tui --decrypt`: prompts for password, writes plaintext file, prints confirmation
+- [ ] Atomic write: a crash mid-save never corrupts the file
+- [ ] Unit tests: encrypt→decrypt round-trip, wrong-password rejection, magic-byte detection, corrupt-file rejection, plaintext passthrough
+- [ ] `cryptography` added to `pyproject.toml` dependencies
+
+**Implementation notes:**
+- All crypto logic lives in `gtd_tui/storage/crypto.py`; `file.py` calls into it after detecting the file format
+- Never log or print the password or derived key
+- `--encrypt` and `--decrypt` are migration utilities only — they do not start the TUI
+
+---
+
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22 are **complete**. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22 are **complete**. BACKLOG-23 is pending. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
