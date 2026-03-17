@@ -431,7 +431,11 @@ When the user asks to make a release (e.g. "release v1.3.0" or "merge and tag"),
 8. **Create annotated tag**: `git tag -a vX.Y.Z HEAD -m "vX.Y.Z — <short summary of changes>"`
 9. **Push main**: `git push origin main`
 10. **Push tags**: `git push origin vX.Y.Z`
-11. **Return to feature branch**: `git checkout <branch>`
+11. **Update GitHub release notes** to cover *all* changes since the previous release tag, not just the merged PR:
+    - Run `git log vPREV..vX.Y.Z --oneline` (where `vPREV` is the previous tag) to find every commit in the range, including any direct-to-main commits that were not part of the feature branch.
+    - Synthesise a complete set of release notes from that full commit range and the `CHANGELOG.md` entry.
+    - Run `gh release edit vX.Y.Z --notes "<full notes>"` to publish the updated notes.
+12. **Return to feature branch**: `git checkout <branch>`
 
 GitHub Actions will automatically build the wheel and publish the release once the tag arrives.
 
