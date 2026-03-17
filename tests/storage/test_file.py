@@ -1,6 +1,8 @@
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from gtd_tui.gtd.operations import (
     add_task,
     complete_task,
@@ -287,3 +289,49 @@ def test_deadline_missing_defaults_to_none(tmp_path: Path) -> None:
     data_file.write_text(json.dumps(payload))
     loaded = load_tasks(data_file=data_file)
     assert loaded[0].deadline is None
+
+
+# ---------------------------------------------------------------------------
+# Encrypted file I/O (BACKLOG-23)
+# ---------------------------------------------------------------------------
+
+
+def test_save_and_load_encrypted_round_trip(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Secret task")
+    save_tasks(tasks, data_file=data_file, password="s3cr3t")
+    loaded = load_tasks(data_file=data_file, password="s3cr3t")
+    assert len(loaded) == 1
+    assert loaded[0].title == "Secret task"
+
+
+def test_encrypted_file_is_not_plaintext_json(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Secret task")
+    save_tasks(tasks, data_file=data_file, password="s3cr3t")
+    raw = data_file.read_bytes()
+    assert b"Secret task" not in raw
+
+
+def test_wrong_password_raises_on_load(tmp_path: Path) -> None:
+    from gtd_tui.storage.crypto import DecryptionError
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Secret task")
+    save_tasks(tasks, data_file=data_file, password="correct")
+    with pytest.raises(DecryptionError):
+        load_tasks(data_file=data_file, password="wrong")
+
+
+def test_plaintext_file_loads_without_password(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Public task")
+    save_tasks(tasks, data_file=data_file)  # no password
+    loaded = load_tasks(data_file=data_file)  # no password
+    assert loaded[0].title == "Public task"
+
+
+def test_encrypted_file_permissions_are_600(tmp_path: Path) -> None:
+    data_file = tmp_path / "data.json"
+    save_tasks([], data_file=data_file, password="pw")
+    mode = oct(data_file.stat().st_mode)[-3:]
+    assert mode == "600"

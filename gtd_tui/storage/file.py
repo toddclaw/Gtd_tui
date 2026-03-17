@@ -11,6 +11,12 @@ from platformdirs import user_data_dir
 
 from gtd_tui.gtd.folder import Folder
 from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
+from gtd_tui.storage.crypto import (
+    DecryptionError,
+    decrypt_data,
+    encrypt_data,
+    is_encrypted,
+)
 
 _DEFAULT_DATA_FILE = Path(user_data_dir("gtd_tui")) / "data.json"
 
@@ -81,9 +87,7 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
             else None
         ),
         deadline=(
-            date.fromisoformat(data["deadline"])
-            if data.get("deadline")
-            else None
+            date.fromisoformat(data["deadline"]) if data.get("deadline") else None
         ),
         repeat_rule=_repeat_rule_from_dict(raw_rule) if raw_rule else None,
         recur_rule=(
@@ -108,46 +112,68 @@ def _folder_from_dict(data: dict[str, Any]) -> Folder:
     return Folder(id=data["id"], name=data["name"], position=data.get("position", 0))
 
 
-def load_tasks(data_file: Path | None = None) -> list[Task]:
+def _read_raw(path: Path, password: str | None) -> dict[str, Any]:
+    """Read and parse the data file, decrypting if necessary."""
+    data = path.read_bytes()
+    if is_encrypted(data):
+        if password is None:
+            raise DecryptionError("File is encrypted but no password was provided")
+        data = decrypt_data(data, password)
+    return json.loads(data)
+
+
+def load_tasks(
+    data_file: Path | None = None, password: str | None = None
+) -> list[Task]:
     """Load tasks from disk. Returns empty list if file is missing or corrupt."""
     path = data_file or _DEFAULT_DATA_FILE
     if not path.exists():
         return []
     try:
-        with open(path) as f:
-            raw = json.load(f)
+        raw = _read_raw(path, password)
         return [_task_from_dict(t) for t in raw.get("tasks", [])]
     except (json.JSONDecodeError, KeyError, ValueError):
         return []
 
 
-def load_folders(data_file: Path | None = None) -> list[Folder]:
+def load_folders(
+    data_file: Path | None = None, password: str | None = None
+) -> list[Folder]:
     """Load user-created folders from disk. Returns empty list if missing or corrupt."""
     path = data_file or _DEFAULT_DATA_FILE
     if not path.exists():
         return []
     try:
-        with open(path) as f:
-            raw = json.load(f)
+        raw = _read_raw(path, password)
         return [_folder_from_dict(f) for f in raw.get("folders", [])]
     except (json.JSONDecodeError, KeyError, ValueError):
         return []
 
 
 def save_data(
-    tasks: list[Task], folders: list[Folder], data_file: Path | None = None
+    tasks: list[Task],
+    folders: list[Folder],
+    data_file: Path | None = None,
+    password: str | None = None,
 ) -> None:
-    """Atomically save tasks and folders to disk with restricted permissions (600)."""
+    """Atomically save tasks and folders to disk with restricted permissions (600).
+
+    If *password* is provided the file is written as an encrypted binary blob;
+    otherwise it is written as plain JSON.
+    """
     path = data_file or _DEFAULT_DATA_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "tasks": [_task_to_dict(t) for t in tasks],
         "folders": [_folder_to_dict(f) for f in folders],
     }
+    json_bytes = json.dumps(payload, indent=2).encode()
+    write_bytes = encrypt_data(json_bytes, password) if password else json_bytes
+
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(payload, f, indent=2)
+        with os.fdopen(fd, "wb") as f:
+            f.write(write_bytes)
         os.replace(tmp, path)  # atomic on POSIX
         os.chmod(path, 0o600)
     except Exception:
@@ -158,7 +184,11 @@ def save_data(
         raise
 
 
-def save_tasks(tasks: list[Task], data_file: Path | None = None) -> None:
+def save_tasks(
+    tasks: list[Task],
+    data_file: Path | None = None,
+    password: str | None = None,
+) -> None:
     """Atomically save tasks to disk, preserving any existing folder data."""
-    existing_folders = load_folders(data_file)
-    save_data(tasks, existing_folders, data_file)
+    existing_folders = load_folders(data_file, password=password)
+    save_data(tasks, existing_folders, data_file, password=password)
