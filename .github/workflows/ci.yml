@@ -31,6 +31,20 @@ jobs:
       - name: Type-check (mypy)
         run: mypy gtd_tui/
 
+  secrets:
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # full history so gitleaks can scan all commits
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   test:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
