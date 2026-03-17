@@ -141,6 +141,16 @@ gtd-tui -s
 
 Requires Python 3.11+.
 
+**Clipboard support** (for the `y` yank keybinding) requires a system clipboard tool:
+
+| Platform | Install |
+|---|---|
+| Linux / X11 | `sudo apt-get install xclip` (or `xsel`) |
+| Linux / Wayland | `sudo apt-get install wl-clipboard` |
+| macOS / Windows | No extra install needed |
+
+> **tmux users:** tmux may not inherit your `DISPLAY` variable. Add `set-environment -g DISPLAY ":1"` to `~/.tmux.conf` (replace `:1` with your actual display) and run `tmux source ~/.tmux.conf`.
+
 **Recommended — using [uv](https://github.com/astral-sh/uv):**
 
 ```bash

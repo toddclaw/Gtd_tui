@@ -35,6 +35,11 @@ This project was recently initialized. As of the initial commit, only a `README.
 
 - Python 3.11+
 - `pip` or `uv` for dependency management
+- **Clipboard tool** (for the `y` yank keybinding):
+  - Linux/X11: `sudo apt-get install xclip` (or `xsel`)
+  - Linux/Wayland: `sudo apt-get install wl-clipboard`
+  - macOS/Windows: no extra install needed
+  - **tmux note:** tmux may not inherit `DISPLAY`. Add `set-environment -g DISPLAY ":1"` to `~/.tmux.conf` if `y` reports clipboard unavailable.
 
 ### Getting Started
 
