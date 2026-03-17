@@ -713,7 +713,7 @@ life domains. This is the top of the GTD hierarchy: Area → Project → Task.
 
 ---
 
-### BACKLOG-33 — Test coverage for identified gaps
+### ~~BACKLOG-33 — Test coverage for identified gaps~~ ✅ DONE
 
 **Story points:** 3 — Tests only; no source changes.
 
@@ -731,12 +731,12 @@ The audit identified several untested paths that carry real risk:
    passed, tasks actually spawned) is untested
 
 **Acceptance criteria:**
-- [ ] `tests/test_main.py` extended with mocked-`getpass` tests for `--encrypt` and `--decrypt`
-- [ ] `test_app.py` has a test for `:help` opening `HelpScreen` via the colon command buffer
-- [ ] `test_operations.py` has a direct test for `someday_tasks()` return value
-- [ ] `test_operations.py` has a direct test for `purge_logbook_task()`
-- [ ] `test_app.py` has a test for `m` key in NORMAL mode moving a task to a different folder
-- [ ] `test_app.py` has an integration test verifying `spawn_repeating_tasks` fires on launch
+- [x] `tests/test_main.py` extended with mocked-`getpass` tests for `--encrypt` and `--decrypt`
+- [x] `test_app.py` has a test for `:help` opening `HelpScreen` via the colon command buffer
+- [x] `test_operations.py` has a direct test for `someday_tasks()` return value (already existed)
+- [x] `test_operations.py` has a direct test for `purge_logbook_task()` (already existed)
+- [x] `test_app.py` has a test for `m` key in NORMAL mode moving a task to a different folder
+- [x] `test_app.py` has an integration test verifying `spawn_repeating_tasks` fires on launch
 
 ---
 
