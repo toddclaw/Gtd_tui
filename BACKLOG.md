@@ -737,3 +737,176 @@ The audit identified several untested paths that carry real risk:
 - [ ] `test_operations.py` has a direct test for `purge_logbook_task()`
 - [ ] `test_app.py` has a test for `m` key in NORMAL mode moving a task to a different folder
 - [ ] `test_app.py` has an integration test verifying `spawn_repeating_tasks` fires on launch
+
+---
+
+## Group: Housekeeping
+
+### BACKLOG-34 — Change license to MIT
+
+**Story points:** 1
+
+**Description:**
+Add an MIT `LICENSE` file and update `pyproject.toml` to declare `license = {text = "MIT"}`.
+
+**Acceptance criteria:**
+- [ ] `LICENSE` file at repo root contains the standard MIT license text with current year and author
+- [ ] `pyproject.toml` declares `license = {text = "MIT"}`
+
+---
+
+## Group: Navigation improvements
+
+### BACKLOG-35 — gg / G navigation in the sidebar folder list
+
+**Story points:** 2
+
+**Description:**
+`gg` (jump to top) and `G` (jump to bottom) already work in the task list but are not wired up
+for the sidebar. When the sidebar is focused, these keys should jump to the first and last
+sidebar entry respectively, consistent with the task-list behaviour described in CLAUDE.md.
+
+**Acceptance criteria:**
+- [ ] `gg` while sidebar is focused moves the selection to the first sidebar item
+- [ ] `G` while sidebar is focused moves the selection to the last sidebar item
+- [ ] Both keys are no-ops when the sidebar is empty
+- [ ] Existing task-list `gg` / `G` behaviour is unaffected
+
+---
+
+### BACKLOG-36 — Folder number shortcuts start at 0
+
+**Story points:** 2
+
+**Description:**
+Currently sidebar items are reached with keys `1`–`9`. Renumber so that:
+- `0` → Inbox (first built-in folder)
+- `1` → Today
+- `2` → Upcoming
+- `3` → Waiting On
+- `4` → Someday
+- `5`–`9` → user-created folders in order
+
+This aligns with zero-indexed muscle memory and leaves `1`–`9` covering up to 9 user folders
+after the 5 built-in slots.
+
+**Acceptance criteria:**
+- [ ] `0` focuses Inbox; `1` focuses Today; `2` focuses Upcoming; `3` focuses Waiting On; `4` focuses Someday
+- [ ] `5`–`9` focus the 1st–5th user-created folder (in sidebar order)
+- [ ] Keys beyond the available folder count are silently ignored
+- [ ] Help screen keybinding table updated to reflect new numbering
+- [ ] Tests updated / added for the new mapping
+
+---
+
+## Group: Task movement semantics
+
+### BACKLOG-37 — Context-aware `t` key (Inbox → move to Today; other folders → schedule today)
+
+**Story points:** 3
+
+**Description:**
+The `t` key currently moves a task from Waiting On to Today (`move_to_today`). Extend its
+behaviour to cover all folders, with two distinct semantics:
+
+| Current folder | `t` behaviour |
+|---|---|
+| **Inbox** | Move task to the Today folder (same as the existing Waiting On → Today move) |
+| **Waiting On** | *(unchanged)* Move task to Today |
+| **User-defined folder** | Set `scheduled_date = today` so the task surfaces in the Today smart view without being physically moved |
+| **Today / Upcoming / Someday / Logbook** | No-op (already in the right place or archived) |
+
+**Acceptance criteria:**
+- [ ] `t` in Inbox moves the task to the Today folder and refreshes the sidebar count
+- [ ] `t` in Waiting On continues to move the task to Today (existing behaviour preserved)
+- [ ] `t` in a user-created folder sets `scheduled_date = date.today()` and the task appears in Today's smart view
+- [ ] `t` is a no-op when the current folder is Today, Upcoming, Someday, or Logbook
+- [ ] Undo reverses the action in all cases
+- [ ] Unit tests cover all four branches; integration test covers Inbox → Today
+
+---
+
+## Group: System integration
+
+### BACKLOG-38 — Allow Ctrl-Z to suspend (background) the app
+
+**Story points:** 1
+
+**Description:**
+Ctrl-Z is the standard Unix terminal shortcut for suspending a foreground process (sending
+`SIGTSTP`). Textual intercepts it by default. The app should let Ctrl-Z through so the user
+can background the TUI and return with `fg`.
+
+**Acceptance criteria:**
+- [ ] Pressing Ctrl-Z suspends the app and returns to the shell prompt (standard `fg`/`bg` flow works)
+- [ ] The app resumes correctly when brought back to the foreground
+- [ ] No other keybindings are affected
+
+---
+
+### BACKLOG-39 — y / p clipboard integration in title and notes VimInput fields
+
+**Story points:** 5
+
+**Description:**
+When editing a task's title or notes in the detail view, the user should be able to:
+- **`y` (COMMAND mode):** yank the entire current line to the system clipboard (and to an
+  internal unnamed register)
+- **`p` (COMMAND mode):** paste the unnamed register (or system clipboard if register is empty)
+  after the cursor on the current line; in multi-line mode inserts below the current line
+- **`P` (COMMAND mode):** paste before the cursor / above the current line
+
+This follows standard vim clipboard conventions, using `pyperclip` (already a dependency).
+
+**Acceptance criteria:**
+- [ ] `y` in COMMAND mode in any VimInput copies the current line to the system clipboard and internal register
+- [ ] `p` in COMMAND mode pastes register content after cursor (single-line) or as a new line below (multi-line)
+- [ ] `P` pastes before cursor / above current line
+- [ ] Pasting works even when the system clipboard is unavailable (falls back to internal register)
+- [ ] Unit tests cover yank and paste in both single-line and multi-line modes
+
+---
+
+## Group: Power features
+
+### BACKLOG-40 — Regex support in search
+
+**Story points:** 3
+
+**Description:**
+The global search (`/`) currently does case-insensitive substring matching. Add opt-in regex
+support: when the query starts with `/` (i.e. the user types `//pattern`), interpret it as a
+Python regex. Plain queries (no leading `/`) continue to behave as substring search.
+
+Alternatively (simpler UX): always attempt regex; fall back to literal substring if the pattern
+is invalid. Either approach is acceptable — confirm with user before implementing.
+
+**Acceptance criteria:**
+- [ ] Regex queries match titles and notes correctly (e.g. `buy (milk|bread)`)
+- [ ] Invalid regex patterns fall back gracefully to literal substring search (no crash)
+- [ ] Match highlighting in the results list works for regex matches (highlight the matched span)
+- [ ] `search_tasks()` unit tests cover regex matching and the invalid-pattern fallback
+- [ ] Search status bar hints that regex is supported
+
+---
+
+### BACKLOG-41 — Persist undo buffer across sessions
+
+**Story points:** 8
+
+**Description:**
+The undo stack is currently held in memory and lost when the app exits. Persisting it lets
+users undo actions from a previous session — useful when e.g. accidentally deleting tasks and
+then restarting before noticing.
+
+The undo stack entry is a `list[Task]` snapshot. Serialise it alongside the main task/folder
+data in `data.json` (or a companion `undo.json`). Apply a cap (e.g. 20 entries) to keep the
+file size manageable.
+
+**Acceptance criteria:**
+- [ ] Undo stack survives app restart (at least the last 20 operations)
+- [ ] `u` after restart restores the previous state as expected
+- [ ] Undo history is capped at 20 entries to bound file size
+- [ ] Old `data.json` files without undo history load without error (empty undo stack)
+- [ ] Encrypted databases store undo history encrypted alongside task data
+- [ ] Unit tests cover save/load round-trip of the undo stack; integration test verifies cross-session undo
