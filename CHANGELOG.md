@@ -10,6 +10,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Fixed
 - Date field now accepts `today` as valid input (previously raised InvalidDateError)
 
+### Changed
+- `y` in VISUAL mode yanks all selected tasks to the clipboard (title + notes per task, separated by blank lines), then exits VISUAL mode
+
 ### Added
 - `y` keybinding in NORMAL mode yanks the selected task's title (and notes if present) to the system clipboard; shows `(yanked to clipboard)` or `(clipboard not available)` in the status bar
 - Document clipboard prerequisites (`xclip`/`xsel`/`wl-clipboard`) and tmux `DISPLAY` fix in README and CLAUDE.md

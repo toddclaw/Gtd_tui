@@ -121,6 +121,7 @@ class HelpScreen(ModalScreen[None]):
   m            Move all selected tasks to a folder
   w            Move all selected tasks to Waiting On
   t            Move all selected tasks to Today
+  y            Yank all selected tasks to clipboard (title + notes, blank line between)
   J / K        Move selected block down / up
   u            Undo last bulk action (exits VISUAL mode)
   Esc          Cancel selection and return to NORMAL mode
@@ -1215,14 +1216,31 @@ class GtdApp(App[None]):
             self._all_tasks, self._all_folders, self._data_file, password=self._password
         )
 
-    def _yank_task(self) -> None:
-        """Copy the selected task's title (and notes if present) to the clipboard."""
-        task = self._get_selected_task()
-        if task is None:
-            return
-        text = task.title
+    def _task_to_yank_text(self, task: Task) -> str:
+        """Return the clipboard representation of a single task."""
         if task.notes:
-            text = f"{task.title}\n{task.notes}"
+            return f"{task.title}\n{task.notes}"
+        return task.title
+
+    def _yank_task(self) -> None:
+        """Copy the selected task(s) title and notes to the clipboard.
+
+        In NORMAL mode: copies the single selected task.
+        In VISUAL mode: copies all selected tasks separated by blank lines,
+        then exits VISUAL mode.
+        """
+        if self._visual_mode:
+            tasks = self._visual_selected_tasks
+            if not tasks:
+                self._exit_visual_mode()
+                return
+            text = "\n\n".join(self._task_to_yank_text(t) for t in tasks)
+            self._exit_visual_mode()
+        else:
+            task = self._get_selected_task()
+            if task is None:
+                return
+            text = self._task_to_yank_text(task)
         try:
             pyperclip.copy(text)
             self._update_status("(yanked to clipboard)")
@@ -2139,6 +2157,10 @@ class GtdApp(App[None]):
         elif event.key == "K":
             event.prevent_default()
             self._bulk_move_block_up()
+
+        elif event.key == "y":
+            event.prevent_default()
+            self._yank_task()
 
         elif event.key == "u":
             event.prevent_default()

@@ -1040,3 +1040,69 @@ async def test_yank_shows_unavailable_when_clipboard_missing(tmp_path: Path) -> 
             await pilot.pause()
         status = app.query_one("#status", Label)
         assert "clipboard" in str(status.content).lower()
+
+
+async def test_visual_yank_copies_all_selected_titles(tmp_path: Path) -> None:
+    """y in VISUAL mode copies all selected tasks' titles, one per line."""
+    from unittest.mock import patch
+
+    data_file = _prepopulate(tmp_path, "Task A", "Task B", "Task C")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Enter VISUAL mode and extend down to select first two tasks
+        await pilot.press("v")
+        await pilot.pause()
+        await pilot.press("j")
+        await pilot.pause()
+        with patch("pyperclip.copy") as mock_copy:
+            await pilot.press("y")
+            await pilot.pause()
+        copied = mock_copy.call_args[0][0]
+        assert "Task C" in copied  # first task (newest = top)
+        assert "Task B" in copied
+        assert "Task A" not in copied
+
+
+async def test_visual_yank_includes_notes_for_tasks_with_notes(tmp_path: Path) -> None:
+    """y in VISUAL mode includes notes beneath each task that has them."""
+    from unittest.mock import patch
+    from gtd_tui.gtd.operations import add_task
+
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Alpha", notes="alpha notes")
+    tasks = add_task(tasks, "Beta")
+    save_data(tasks, [], data_file=data_file)
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Select both tasks
+        await pilot.press("v")
+        await pilot.pause()
+        await pilot.press("j")
+        await pilot.pause()
+        with patch("pyperclip.copy") as mock_copy:
+            await pilot.press("y")
+            await pilot.pause()
+        copied = mock_copy.call_args[0][0]
+        assert "Beta" in copied
+        assert "Alpha" in copied
+        assert "alpha notes" in copied
+
+
+async def test_visual_yank_exits_visual_mode(tmp_path: Path) -> None:
+    """y in VISUAL mode exits visual mode after copying."""
+    from unittest.mock import patch
+
+    data_file = _prepopulate(tmp_path, "Task A", "Task B")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("v")
+        await pilot.pause()
+        await pilot.press("j")
+        await pilot.pause()
+        with patch("pyperclip.copy"):
+            await pilot.press("y")
+            await pilot.pause()
+        assert not app._visual_mode
