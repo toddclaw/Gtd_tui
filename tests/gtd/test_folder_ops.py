@@ -67,7 +67,7 @@ def test_rename_folder_updates_name():
 def test_rename_folder_noop_for_builtin():
     folders: list[Folder] = []
     for bid in BUILTIN_FOLDER_IDS:
-        result = rename_folder(folders, bid, "Renamed")
+        rename_folder(folders, bid, "Renamed")
     # No folders were added, list stays empty
     assert folders == []
 

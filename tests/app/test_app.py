@@ -921,7 +921,6 @@ async def test_o_inserts_folder_after_selected(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_new_task_has_created_at(tmp_path: Path) -> None:
-    data_file = _make_app(tmp_path)._data_file
     app = GtdApp(data_file=tmp_path / "data.json")
     async with app.run_test() as pilot:
         await pilot.pause()

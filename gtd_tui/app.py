@@ -1618,7 +1618,6 @@ class GtdApp(App[None]):
         if event.vim_input.id != "vim-input":
             return  # guard against events leaking from modal screens
         value = event.value.strip()
-        vim = self.query_one("#vim-input", VimInput)
 
         if self._input_stage == "title":
             if not value:

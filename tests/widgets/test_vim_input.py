@@ -392,7 +392,6 @@ async def test_multiline_j_at_last_line_bubbles() -> None:
                 received.append("j")
 
     async with _TrackApp().run_test() as pilot:
-        vi = _mvi(pilot.app)
         await pilot.press("l", "i", "n", "e")
         await pilot.press("escape")  # → command mode, single line
         await pilot.press("j")  # at last (only) line — should bubble
@@ -409,7 +408,6 @@ async def test_multiline_k_at_first_line_bubbles() -> None:
                 received.append("k")
 
     async with _TrackApp().run_test() as pilot:
-        vi = _mvi(pilot.app)
         await pilot.press("l", "i", "n", "e")
         await pilot.press("escape")  # → command mode, single line
         await pilot.press("k")  # at first (only) line — should bubble
