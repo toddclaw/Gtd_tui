@@ -65,7 +65,14 @@ from gtd_tui.gtd.operations import (
     weekly_review_tasks,
 )
 from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
-from gtd_tui.storage.file import load_folders, load_tasks, save_data
+from gtd_tui.storage.file import (
+    UndoStack,
+    load_folders,
+    load_redo_stack,
+    load_tasks,
+    load_undo_stack,
+    save_data,
+)
 from gtd_tui.widgets.vim_input import VimInput
 
 
@@ -783,8 +790,8 @@ class GtdApp(App[None]):
         self._current_view: str = "today"
         # Parallel to ListView children: Task for rows, None for separators/placeholders
         self._list_entries: list[Task | None] = []
-        self._undo_stack: list[tuple[list[Task], list[Folder]]] = []
-        self._redo_stack: list[tuple[list[Task], list[Folder]]] = []
+        self._undo_stack: UndoStack = load_undo_stack(data_file, password=password)
+        self._redo_stack: UndoStack = load_redo_stack(data_file, password=password)
         self._pending_anchor_id: str = ""
         self._pending_insert_position: str = "after"  # "after" or "before"
         # Placeholder row shown in the list while a new task is being typed
@@ -1216,10 +1223,14 @@ class GtdApp(App[None]):
         if self._mode == "NORMAL" and not sidebar.has_focus:
             list_view.focus()
 
+    _UNDO_CAP = 20
+
     def _push_undo(self) -> None:
         self._undo_stack.append(
             (copy.deepcopy(self._all_tasks), copy.deepcopy(self._all_folders))
         )
+        if len(self._undo_stack) > self._UNDO_CAP:
+            self._undo_stack.pop(0)
         self._redo_stack.clear()
 
     def _update_status(self, message: str = "") -> None:
@@ -1244,7 +1255,12 @@ class GtdApp(App[None]):
 
     def _save(self) -> None:
         save_data(
-            self._all_tasks, self._all_folders, self._data_file, password=self._password
+            self._all_tasks,
+            self._all_folders,
+            self._data_file,
+            password=self._password,
+            undo_stack=self._undo_stack,
+            redo_stack=self._redo_stack,
         )
 
     def _task_to_yank_text(self, task: Task) -> str:

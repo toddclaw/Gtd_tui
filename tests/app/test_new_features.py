@@ -213,3 +213,66 @@ async def test_t_from_waiting_on_moves_to_today(tmp_path: Path) -> None:
         await pilot.press("t")
         await pilot.pause()
         assert app._all_tasks[0].folder_id == "today"
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-41: undo stack persists across sessions
+# ---------------------------------------------------------------------------
+
+
+async def test_undo_stack_survives_restart(tmp_path: Path) -> None:
+    """Deleting a task, closing, and re-opening still allows undoing the delete."""
+    data_file = _prepopulate(tmp_path, "Important Task")
+    # Session 1: delete the task
+    app1 = GtdApp(data_file=data_file)
+    async with app1.run_test() as pilot:
+        await pilot.pause()
+        # Navigate to inbox to see the task
+        sidebar = app1.query_one("#sidebar", ListView)
+        sidebar.focus()
+        await pilot.pause()
+        await pilot.press("0")  # Inbox
+        await pilot.pause()
+        await pilot.press("l")  # focus task list
+        await pilot.pause()
+        # Delete the task (d then d to confirm)
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+    # After session 1 closes, the task is gone but undo stack is persisted
+
+    # Session 2: open the app and undo
+    app2 = GtdApp(data_file=data_file)
+    async with app2.run_test() as pilot:
+        await pilot.pause()
+        # Undo the deletion
+        await pilot.press("u")
+        await pilot.pause()
+        # Task should be restored
+        titles = [
+            t.title
+            for t in app2._all_tasks
+            if not t.is_deleted and t.completed_at is None
+        ]
+        assert "Important Task" in titles
+
+
+async def test_undo_stack_capped_at_20_in_app(tmp_path: Path) -> None:
+    """GtdApp never keeps more than 20 undo entries in memory."""
+    data_file = _prepopulate(tmp_path, *[f"Task {i}" for i in range(25)])
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        sidebar.focus()
+        await pilot.pause()
+        await pilot.press("0")  # Inbox
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+        # Complete tasks one by one — each pushes an undo entry
+        for _ in range(22):
+            await pilot.press("x")
+            await pilot.pause()
+        assert len(app._undo_stack) <= 20

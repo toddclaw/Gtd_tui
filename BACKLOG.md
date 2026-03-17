@@ -890,7 +890,7 @@ is invalid. Either approach is acceptable — confirm with user before implement
 
 ---
 
-### BACKLOG-41 — Persist undo buffer across sessions
+### ~~BACKLOG-41 — Persist undo buffer across sessions~~ ✅ DONE
 
 **Story points:** 8
 
@@ -904,9 +904,9 @@ data in `data.json` (or a companion `undo.json`). Apply a cap (e.g. 20 entries) 
 file size manageable.
 
 **Acceptance criteria:**
-- [ ] Undo stack survives app restart (at least the last 20 operations)
-- [ ] `u` after restart restores the previous state as expected
-- [ ] Undo history is capped at 20 entries to bound file size
-- [ ] Old `data.json` files without undo history load without error (empty undo stack)
-- [ ] Encrypted databases store undo history encrypted alongside task data
-- [ ] Unit tests cover save/load round-trip of the undo stack; integration test verifies cross-session undo
+- [x] Undo stack survives app restart (at least the last 20 operations)
+- [x] `u` after restart restores the previous state as expected
+- [x] Undo history is capped at 20 entries to bound file size
+- [x] Old `data.json` files without undo history load without error (empty undo stack)
+- [x] Encrypted databases store undo history encrypted alongside task data
+- [x] Unit tests cover save/load round-trip of the undo stack; integration test verifies cross-session undo
