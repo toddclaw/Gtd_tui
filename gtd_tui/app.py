@@ -430,11 +430,11 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                     inp.value = "(invalid)"
         elif widget_id in ("detail-repeat-input", "detail-recur-input"):
             try:
-                parsed = parse_repeat_input(raw)
-                if parsed is None:
+                parsed_repeat = parse_repeat_input(raw)
+                if parsed_repeat is None:
                     inp.value = ""
                 else:
-                    interval, unit = parsed
+                    interval, unit = parsed_repeat
                     display_unit = unit if interval != 1 else unit.rstrip("s")
                     inp.value = f"{interval} {display_unit}"
             except InvalidRepeatError:
@@ -472,13 +472,13 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
         focused = self.focused
         if event.key == "j":
             if focused and isinstance(focused, VimInput):
-                self._normalize_field(focused.id)
+                self._normalize_field(focused.id or "")
             self.focus_next()
             event.stop()
             event.prevent_default()
         elif event.key == "k":
             if focused and isinstance(focused, VimInput):
-                self._normalize_field(focused.id)
+                self._normalize_field(focused.id or "")
             self.focus_previous()
             event.stop()
             event.prevent_default()
@@ -2286,13 +2286,14 @@ class GtdApp(App[None]):
         tasks = self._visual_selected_tasks
         if not tasks or any(not self._can_reorder(t) for t in tasks):
             return
-        anchor_id = (
-            self._list_entries[self._visual_anchor_idx].id
+        _anchor_entry = (
+            self._list_entries[self._visual_anchor_idx]
             if self._visual_anchor_idx is not None
             and self._visual_anchor_idx < len(self._list_entries)
             and self._list_entries[self._visual_anchor_idx] is not None
             else None
         )
+        anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
         for task in sorted(tasks, key=lambda t: t.position, reverse=True):
@@ -2307,13 +2308,14 @@ class GtdApp(App[None]):
         tasks = self._visual_selected_tasks
         if not tasks or any(not self._can_reorder(t) for t in tasks):
             return
-        anchor_id = (
-            self._list_entries[self._visual_anchor_idx].id
+        _anchor_entry = (
+            self._list_entries[self._visual_anchor_idx]
             if self._visual_anchor_idx is not None
             and self._visual_anchor_idx < len(self._list_entries)
             and self._list_entries[self._visual_anchor_idx] is not None
             else None
         )
+        anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
         for task in sorted(tasks, key=lambda t: t.position):

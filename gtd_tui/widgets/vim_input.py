@@ -62,7 +62,7 @@ class VimInput(Widget, can_focus=True):
         multiline: bool = False,
         **kwargs: object,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(**kwargs)  # type: ignore[arg-type]
         self._text: str = value
         self._placeholder: str = placeholder
         self._vim_mode: str = start_mode
@@ -326,7 +326,7 @@ class VimInput(Widget, can_focus=True):
         self._update_scroll()
         self.refresh()
 
-    def _on_key(self, event: events.Key) -> None:
+    async def _on_key(self, event: events.Key) -> None:
         if self._vim_mode == "insert":
             self._handle_insert(event)
         else:
