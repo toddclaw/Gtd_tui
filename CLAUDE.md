@@ -388,12 +388,27 @@ Fix project deletion leaving orphaned tasks
 Refactor storage layer to use JSON serialization
 ```
 
-### Pre-commit Checklist
+### Feature Work Checklist
 
+Follow this order for every piece of work:
+
+**Before starting:**
+- [ ] Confirm you are on the correct feature branch (`git branch --show-current`)
+- [ ] Pull latest changes: `git pull origin <branch>`
+
+**Implementation:**
+- [ ] Write tests first (TDD), then implementation
 - [ ] `black .` — code is formatted
 - [ ] `ruff check .` — no lint warnings
 - [ ] `mypy .` — no type errors
 - [ ] `pytest` — all tests pass
+
+**After implementation:**
+- [ ] **Update `BACKLOG.md`** — mark the completed item ✅ DONE and check off all acceptance criteria
+- [ ] **Update `:help`** — if any new keybindings were added, add them to `HelpScreen._HELP_TEXT` in `gtd_tui/app.py`
+- [ ] **Update `CLAUDE.md`** — if new prerequisites, conventions, or key files were introduced
+- [ ] **Update `CHANGELOG.md`** (or create it if absent) — add a bullet under `[Unreleased]` describing the change
+- [ ] Commit and push to the feature branch
 
 ### Release Process
 
@@ -421,6 +436,7 @@ GitHub Actions will automatically build the wheel and publish the release once t
 | `README.md` | User-facing project description |
 | `CLAUDE.md` | This file — AI assistant conventions |
 | `BACKLOG.md` | Feature backlog with all story details |
+| `CHANGELOG.md` | Release notes — update for every feature/fix |
 | `pyproject.toml` | Package metadata and dependencies |
 | `gtd_tui/__main__.py` | Entry point — keep thin |
 | `gtd_tui/app.py` | Application state, event loop |
