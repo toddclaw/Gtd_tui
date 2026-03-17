@@ -382,6 +382,23 @@ Refactor storage layer to use JSON serialization
 - [ ] `mypy .` — no type errors
 - [ ] `pytest` — all tests pass
 
+### Release Process
+
+When the user asks to make a release (e.g. "release v1.3.0" or "merge and tag"), follow these steps in order — do not skip any:
+
+1. **Commit pending changes** on the current feature branch (if any uncommitted work exists)
+2. **Push the feature branch** to remote: `git push origin <branch>`
+3. **Checkout main**: `git checkout main`
+4. **Merge the feature branch**: `git merge <branch> --no-ff -m "Merge branch '<branch>' — v<X.Y.Z>"`
+5. **Bump version** in `pyproject.toml`: `version = "X.Y.Z"`
+6. **Commit the version bump**: `git commit -m "Bump version to X.Y.Z"`
+7. **Create annotated tag**: `git tag -a vX.Y.Z HEAD -m "vX.Y.Z — <short summary of changes>"`
+8. **Push main**: `git push origin main`
+9. **Push tags**: `git push origin vX.Y.Z`
+10. **Return to feature branch**: `git checkout <branch>`
+
+GitHub Actions will automatically build the wheel and publish the release once the tag arrives.
+
 ---
 
 ## Key Files Reference
