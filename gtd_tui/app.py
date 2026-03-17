@@ -332,7 +332,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                 start_mode="command",
                 id="detail-title-input",
             )
-            yield Label("Date  (e.g. 2026-03-20, tomorrow, +7d — empty to clear)", classes="field-label")
+            yield Label("Date  (e.g. 2026-03-20, tomorrow, +7d, someday — empty to clear)", classes="field-label")
             yield VimInput(
                 value=date_val,
                 placeholder="(none)",
@@ -374,6 +374,37 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
     def on_mount(self) -> None:
         self.query_one("#detail-title-input", VimInput).focus()
 
+    def _normalize_field(self, widget_id: str) -> None:
+        """Rewrite a parseable field to its canonical form so the user can
+        confirm their input was understood before closing the modal.
+        Always returns the field to COMMAND mode afterwards."""
+        inp = self.query_one(f"#{widget_id}", VimInput)
+        raw = inp.value.strip()
+        if not raw:
+            inp.set_mode("command")
+            return
+        if widget_id in ("detail-date-input", "detail-deadline-input"):
+            if widget_id == "detail-date-input" and raw.lower() == "someday":
+                inp.value = "someday"
+            else:
+                try:
+                    parsed = parse_date_input(raw)
+                    inp.value = parsed.isoformat() if parsed else ""
+                except InvalidDateError:
+                    inp.value = "(invalid)"
+        elif widget_id in ("detail-repeat-input", "detail-recur-input"):
+            try:
+                parsed = parse_repeat_input(raw)
+                if parsed is None:
+                    inp.value = ""
+                else:
+                    interval, unit = parsed
+                    display_unit = unit if interval != 1 else unit.rstrip("s")
+                    inp.value = f"{interval} {display_unit}"
+            except InvalidRepeatError:
+                inp.value = "(invalid)"
+        inp.set_mode("command")
+
     def action_save_and_close(self) -> None:
         title = self.query_one("#detail-title-input", VimInput).value.strip()
         date_text = self.query_one("#detail-date-input", VimInput).value.strip()
@@ -391,16 +422,23 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
             "detail-deadline-input",
             "detail-repeat-input",
         ):
+            self._normalize_field(event.vim_input.id)
             self.focus_next()
         elif event.vim_input.id == "detail-recur-input":
+            self._normalize_field("detail-recur-input")
             self.action_save_and_close()
 
     def on_key(self, event: events.Key) -> None:
+        focused = self.focused
         if event.key == "j":
+            if focused and isinstance(focused, VimInput):
+                self._normalize_field(focused.id)
             self.focus_next()
             event.stop()
             event.prevent_default()
         elif event.key == "k":
+            if focused and isinstance(focused, VimInput):
+                self._normalize_field(focused.id)
             self.focus_previous()
             event.stop()
             event.prevent_default()
@@ -1233,10 +1271,12 @@ class GtdApp(App[None]):
             self._jump_to_view(int(event.key) - 1)
         elif event.key == "o":
             event.prevent_default()
-            self._start_add_task("after")
+            if self._current_view != "logbook":
+                self._start_add_task("after")
         elif event.key == "O":
             event.prevent_default()
-            self._start_add_task("before")
+            if self._current_view != "logbook":
+                self._start_add_task("before")
         elif event.key == "v":
             event.prevent_default()
             self._enter_visual_mode()
@@ -1631,12 +1671,14 @@ class GtdApp(App[None]):
             new_title, new_notes, date_text, deadline_text, repeat_text, recur_text = result
 
             # Parse date field.
+            move_to_someday = date_text.strip().lower() == "someday"
             new_date = old_date
-            try:
-                new_date = parse_date_input(date_text)
-            except InvalidDateError:
-                self._update_status("(invalid date — changes saved, date unchanged)")
-                new_date = old_date
+            if not move_to_someday:
+                try:
+                    new_date = parse_date_input(date_text)
+                except InvalidDateError:
+                    self._update_status("(invalid date — changes saved, date unchanged)")
+                    new_date = old_date
 
             # Parse repeat field.
             new_repeat: RepeatRule | None = old_repeat
@@ -1685,7 +1727,7 @@ class GtdApp(App[None]):
                 new_deadline = old_deadline
 
             title_changed = new_title != task.title or new_notes != task.notes
-            date_changed = new_date != old_date
+            date_changed = move_to_someday or (new_date != old_date)
             deadline_changed = new_deadline != old_deadline
             repeat_changed = new_repeat != old_repeat
             recur_changed = new_recur != old_recur
@@ -1695,7 +1737,10 @@ class GtdApp(App[None]):
             self._push_undo()
             if title_changed:
                 self._all_tasks = edit_task(self._all_tasks, task_id, new_title, new_notes)
-            if date_changed:
+            if move_to_someday:
+                self._all_tasks = unschedule_task(self._all_tasks, task_id)
+                self._all_tasks = move_task_to_folder(self._all_tasks, task_id, "someday")
+            elif date_changed:
                 if new_date is None:
                     self._all_tasks = unschedule_task(self._all_tasks, task_id)
                 else:
@@ -1709,6 +1754,7 @@ class GtdApp(App[None]):
                 self._all_tasks = set_repeat_rule(self._all_tasks, task_id, new_repeat)
             if recur_changed:
                 self._all_tasks = set_recur_rule(self._all_tasks, task_id, new_recur)
+            self._rebuild_sidebar()
             self._save()
             self._refresh_list(select_task_id=task_id)
 

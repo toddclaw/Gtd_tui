@@ -15,6 +15,7 @@ import pytest
 from gtd_tui.app import GtdApp, SearchScreen, TaskDetailScreen
 from gtd_tui.gtd.operations import add_task, add_task_to_folder, create_folder
 from gtd_tui.storage.file import save_data
+from gtd_tui.widgets.vim_input import VimInput
 from textual.widgets import Label, ListView
 
 
@@ -213,6 +214,26 @@ async def test_deleted_task_persists_to_data_file(tmp_path: Path) -> None:
     assert loaded[0].folder_id == "logbook"
 
 
+async def test_o_in_logbook_does_not_add_task(tmp_path: Path) -> None:
+    """o and O must be no-ops in the Logbook — new tasks cannot be added there."""
+    data_file = _prepopulate(tmp_path, "Done task")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("x")        # complete → logbook
+        await pilot.pause()
+        app._current_view = "logbook"
+        app._refresh_list()
+        await pilot.pause()
+        task_count = len(app._all_tasks)
+        await pilot.press("o")
+        await pilot.pause()
+        await pilot.press("O")
+        await pilot.pause()
+        assert len(app._all_tasks) == task_count  # no new tasks created
+        assert app._mode != "INSERT"              # not in insert mode
+
+
 async def test_d_in_logbook_purges_entry(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Done task")
     app = GtdApp(data_file=data_file)
@@ -314,6 +335,82 @@ async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
         saved_task = next(t for t in saved if t.folder_id != "logbook")
         assert saved_task.title == "foo bar"
         assert saved_task.notes == "bar"
+
+
+async def test_detail_fields_normalised_on_focus_advance(tmp_path: Path) -> None:
+    """Parseable fields are rewritten to canonical form when focus leaves them.
+
+    Date 'tomorrow' → ISO date string.  Invalid repeat → '(invalid)'.
+    """
+    from datetime import date, timedelta
+    data_file = _prepopulate(tmp_path, "Buy milk")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")           # open detail view
+        await pilot.pause()
+        assert isinstance(app.screen, TaskDetailScreen)
+
+        # Advance from Title to Date field
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Type 'tomorrow' then advance away — Date should normalise to ISO
+        await pilot.press("i")
+        for ch in "tomorrow":
+            await pilot.press(ch)
+        await pilot.press("escape")          # back to COMMAND mode
+        await pilot.press("j")               # j → normalise + advance to Deadline
+        await pilot.pause()
+
+        date_inp = app.screen.query_one("#detail-date-input", VimInput)
+        expected = (date.today() + timedelta(days=1)).isoformat()
+        assert date_inp.value == expected
+
+        # Now on Deadline — type an invalid value and advance away
+        await pilot.press("i")
+        for ch in "not-a-date":
+            await pilot.press(ch)
+        await pilot.press("escape")
+        await pilot.press("j")               # j → normalise + advance to Notes
+        await pilot.pause()
+
+        deadline_inp = app.screen.query_one("#detail-deadline-input", VimInput)
+        assert deadline_inp.value == "(invalid)"
+
+        await pilot.press("escape")          # save & close
+        await pilot.pause()
+        assert not isinstance(app.screen, TaskDetailScreen)
+
+
+async def test_detail_date_someday_moves_task_to_someday_folder(tmp_path: Path) -> None:
+    """Entering 'someday' in the Date field of TaskDetailScreen moves the task
+    to the Someday folder (case-insensitive, matches [Ss]omeday)."""
+    data_file = _prepopulate(tmp_path, "Read a book")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")          # open detail view
+        await pilot.pause()
+        assert isinstance(app.screen, TaskDetailScreen)
+
+        # Navigate from title (COMMAND mode) → Date field
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Type "someday" in the Date field (starts in COMMAND mode — 'i' enters INSERT)
+        await pilot.press("i")
+        for ch in "someday":
+            await pilot.press(ch)
+        await pilot.press("escape")         # back to COMMAND mode
+        await pilot.pause()
+        await pilot.press("escape")         # save and close
+        await pilot.pause()
+
+        assert not isinstance(app.screen, TaskDetailScreen)
+        task = next(t for t in app._all_tasks if t.title == "Read a book")
+        assert task.folder_id == "someday"
+        assert task.scheduled_date is None
 
 
 async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
