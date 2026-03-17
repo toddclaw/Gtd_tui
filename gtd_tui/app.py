@@ -554,14 +554,14 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
     def on_mount(self) -> None:
         self.query_one("#search-input", Input).focus()
 
-    def on_input_changed(self, event: Input.Changed) -> None:
-        self._run_search(event.value)
+    async def on_input_changed(self, event: Input.Changed) -> None:
+        await self._run_search(event.value)
 
-    def _run_search(self, query: str) -> None:
+    async def _run_search(self, query: str) -> None:
         self._last_query = query
         results = search_tasks(self._tasks, query)
         list_view = self.query_one("#search-results", ListView)
-        list_view.clear()
+        await list_view.clear()
         self._result_entries = []
 
         if not results:
@@ -593,6 +593,8 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
             }
             return folder_map.get(task.folder_id, task.folder_id[:8])
 
+        new_items: list[ListItem] = []
+
         for task, match_type in active_results:
             tag = _folder_tag(task)
             tag_prefix = markup_escape(f"[{tag}]")
@@ -603,11 +605,11 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
             else:
                 label_text = f"{tag_prefix} {_highlight(task.title, query)}"
             self._result_entries.append((task.id, task.title, False))
-            list_view.append(ListItem(Label(label_text)))
+            new_items.append(ListItem(Label(label_text)))
 
         if active_results and logbook_results:
             self._result_entries.append(("", "", True))
-            list_view.append(ListItem(Label("── Logbook ──")))
+            new_items.append(ListItem(Label("── Logbook ──")))
 
         for task, match_type in logbook_results:
             tag_prefix = markup_escape("[Logbook]")
@@ -618,11 +620,11 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
             else:
                 label_text = f"{tag_prefix} {_highlight(task.title, query)}"
             self._result_entries.append((task.id, task.title, False))
-            list_view.append(ListItem(Label(label_text)))
+            new_items.append(ListItem(Label(label_text)))
 
-        if self._result_entries:
+        if new_items:
+            await list_view.extend(new_items)
             self._select_first()
-            self.call_after_refresh(self._select_first)
 
     def _select_first(self) -> None:
         list_view = self.query_one("#search-results", ListView)
