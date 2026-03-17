@@ -5,7 +5,6 @@ import uuid
 from pathlib import Path
 
 import pyperclip
-
 from rich.markup import escape as markup_escape
 from textual import events
 from textual.app import App, ComposeResult

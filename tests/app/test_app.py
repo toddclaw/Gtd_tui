@@ -1028,8 +1028,9 @@ async def test_yank_shows_status_message(tmp_path: Path) -> None:
 
 async def test_yank_shows_unavailable_when_clipboard_missing(tmp_path: Path) -> None:
     """When pyperclip raises, a friendly message is shown instead of a crash."""
-    import pyperclip
     from unittest.mock import patch
+
+    import pyperclip
 
     data_file = _prepopulate(tmp_path, "Buy milk")
     app = GtdApp(data_file=data_file)
@@ -1067,6 +1068,7 @@ async def test_visual_yank_copies_all_selected_titles(tmp_path: Path) -> None:
 async def test_visual_yank_includes_notes_for_tasks_with_notes(tmp_path: Path) -> None:
     """y in VISUAL mode includes notes beneath each task that has them."""
     from unittest.mock import patch
+
     from gtd_tui.gtd.operations import add_task
 
     data_file = tmp_path / "data.json"
