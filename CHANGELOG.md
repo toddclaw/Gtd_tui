@@ -7,7 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.2.3] — 2026-03-17
+
 ### Fixed
+- Multiline notes field: cursor no longer goes off-screen when scrolling through lines longer than the widget width.  The scroll logic now counts visual rows (accounting for line wrapping) rather than logical lines, so pressing `j` always keeps the cursor visible.
+- Global search (`/`): first result is now reliably highlighted after typing a query.  Root cause was Textual's async DOM — `ListView.validate_index` silently discarded the index while items were still mounting.  Fixed by making `_run_search` async and awaiting `clear()` + `extend()` before setting the selection.
 - Date field now accepts `today` as valid input (previously raised InvalidDateError)
 
 ### Changed
