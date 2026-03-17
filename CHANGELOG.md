@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.3.0] — 2026-03-17
+
 ### Added
 - MIT `LICENSE` file; `pyproject.toml` now declares `license = {text = "MIT"}` (BACKLOG-34)
 - `gg` / `G` jump to first / last item in the sidebar when sidebar is focused (BACKLOG-35)
