@@ -190,10 +190,13 @@ class VimInput(Widget, can_focus=True):
 
         self._scroll_to_cursor()
         text = self._text
-        cursor = max(0, min(self._cursor, len(text)))
         offset = self._view_offset
         visible = text[offset:]
 
+        if not self.has_focus:
+            return Text(visible, no_wrap=True)
+
+        cursor = max(0, min(self._cursor, len(text)))
         t = Text(no_wrap=True)
         rel = cursor - offset  # cursor position within visible slice
         if 0 <= rel < len(visible):
@@ -240,7 +243,7 @@ class VimInput(Widget, can_focus=True):
             if i >= len(lines):
                 continue
             line = lines[i]
-            if i == cursor_row:
+            if self.has_focus and i == cursor_row:
                 offset = self._view_offset
                 visible = line[offset:]
                 rel = cursor_col - offset
