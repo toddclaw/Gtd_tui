@@ -972,3 +972,71 @@ async def test_notes_support_newlines_in_detail_view(tmp_path: Path) -> None:
     assert "Line1" in task.notes
     assert "Line2" in task.notes
     assert "\n" in task.notes
+
+
+# ---------------------------------------------------------------------------
+# Yank to clipboard (y keybinding)
+# ---------------------------------------------------------------------------
+
+
+async def test_yank_copies_title_to_clipboard(tmp_path: Path) -> None:
+    """y with no notes copies just the title."""
+    from unittest.mock import patch
+
+    data_file = _prepopulate(tmp_path, "Buy milk")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch("pyperclip.copy") as mock_copy:
+            await pilot.press("y")
+            await pilot.pause()
+        mock_copy.assert_called_once_with("Buy milk")
+
+
+async def test_yank_copies_title_and_notes_to_clipboard(tmp_path: Path) -> None:
+    """y with notes copies title + newline + notes."""
+    from unittest.mock import patch
+
+    from gtd_tui.gtd.operations import add_task
+
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Buy milk", notes="whole milk, 2 litres")
+    save_data(tasks, [], data_file=data_file)
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch("pyperclip.copy") as mock_copy:
+            await pilot.press("y")
+            await pilot.pause()
+        mock_copy.assert_called_once_with("Buy milk\nwhole milk, 2 litres")
+
+
+async def test_yank_shows_status_message(tmp_path: Path) -> None:
+    """y shows a confirmation in the status bar."""
+    from unittest.mock import patch
+
+    data_file = _prepopulate(tmp_path, "Buy milk")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch("pyperclip.copy"):
+            await pilot.press("y")
+            await pilot.pause()
+        status = app.query_one("#status", Label)
+        assert "yank" in str(status.content).lower()
+
+
+async def test_yank_shows_unavailable_when_clipboard_missing(tmp_path: Path) -> None:
+    """When pyperclip raises, a friendly message is shown instead of a crash."""
+    import pyperclip
+    from unittest.mock import patch
+
+    data_file = _prepopulate(tmp_path, "Buy milk")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        with patch("pyperclip.copy", side_effect=pyperclip.PyperclipException):
+            await pilot.press("y")
+            await pilot.pause()
+        status = app.query_one("#status", Label)
+        assert "clipboard" in str(status.content).lower()

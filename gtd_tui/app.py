@@ -4,6 +4,8 @@ import copy
 import uuid
 from pathlib import Path
 
+import pyperclip
+
 from rich.markup import escape as markup_escape
 from textual import events
 from textual.app import App, ComposeResult
@@ -103,6 +105,7 @@ class HelpScreen(ModalScreen[None]):
   J / K        Move selected task down / up
   w            Move task to Waiting On  (Today view)
   t            Move task to Today       (Waiting On view)
+  y            Yank (copy) task title and notes to clipboard
   u            Undo last action
   Ctrl+R       Redo last undone action
   /            Global search
@@ -1212,6 +1215,20 @@ class GtdApp(App[None]):
             self._all_tasks, self._all_folders, self._data_file, password=self._password
         )
 
+    def _yank_task(self) -> None:
+        """Copy the selected task's title (and notes if present) to the clipboard."""
+        task = self._get_selected_task()
+        if task is None:
+            return
+        text = task.title
+        if task.notes:
+            text = f"{task.title}\n{task.notes}"
+        try:
+            pyperclip.copy(text)
+            self._update_status("(yanked to clipboard)")
+        except pyperclip.PyperclipException:
+            self._update_status("(clipboard not available)")
+
     # ------------------------------------------------------------------ #
     # Key handling                                                         #
     # ------------------------------------------------------------------ #
@@ -1442,6 +1459,9 @@ class GtdApp(App[None]):
                 self._purge_logbook_entry()
             else:
                 self._delete_selected()
+        elif event.key == "y":
+            event.prevent_default()
+            self._yank_task()
         elif event.key == "slash":
             event.prevent_default()
             self._open_search()
