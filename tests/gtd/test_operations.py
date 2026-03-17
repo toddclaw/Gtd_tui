@@ -634,15 +634,15 @@ def test_add_waiting_on_task_assigns_sequential_positions():
     assert wo[0].position < wo[1].position < wo[2].position
 
 
-def test_move_to_waiting_on_appends_at_end():
-    """A task moved to Waiting On gets the next position after existing WO tasks."""
+def test_move_to_waiting_on_inserts_at_top():
+    """A task moved to Waiting On is inserted at position 0 (top of the list)."""
     tasks = add_waiting_on_task([], "Already here")
     tasks = add_task(tasks, "Moving over")
     moving_id = next(t.id for t in tasks if t.title == "Moving over")
     tasks = move_to_waiting_on(tasks, moving_id)
     wo = waiting_on_tasks(tasks)
-    assert wo[0].title == "Already here"
-    assert wo[1].title == "Moving over"
+    assert wo[0].title == "Moving over"
+    assert wo[1].title == "Already here"
 
 
 def test_move_task_up_in_waiting_on():
@@ -1101,6 +1101,35 @@ def test_spawn_yearly_advances_correctly():
     assert original.repeat_rule.next_due == date(2027, 1, 1)
 
 
+def test_spawn_today_folder_task_gets_scheduled_date():
+    """A repeat-rule task in the 'today' folder gets scheduled_date = next_due after
+    spawning so it no longer appears in Today's active list — only in Upcoming.
+    This prevents the user from accidentally completing the template task."""
+    tasks = add_task([], "Daily habit")  # folder_id="today"
+    rule = RepeatRule(interval=1, unit="days", next_due=_TODAY)
+    tasks = set_repeat_rule(tasks, tasks[0].id, rule)
+    original_id = tasks[0].id
+    result = spawn_repeating_tasks(tasks, as_of=_TODAY)
+    original = next(t for t in result if t.id == original_id)
+    expected_next = _TODAY + timedelta(days=1)
+    assert original.scheduled_date == expected_next
+    # The original must NOT appear in Today's active list (its date is now in the future).
+    assert original not in today_tasks(result, as_of=_TODAY)
+    # The spawned copy (no repeat_rule) must appear in Today.
+    copies = [t for t in result if t.title == "Daily habit" and t.repeat_rule is None]
+    assert len(copies) == 1
+    assert copies[0] in today_tasks(result, as_of=_TODAY)
+
+
+def test_spawn_non_today_folder_task_unchanged_scheduled_date():
+    """A repeat-rule task NOT in the 'today' folder is not given a scheduled_date."""
+    tasks = _task_with_rule("Weekly review", 7, "days", _TODAY)  # folder="projects"
+    original_id = tasks[0].id
+    result = spawn_repeating_tasks(tasks, as_of=_TODAY)
+    original = next(t for t in result if t.id == original_id)
+    assert original.scheduled_date is None
+
+
 # ------------------------------------------------------------------ #
 # search_tasks                                                         #
 # ------------------------------------------------------------------ #
@@ -1236,6 +1265,43 @@ def test_complete_task_without_recur_rule_does_not_spawn():
     tasks = add_task([], "One-off task")
     tasks = complete_task(tasks, tasks[0].id)
     assert all(t.folder_id == "logbook" for t in tasks)
+
+
+def test_complete_repeat_rule_task_spawns_new_template():
+    """Completing a task with a repeat_rule spawns a new template so the repeat
+    schedule is not lost. The new template has a future scheduled_date so it
+    only appears in Upcoming, not in Today's active list."""
+    tasks = add_task([], "Weekly review")
+    rule = RepeatRule(interval=7, unit="days", next_due=date.today() + timedelta(days=7))
+    tasks = set_repeat_rule(tasks, tasks[0].id, rule)
+    task_id = tasks[0].id
+    tasks = complete_task(tasks, task_id)
+    completed = next(t for t in tasks if t.id == task_id)
+    active = [t for t in tasks if t.folder_id != "logbook"]
+    assert completed.folder_id == "logbook"
+    assert len(active) == 1
+    template = active[0]
+    assert template.repeat_rule is not None
+    assert template.repeat_rule.next_due > date.today()
+    assert template.scheduled_date is not None
+    assert template.scheduled_date > date.today()
+    # Template must not appear in Today's active list (it has a future date).
+    assert template not in today_tasks(tasks)
+    # Template must appear in Upcoming.
+    assert template in upcoming_tasks(tasks)
+
+
+def test_complete_repeat_rule_task_advances_past_today_if_overdue():
+    """If next_due is today or in the past, it must be advanced until strictly future."""
+    tasks = add_task([], "Daily habit")
+    yesterday = date.today() - timedelta(days=1)
+    rule = RepeatRule(interval=1, unit="days", next_due=yesterday)
+    tasks = set_repeat_rule(tasks, tasks[0].id, rule)
+    tasks = complete_task(tasks, tasks[0].id)
+    active = [t for t in tasks if t.folder_id != "logbook"]
+    assert len(active) == 1
+    assert active[0].scheduled_date is not None
+    assert active[0].scheduled_date > date.today()
 
 
 def test_complete_recurring_task_new_task_in_today_folder():

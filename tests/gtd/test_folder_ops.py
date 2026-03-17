@@ -157,7 +157,7 @@ def test_move_task_to_folder_appends_at_end():
     assert moved.position == 0  # first in "custom"
 
 
-def test_move_task_to_folder_appends_after_existing():
+def test_move_task_to_folder_inserts_at_top():
     tasks = add_task([], "Task A")
     tasks = add_task(tasks, "Task B")
     a_id = next(t.id for t in tasks if t.title == "Task A")
@@ -165,8 +165,9 @@ def test_move_task_to_folder_appends_after_existing():
     tasks = move_task_to_folder(tasks, a_id, "custom")
     tasks = move_task_to_folder(tasks, b_id, "custom")
     custom = folder_tasks(tasks, "custom")
-    assert custom[0].title == "Task A"
-    assert custom[1].title == "Task B"
+    # Most recently moved task is at position 0 (top).
+    assert custom[0].title == "Task B"
+    assert custom[1].title == "Task A"
 
 
 # ---------------------------------------------------------------------------

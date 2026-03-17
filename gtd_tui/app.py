@@ -248,6 +248,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
         # Not priority — VimInput absorbs Esc in INSERT mode itself; in COMMAND
         # mode it lets Esc bubble here so we can save and close.
         Binding("escape", "save_and_close", show=False),
+        Binding("ctrl+c", "save_and_close", show=False),
     ]
 
     CSS = """
@@ -257,7 +258,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
 
     #detail-panel {
         width: 70;
-        height: auto;
+        height: 95%;
         background: $surface;
         border: solid $primary;
         padding: 1 2;
@@ -342,7 +343,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
         deadline_val = (
             self._gtd_task.deadline.isoformat() if self._gtd_task.deadline else ""
         )
-        with Vertical(id="detail-panel"):
+        with VerticalScroll(id="detail-panel"):
             yield Label("Edit Task", id="detail-header")
             yield Label("Title", classes="field-label")
             yield VimInput(
@@ -493,6 +494,7 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
 
     BINDINGS = [
         Binding("escape", "cancel", show=False, priority=True),
+        Binding("ctrl+c", "cancel", show=False, priority=True),
         Binding("up", "cursor_up", show=False, priority=True),
         Binding("down", "cursor_down", show=False, priority=True),
         Binding("enter", "select", show=False, priority=True),
@@ -545,7 +547,8 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
             yield Input(placeholder="Type to search...", id="search-input")
             yield ListView(id="search-results")
             yield Label(
-                "↑/↓ navigate   Enter: go to task   Esc: cancel", id="search-status"
+                "Enter: jump to results   ↑/↓/n/N: navigate   Enter: go to task   Esc: cancel",
+                id="search-status",
             )
 
     def on_mount(self) -> None:
@@ -618,6 +621,7 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
             list_view.append(ListItem(Label(label_text)))
 
         if self._result_entries:
+            self._select_first()
             self.call_after_refresh(self._select_first)
 
     def _select_first(self) -> None:
@@ -651,8 +655,25 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
                 list_view.index = i
                 return
 
+    def on_key(self, event: events.Key) -> None:
+        """Handle j/k/n/N navigation when the search input is not focused."""
+        inp = self.query_one("#search-input", Input)
+        if inp.has_focus:
+            return  # let Input receive all keystrokes while typing
+        if event.key in ("n", "j"):
+            event.prevent_default()
+            self.action_cursor_down()
+        elif event.key in ("N", "k"):
+            event.prevent_default()
+            self.action_cursor_up()
+
     def action_select(self) -> None:
+        inp = self.query_one("#search-input", Input)
         list_view = self.query_one("#search-results", ListView)
+        if inp.has_focus:
+            # First Enter: move focus to results so n/N/Enter can navigate them.
+            list_view.focus()
+            return
         idx = list_view.index
         if idx is None or idx >= len(self._result_entries):
             return
@@ -1855,13 +1876,14 @@ class GtdApp(App[None]):
             self._all_tasks = move_task_to_folder(
                 self._all_tasks, tid, target_folder_id
             )
+        first_task_id = task_ids[0] if task_ids else None
         self._save()
         self._move_mode = False
         self._pending_task_id = ""
         self._pending_task_ids = []
         self._current_view = target_folder_id
         self._rebuild_sidebar()
-        self._refresh_list()
+        self._refresh_list(select_task_id=first_task_id)
         self._update_status()
         self.query_one("#task-list", ListView).focus()
 
@@ -2336,7 +2358,9 @@ class GtdApp(App[None]):
         self._push_undo()
         self._all_tasks = move_to_waiting_on(self._all_tasks, task.id)
         self._save()
-        self._refresh_list()
+        self._current_view = "waiting_on"
+        self._rebuild_sidebar()
+        self._refresh_list(select_task_id=task.id)
 
     def _move_selected_to_today(self) -> None:
         task = self._get_selected_task()
@@ -2345,11 +2369,18 @@ class GtdApp(App[None]):
         self._push_undo()
         self._all_tasks = move_to_today(self._all_tasks, task.id)
         self._save()
-        self._refresh_list()
+        self._current_view = "today"
+        self._rebuild_sidebar()
+        self._refresh_list(select_task_id=task.id)
 
     # ------------------------------------------------------------------ #
     # Folder creation / rename / delete                                   #
     # ------------------------------------------------------------------ #
+
+    # Builtin folders that appear in the sidebar above the user-folder section.
+    _BEFORE_USER_FOLDERS: frozenset[str] = frozenset(
+        {"inbox", "today", "upcoming", "waiting_on"}
+    )
 
     def _start_create_folder(self, insert_position: str = "end") -> None:
         # Determine which user folder to anchor relative to.
@@ -2361,6 +2392,14 @@ class GtdApp(App[None]):
             candidate = view_ids[idx]
             if candidate not in BUILTIN_FOLDER_IDS and candidate != "__new_folder__":
                 anchor_id = candidate
+            elif candidate in self._BEFORE_USER_FOLDERS and insert_position == "after":
+                # Pressing `o` on a builtin that precedes user folders: insert at the
+                # very start of the user-folder section (before the first user folder).
+                user_folders = sorted(self._all_folders, key=lambda f: f.position)
+                if user_folders:
+                    anchor_id = user_folders[0].id
+                    insert_position = "before"
+                # else: no user folders yet — fall through to "end" (first folder)
         self._folder_insert_position = insert_position
         self._folder_insert_anchor_id = anchor_id
         self._sidebar_placeholder_insert = insert_position
@@ -2495,6 +2534,7 @@ class GtdApp(App[None]):
         self._push_undo()
         self._all_tasks = complete_task(self._all_tasks, task.id)
         self._save()
+        self._rebuild_sidebar()
         self._refresh_list()
 
     def _delete_selected(self) -> None:
@@ -2504,6 +2544,7 @@ class GtdApp(App[None]):
         self._push_undo()
         self._all_tasks = delete_task(self._all_tasks, task.id)
         self._save()
+        self._rebuild_sidebar()
         self._refresh_list()
 
     def _purge_logbook_entry(self) -> None:

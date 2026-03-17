@@ -111,12 +111,18 @@ def edit_task(
 def complete_task(tasks: list[Task], task_id: str) -> list[Task]:
     """Mark a task complete and move it to the logbook.
 
-    If the task has a recur_rule, also spawns a new copy in Today with
+    If the task has a recur_rule, spawns a new copy in Today with
     scheduled_date = completion_date + interval, carrying the same recur_rule.
+
+    If the task has a repeat_rule (calendar-fixed), spawns a new template task
+    in the same folder with scheduled_date = next_due (future), so that the
+    repeat schedule survives the completion and stays visible in Upcoming.
     """
     spawned: list[Task] = []
+    ref = date.today()
     for task in tasks:
         if task.id == task_id:
+            original_folder_id = task.folder_id
             task.complete()
             if task.recur_rule is not None:
                 rule = task.recur_rule
@@ -130,6 +136,28 @@ def complete_task(tasks: list[Task], task_id: str) -> list[Task]:
                         folder_id="today",
                         scheduled_date=new_date,
                         recur_rule=rule,
+                    )
+                )
+            elif task.repeat_rule is not None:
+                # Advance next_due to be strictly in the future so the new
+                # template only appears in Upcoming, not in Today's active list.
+                next_due = task.repeat_rule.next_due
+                while next_due <= ref:
+                    next_due = _advance_date(
+                        next_due, task.repeat_rule.interval, task.repeat_rule.unit
+                    )
+                new_rule = RepeatRule(
+                    interval=task.repeat_rule.interval,
+                    unit=task.repeat_rule.unit,
+                    next_due=next_due,
+                )
+                spawned.append(
+                    Task(
+                        title=task.title,
+                        notes=task.notes,
+                        folder_id=original_folder_id,
+                        scheduled_date=next_due,
+                        repeat_rule=new_rule,
                     )
                 )
     return tasks + spawned
@@ -474,13 +502,14 @@ def insert_waiting_on_task_before(
 
 
 def move_to_waiting_on(tasks: list[Task], task_id: str) -> list[Task]:
-    """Move a task to the Waiting On folder, appending at the end. Preserves any scheduled date."""
-    existing = folder_tasks(tasks, "waiting_on")
-    next_pos = existing[-1].position + 1 if existing else 0
+    """Move a task to the Waiting On folder at position 0 (top). Preserves any scheduled date."""
+    for task in tasks:
+        if task.folder_id == "waiting_on":
+            task.position += 1
     for task in tasks:
         if task.id == task_id:
             task.folder_id = "waiting_on"
-            task.position = next_pos
+            task.position = 0
             if task.scheduled_date is None:
                 task.scheduled_date = date.today() + timedelta(days=7)
     return tasks
@@ -733,13 +762,14 @@ def insert_folder_task_before(
 
 
 def move_task_to_folder(tasks: list[Task], task_id: str, folder_id: str) -> list[Task]:
-    """Move a task to a different folder, appending it at the end."""
-    target_tasks = folder_tasks(tasks, folder_id)
-    new_pos = target_tasks[-1].position + 1 if target_tasks else 0
+    """Move a task to a different folder, inserting it at position 0 (top)."""
+    for task in tasks:
+        if task.folder_id == folder_id:
+            task.position += 1
     for task in tasks:
         if task.id == task_id:
             task.folder_id = folder_id
-            task.position = new_pos
+            task.position = 0
     return tasks
 
 
@@ -915,6 +945,12 @@ def spawn_repeating_tasks(tasks: list[Task], as_of: date | None = None) -> list[
         spawned.append(Task(title=task.title, notes=task.notes, folder_id="today"))
         while rule.next_due <= ref:
             rule.next_due = _advance_date(rule.next_due, rule.interval, rule.unit)
+        # If the original lives in Today, give it a future scheduled_date equal to
+        # next_due so it no longer appears in Today's active list — only in Upcoming.
+        # This prevents the user from accidentally completing the template instead of
+        # the spawned copy, which would remove the repeat from Upcoming.
+        if task.folder_id == "today":
+            task.scheduled_date = rule.next_due
 
     if not spawned:
         return tasks
