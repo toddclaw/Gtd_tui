@@ -13,6 +13,7 @@ Multi-line mode (multiline=True):
 
 from __future__ import annotations
 
+import pyperclip
 from textual import events
 from textual.app import RenderableType
 from textual.message import Message
@@ -72,6 +73,9 @@ class VimInput(Widget, can_focus=True):
         self._view_row: int = 0  # vertical scroll: first visible logical line
         self._undo_stack: list[tuple[str, int]] = []
         self._redo_stack: list[tuple[str, int]] = []
+        self._register: str = (
+            ""  # unnamed yank register (fallback when clipboard unavailable)
+        )
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
@@ -609,6 +613,14 @@ class VimInput(Widget, can_focus=True):
             else:
                 self._text = self._text[: self._cursor]
                 self._cursor = max(0, len(self._text) - 1)
+        elif key == "y":
+            self._cmd_yank_line()
+        elif key == "p":
+            self._push_undo()
+            self._cmd_paste(after=True)
+        elif key == "P":
+            self._push_undo()
+            self._cmd_paste(after=False)
         elif key == "enter" and not self._multiline:
             self.post_message(self.Submitted(self, self._text))
 
@@ -818,6 +830,57 @@ class VimInput(Widget, can_focus=True):
             self._text = self._text[: self._cursor] + self._text[self._cursor + 1 :]
         self._clamp_cursor_for_command()
         self.set_mode("insert")
+
+    def _cmd_yank_line(self) -> None:
+        """y: copy current line to internal register and system clipboard."""
+        self._register = self._current_line()
+        try:
+            pyperclip.copy(self._register)
+        except Exception:
+            pass  # clipboard unavailable — register is still set
+
+    def _cmd_paste(self, after: bool) -> None:
+        """p / P: paste internal register (or clipboard) into the text.
+
+        Single-line mode:
+          after=True  → insert register content after the cursor position
+          after=False → insert register content before the cursor position
+
+        Multi-line mode:
+          after=True  → insert register as a new line below the current line
+          after=False → insert register as a new line above the current line
+        """
+        # Use internal register if set; fall back to system clipboard.
+        if self._register:
+            content = self._register
+        else:
+            try:
+                content = pyperclip.paste() or ""
+            except Exception:
+                content = ""
+
+        if not content:
+            return
+
+        if self._multiline:
+            row, _ = self._cursor_row_col()
+            lines = self._text.split("\n")
+            if after:
+                insert_row = row + 1
+            else:
+                insert_row = row
+            lines.insert(insert_row, content)
+            self._text = "\n".join(lines)
+            self._cursor = self._offset_from_row_col(insert_row, 0)
+            self._clamp_cursor_for_command()
+        else:
+            if after:
+                insert_pos = min(self._cursor + 1, len(self._text))
+            else:
+                insert_pos = self._cursor
+            self._text = self._text[:insert_pos] + content + self._text[insert_pos:]
+            self._cursor = insert_pos + len(content) - 1
+            self._cursor = max(0, min(self._cursor, len(self._text) - 1))
 
     def _cmd_sentence_forward(self) -> None:
         """): move to start of next sentence."""

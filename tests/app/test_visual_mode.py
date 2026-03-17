@@ -273,8 +273,8 @@ async def test_bulk_t_moves_selected_to_today(tmp_path: Path) -> None:
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        # Navigate to Waiting On view (Inbox=1, Today=2, Upcoming=3, WaitingOn=4)
-        await pilot.press("4")
+        # Navigate to Waiting On view (Inbox=0, Today=1, Upcoming=2, WaitingOn=3)
+        await pilot.press("3")
         await pilot.pause()
         await pilot.press("v", "j")
         await pilot.pause()

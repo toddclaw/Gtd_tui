@@ -8,6 +8,8 @@ from typing import Literal
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
 
+_UnitLiteral = Literal["days", "weeks", "months", "years"]
+
 # Folders whose tasks never auto-surface in Today or Upcoming smart views.
 _EXCLUDED_FROM_SMART_VIEWS: frozenset[str] = frozenset({"inbox", "someday", "logbook"})
 
@@ -852,7 +854,6 @@ def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
 # Repeat rule parsing
 # ---------------------------------------------------------------------------
 
-_UnitLiteral = Literal["days", "weeks", "months", "years"]
 _UNIT_ALIASES: dict[str, _UnitLiteral] = {
     "d": "days",
     "day": "days",

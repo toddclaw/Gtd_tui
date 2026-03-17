@@ -713,7 +713,7 @@ life domains. This is the top of the GTD hierarchy: Area → Project → Task.
 
 ---
 
-### BACKLOG-33 — Test coverage for identified gaps
+### ~~BACKLOG-33 — Test coverage for identified gaps~~ ✅ DONE
 
 **Story points:** 3 — Tests only; no source changes.
 
@@ -731,9 +731,182 @@ The audit identified several untested paths that carry real risk:
    passed, tasks actually spawned) is untested
 
 **Acceptance criteria:**
-- [ ] `tests/test_main.py` extended with mocked-`getpass` tests for `--encrypt` and `--decrypt`
-- [ ] `test_app.py` has a test for `:help` opening `HelpScreen` via the colon command buffer
-- [ ] `test_operations.py` has a direct test for `someday_tasks()` return value
-- [ ] `test_operations.py` has a direct test for `purge_logbook_task()`
-- [ ] `test_app.py` has a test for `m` key in NORMAL mode moving a task to a different folder
-- [ ] `test_app.py` has an integration test verifying `spawn_repeating_tasks` fires on launch
+- [x] `tests/test_main.py` extended with mocked-`getpass` tests for `--encrypt` and `--decrypt`
+- [x] `test_app.py` has a test for `:help` opening `HelpScreen` via the colon command buffer
+- [x] `test_operations.py` has a direct test for `someday_tasks()` return value (already existed)
+- [x] `test_operations.py` has a direct test for `purge_logbook_task()` (already existed)
+- [x] `test_app.py` has a test for `m` key in NORMAL mode moving a task to a different folder
+- [x] `test_app.py` has an integration test verifying `spawn_repeating_tasks` fires on launch
+
+---
+
+## Group: Housekeeping
+
+### ~~BACKLOG-34 — Change license to MIT~~ ✅ DONE
+
+**Story points:** 1
+
+**Description:**
+Add an MIT `LICENSE` file and update `pyproject.toml` to declare `license = {text = "MIT"}`.
+
+**Acceptance criteria:**
+- [x] `LICENSE` file at repo root contains the standard MIT license text with current year and author
+- [x] `pyproject.toml` declares `license = {text = "MIT"}`
+
+---
+
+## Group: Navigation improvements
+
+### ~~BACKLOG-35 — gg / G navigation in the sidebar folder list~~ ✅ DONE
+
+**Story points:** 2
+
+**Description:**
+`gg` (jump to top) and `G` (jump to bottom) already work in the task list but are not wired up
+for the sidebar. When the sidebar is focused, these keys should jump to the first and last
+sidebar entry respectively, consistent with the task-list behaviour described in CLAUDE.md.
+
+**Acceptance criteria:**
+- [x] `gg` while sidebar is focused moves the selection to the first sidebar item
+- [x] `G` while sidebar is focused moves the selection to the last sidebar item
+- [x] Both keys are no-ops when the sidebar is empty
+- [x] Existing task-list `gg` / `G` behaviour is unaffected
+
+---
+
+### ~~BACKLOG-36 — Folder number shortcuts start at 0~~ ✅ DONE
+
+**Story points:** 2
+
+**Description:**
+Currently sidebar items are reached with keys `1`–`9`. Renumber so that:
+- `0` → Inbox (first built-in folder)
+- `1` → Today
+- `2` → Upcoming
+- `3` → Waiting On
+- `4` → Someday
+- `5`–`9` → user-created folders in order
+
+This aligns with zero-indexed muscle memory and leaves `1`–`9` covering up to 9 user folders
+after the 5 built-in slots.
+
+**Acceptance criteria:**
+- [x] `0` focuses Inbox; `1` focuses Today; `2` focuses Upcoming; `3` focuses Waiting On; `4` focuses Someday
+- [x] `5`–`9` focus the 1st–5th user-created folder (in sidebar order)
+- [x] Keys beyond the available folder count are silently ignored
+- [x] Help screen keybinding table updated to reflect new numbering
+- [x] Tests updated / added for the new mapping
+
+---
+
+## Group: Task movement semantics
+
+### ~~BACKLOG-37 — Context-aware `t` key (Inbox → move to Today; other folders → schedule today)~~ ✅ DONE
+
+**Story points:** 3
+
+**Description:**
+The `t` key currently moves a task from Waiting On to Today (`move_to_today`). Extend its
+behaviour to cover all folders, with two distinct semantics:
+
+| Current folder | `t` behaviour |
+|---|---|
+| **Inbox** | Move task to the Today folder (same as the existing Waiting On → Today move) |
+| **Waiting On** | *(unchanged)* Move task to Today |
+| **User-defined folder** | Set `scheduled_date = today` so the task surfaces in the Today smart view without being physically moved |
+| **Today / Upcoming / Someday / Logbook** | No-op (already in the right place or archived) |
+
+**Acceptance criteria:**
+- [x] `t` in Inbox moves the task to the Today folder and refreshes the sidebar count
+- [x] `t` in Waiting On continues to move the task to Today (existing behaviour preserved)
+- [x] `t` in a user-created folder sets `scheduled_date = date.today()` and the task appears in Today's smart view
+- [x] `t` is a no-op when the current folder is Today, Upcoming, Someday, or Logbook
+- [x] Undo reverses the action in all cases
+- [x] Unit tests cover all four branches; integration test covers Inbox → Today
+
+---
+
+## Group: System integration
+
+### ~~BACKLOG-38 — Allow Ctrl-Z to suspend (background) the app~~ ✅ DONE
+
+**Story points:** 1
+
+**Description:**
+Ctrl-Z is the standard Unix terminal shortcut for suspending a foreground process (sending
+`SIGTSTP`). Textual intercepts it by default. The app should let Ctrl-Z through so the user
+can background the TUI and return with `fg`.
+
+**Acceptance criteria:**
+- [x] Pressing Ctrl-Z suspends the app and returns to the shell prompt (standard `fg`/`bg` flow works)
+- [x] The app resumes correctly when brought back to the foreground
+- [x] No other keybindings are affected
+
+---
+
+### ~~BACKLOG-39 — y / p clipboard integration in title and notes VimInput fields~~ ✅ DONE
+
+**Story points:** 5
+
+**Description:**
+When editing a task's title or notes in the detail view, the user should be able to:
+- **`y` (COMMAND mode):** yank the entire current line to the system clipboard (and to an
+  internal unnamed register)
+- **`p` (COMMAND mode):** paste the unnamed register (or system clipboard if register is empty)
+  after the cursor on the current line; in multi-line mode inserts below the current line
+- **`P` (COMMAND mode):** paste before the cursor / above the current line
+
+This follows standard vim clipboard conventions, using `pyperclip` (already a dependency).
+
+**Acceptance criteria:**
+- [x] `y` in COMMAND mode in any VimInput copies the current line to the system clipboard and internal register
+- [x] `p` in COMMAND mode pastes register content after cursor (single-line) or as a new line below (multi-line)
+- [x] `P` pastes before cursor / above current line
+- [x] Pasting works even when the system clipboard is unavailable (falls back to internal register)
+- [x] Unit tests cover yank and paste in both single-line and multi-line modes
+
+---
+
+## Group: Power features
+
+### BACKLOG-40 — Regex support in search
+
+**Story points:** 3
+
+**Description:**
+The global search (`/`) currently does case-insensitive substring matching. Add opt-in regex
+support: when the query starts with `/` (i.e. the user types `//pattern`), interpret it as a
+Python regex. Plain queries (no leading `/`) continue to behave as substring search.
+
+Alternatively (simpler UX): always attempt regex; fall back to literal substring if the pattern
+is invalid. Either approach is acceptable — confirm with user before implementing.
+
+**Acceptance criteria:**
+- [ ] Regex queries match titles and notes correctly (e.g. `buy (milk|bread)`)
+- [ ] Invalid regex patterns fall back gracefully to literal substring search (no crash)
+- [ ] Match highlighting in the results list works for regex matches (highlight the matched span)
+- [ ] `search_tasks()` unit tests cover regex matching and the invalid-pattern fallback
+- [ ] Search status bar hints that regex is supported
+
+---
+
+### ~~BACKLOG-41 — Persist undo buffer across sessions~~ ✅ DONE
+
+**Story points:** 8
+
+**Description:**
+The undo stack is currently held in memory and lost when the app exits. Persisting it lets
+users undo actions from a previous session — useful when e.g. accidentally deleting tasks and
+then restarting before noticing.
+
+The undo stack entry is a `list[Task]` snapshot. Serialise it alongside the main task/folder
+data in `data.json` (or a companion `undo.json`). Apply a cap (e.g. 20 entries) to keep the
+file size manageable.
+
+**Acceptance criteria:**
+- [x] Undo stack survives app restart (at least the last 20 operations)
+- [x] `u` after restart restores the previous state as expected
+- [x] Undo history is capped at 20 entries to bound file size
+- [x] Old `data.json` files without undo history load without error (empty undo stack)
+- [x] Encrypted databases store undo history encrypted alongside task data
+- [x] Unit tests cover save/load round-trip of the undo stack; integration test verifies cross-session undo

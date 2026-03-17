@@ -668,3 +668,119 @@ async def test_new_mutation_clears_redo_stack() -> None:
         await pilot.press("x")  # new mutation — clears redo
         await pilot.press("ctrl+r")  # redo stack is empty, should be no-op
         assert vi.value == "ello"  # still at the x-deleted state
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-39: y / p / P clipboard integration in VimInput COMMAND mode
+# ---------------------------------------------------------------------------
+
+
+async def test_y_sets_register_to_current_line_singleline() -> None:
+    """y in single-line command mode sets _register to the full text."""
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        await pilot.press("y")
+        assert _vi(pilot.app)._register == "hello world"
+
+
+async def test_p_paste_after_cursor_singleline() -> None:
+    """p in single-line mode inserts register content after cursor."""
+    async with _App(value="hi", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._register = "XYZ"
+        vi._cursor = 0  # cursor on 'h'
+        await pilot.press("p")
+        # Inserts "XYZ" after position 0 → "hXYZi"
+        assert vi.value == "hXYZi"
+
+
+async def test_P_paste_before_cursor_singleline() -> None:
+    """P in single-line mode inserts register content before cursor."""
+    async with _App(value="hi", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._register = "ABC"
+        vi._cursor = 1  # cursor on 'i'
+        await pilot.press("P")
+        # Inserts "ABC" before position 1 → "hABCi"
+        assert vi.value == "hABCi"
+
+
+async def test_p_paste_at_end_singleline() -> None:
+    """p at the last char appends the register at the end."""
+    async with _App(value="ab", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._register = "cd"
+        vi._cursor = 1  # last char 'b'
+        await pilot.press("p")
+        assert vi.value == "abcd"
+
+
+class _MultiCmdApp(App[None]):
+    """Multi-line VimInput starting in command mode with a preset value."""
+
+    def __init__(self, value: str = "") -> None:
+        super().__init__()
+        self._vim_value = value
+
+    def compose(self) -> ComposeResult:
+        yield VimInput(
+            value=self._vim_value,
+            start_mode="command",
+            multiline=True,
+            id="vi",
+        )
+
+
+async def test_y_sets_register_multiline() -> None:
+    """y in multi-line mode yanks only the current logical line."""
+    async with _MultiCmdApp(value="line one\nline two\nline three").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0  # on first line
+        await pilot.press("y")
+        assert vi._register == "line one"
+
+
+async def test_p_inserts_new_line_below_multiline() -> None:
+    """p in multi-line mode inserts register as a new line below current."""
+    async with _MultiCmdApp(value="alpha\nbeta").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0  # on 'alpha'
+        vi._register = "gamma"
+        await pilot.press("p")
+        assert vi.value == "alpha\ngamma\nbeta"
+
+
+async def test_P_inserts_new_line_above_multiline() -> None:
+    """P in multi-line mode inserts register as a new line above current."""
+    async with _MultiCmdApp(value="alpha\nbeta").run_test() as pilot:
+        vi = _vi(pilot.app)
+        # Position cursor on 'beta' (row 1)
+        vi._cursor = len("alpha\n")
+        vi._register = "gamma"
+        await pilot.press("P")
+        assert vi.value == "alpha\ngamma\nbeta"
+
+
+async def test_p_falls_back_to_register_when_clipboard_unavailable() -> None:
+    """Paste works using the internal register even when pyperclip raises."""
+    import unittest.mock as mock
+
+    async with _App(value="foo", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._register = "bar"
+        vi._cursor = 2  # last char 'o'
+        with mock.patch(
+            "gtd_tui.widgets.vim_input.pyperclip.paste", side_effect=Exception
+        ):
+            await pilot.press("p")
+        assert vi.value == "foobar"
+
+
+async def test_y_p_roundtrip_singleline() -> None:
+    """Yank then paste: y on 'word' then p appends it after cursor."""
+    async with _App(value="word", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 3  # last char 'd'
+        await pilot.press("y")  # yank "word"
+        assert vi._register == "word"
+        await pilot.press("p")  # paste after last char
+        assert vi.value == "wordword"

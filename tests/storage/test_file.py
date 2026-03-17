@@ -11,7 +11,14 @@ from gtd_tui.gtd.operations import (
     set_repeat_rule,
 )
 from gtd_tui.gtd.task import RecurRule, RepeatRule
-from gtd_tui.storage.file import load_folders, load_tasks, save_data, save_tasks
+from gtd_tui.storage.file import (
+    load_folders,
+    load_redo_stack,
+    load_tasks,
+    load_undo_stack,
+    save_data,
+    save_tasks,
+)
 
 
 def test_save_and_load_round_trip(tmp_path: Path) -> None:
@@ -366,3 +373,70 @@ def test_encrypted_file_permissions_are_600(tmp_path: Path) -> None:
     save_tasks([], data_file=data_file, password="pw")
     mode = oct(data_file.stat().st_mode)[-3:]
     assert mode == "600"
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-41: undo/redo stack persistence
+# ---------------------------------------------------------------------------
+
+
+def test_undo_stack_round_trip(tmp_path: Path) -> None:
+    """Undo stack saved with save_data is restored by load_undo_stack."""
+    data_file = tmp_path / "data.json"
+    tasks_a = add_task([], "State A")
+    tasks_b = add_task([], "State B")
+    undo_stack = [(tasks_a, [])]
+    save_data(tasks_b, [], data_file=data_file, undo_stack=undo_stack)
+    loaded = load_undo_stack(data_file=data_file)
+    assert len(loaded) == 1
+    assert loaded[0][0][0].title == "State A"
+
+
+def test_redo_stack_round_trip(tmp_path: Path) -> None:
+    """Redo stack saved with save_data is restored by load_redo_stack."""
+    data_file = tmp_path / "data.json"
+    tasks_a = add_task([], "Redo State")
+    redo_stack = [(tasks_a, [])]
+    save_data([], [], data_file=data_file, redo_stack=redo_stack)
+    loaded = load_redo_stack(data_file=data_file)
+    assert len(loaded) == 1
+    assert loaded[0][0][0].title == "Redo State"
+
+
+def test_undo_stack_capped_at_20(tmp_path: Path) -> None:
+    """load_undo_stack only returns the last 20 entries when more were saved."""
+    data_file = tmp_path / "data.json"
+    # Build 25 snapshots
+    stack = [(add_task([], f"State {i}"), []) for i in range(25)]
+    save_data([], [], data_file=data_file, undo_stack=stack)
+    loaded = load_undo_stack(data_file=data_file)
+    assert len(loaded) == 20
+    # Should be the last 20 (indices 5-24)
+    assert loaded[0][0][0].title == "State 5"
+    assert loaded[-1][0][0].title == "State 24"
+
+
+def test_load_undo_stack_missing_file_returns_empty(tmp_path: Path) -> None:
+    """load_undo_stack returns [] when the file does not exist."""
+    result = load_undo_stack(data_file=tmp_path / "nonexistent.json")
+    assert result == []
+
+
+def test_load_undo_stack_legacy_file_returns_empty(tmp_path: Path) -> None:
+    """Files without an undo_stack key load cleanly with an empty stack."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Old task")
+    # Save without undo_stack (legacy format)
+    save_data(tasks, [], data_file=data_file)
+    assert load_undo_stack(data_file=data_file) == []
+
+
+def test_undo_stack_persists_through_encrypted_file(tmp_path: Path) -> None:
+    """Undo stack is stored inside an encrypted file and can be retrieved."""
+    data_file = tmp_path / "data.json"
+    tasks_a = add_task([], "Encrypted undo state")
+    undo_stack = [(tasks_a, [])]
+    save_data([], [], data_file=data_file, password="pw", undo_stack=undo_stack)
+    loaded = load_undo_stack(data_file=data_file, password="pw")
+    assert len(loaded) == 1
+    assert loaded[0][0][0].title == "Encrypted undo state"

@@ -1107,3 +1107,113 @@ async def test_visual_yank_exits_visual_mode(tmp_path: Path) -> None:
             await pilot.press("y")
             await pilot.pause()
         assert not app._visual_mode
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-33: Colon command dispatch (:help opens HelpScreen)
+# ---------------------------------------------------------------------------
+
+
+async def test_colon_help_opens_help_screen(tmp_path: Path) -> None:
+    """Typing :help<Enter> via the command buffer pushes HelpScreen onto the stack."""
+    from textual.widgets import Input
+
+    from gtd_tui.app import HelpScreen
+
+    app = _make_app(tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Enter colon-command mode
+        await pilot.press("colon")
+        await pilot.pause()
+        assert app._input_stage == "command"
+        # Type "help" and submit
+        inp = app.query_one("#task-input", Input)
+        inp.value = "help"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert any(isinstance(s, HelpScreen) for s in app.screen_stack)
+
+
+async def test_colon_h_abbreviation_opens_help_screen(tmp_path: Path) -> None:
+    """:h is the short form of :help and also opens HelpScreen."""
+    from textual.widgets import Input
+
+    from gtd_tui.app import HelpScreen
+
+    app = _make_app(tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("colon")
+        await pilot.pause()
+        inp = app.query_one("#task-input", Input)
+        inp.value = "h"
+        await pilot.press("enter")
+        await pilot.pause()
+        assert any(isinstance(s, HelpScreen) for s in app.screen_stack)
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-33: m key in NORMAL mode moves a single task to another folder
+# ---------------------------------------------------------------------------
+
+
+async def test_m_key_normal_mode_moves_task_to_folder(tmp_path: Path) -> None:
+    """Pressing m in NORMAL mode, navigating to a folder, then Enter moves the task."""
+    data_file = tmp_path / "data.json"
+    # Start with a task in Today (default)
+    tasks = add_task([], "Move me")
+    save_data(tasks, [], data_file=data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # NORMAL mode, task selected: press m to start single-task move
+        await pilot.press("m")
+        await pilot.pause()
+        assert app._move_mode is True
+        # Sidebar is now focused at the current view (today, index 1).
+        # Navigate j j j → index 4 = someday, then confirm.
+        await pilot.press("j", "j", "j")
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        # Task should now be in someday
+        someday_tasks = [t for t in app._all_tasks if t.folder_id == "someday"]
+        assert any(t.title == "Move me" for t in someday_tasks)
+        assert app._current_view == "someday"
+        assert not app._move_mode
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-33: spawn_repeating_tasks fires on launch (on_mount integration)
+# ---------------------------------------------------------------------------
+
+
+async def test_spawn_repeating_tasks_fires_on_launch(tmp_path: Path) -> None:
+    """Tasks with a past-due repeat rule get a Today copy spawned on app launch."""
+    from datetime import date, timedelta
+
+    from gtd_tui.gtd.operations import set_repeat_rule
+    from gtd_tui.gtd.task import RepeatRule
+
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Daily standup")
+    # Make the repeat rule's next_due be yesterday so it fires today
+    yesterday = date.today() - timedelta(days=1)
+    rule = RepeatRule(interval=1, unit="days", next_due=yesterday)
+    tasks = set_repeat_rule(tasks, tasks[0].id, rule)
+    save_data(tasks, [], data_file=data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # on_mount should have spawned a Today copy (no repeat_rule on the copy)
+        today_copies = [
+            t
+            for t in app._all_tasks
+            if t.title == "Daily standup"
+            and t.folder_id == "today"
+            and t.repeat_rule is None
+        ]
+        assert len(today_copies) == 1

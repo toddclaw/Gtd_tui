@@ -150,23 +150,85 @@ def load_folders(
         return []
 
 
+_UNDO_CAP = 20
+
+UndoStack = list[tuple[list[Task], list[Folder]]]
+
+
+def _undo_stack_to_list(stack: UndoStack) -> list[Any]:
+    return [
+        {
+            "tasks": [_task_to_dict(t) for t in tasks],
+            "folders": [_folder_to_dict(f) for f in folders],
+        }
+        for tasks, folders in stack
+    ]
+
+
+def _undo_stack_from_list(raw: list[Any]) -> UndoStack:
+    result: UndoStack = []
+    for entry in raw:
+        try:
+            tasks = [_task_from_dict(t) for t in entry.get("tasks", [])]
+            folders = [_folder_from_dict(f) for f in entry.get("folders", [])]
+            result.append((tasks, folders))
+        except (KeyError, ValueError):
+            pass  # skip corrupt entries rather than failing the whole load
+    return result
+
+
+def load_undo_stack(
+    data_file: Path | None = None, password: str | None = None
+) -> UndoStack:
+    """Load the persisted undo stack. Returns empty list if missing or corrupt."""
+    path = data_file or _DEFAULT_DATA_FILE
+    if not path.exists():
+        return []
+    try:
+        raw = _read_raw(path, password)
+        return _undo_stack_from_list(raw.get("undo_stack", []))
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return []
+
+
+def load_redo_stack(
+    data_file: Path | None = None, password: str | None = None
+) -> UndoStack:
+    """Load the persisted redo stack. Returns empty list if missing or corrupt."""
+    path = data_file or _DEFAULT_DATA_FILE
+    if not path.exists():
+        return []
+    try:
+        raw = _read_raw(path, password)
+        return _undo_stack_from_list(raw.get("redo_stack", []))
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return []
+
+
 def save_data(
     tasks: list[Task],
     folders: list[Folder],
     data_file: Path | None = None,
     password: str | None = None,
+    undo_stack: UndoStack | None = None,
+    redo_stack: UndoStack | None = None,
 ) -> None:
-    """Atomically save tasks and folders to disk with restricted permissions (600).
+    """Atomically save tasks, folders, and optional undo/redo stacks to disk.
 
     If *password* is provided the file is written as an encrypted binary blob;
-    otherwise it is written as plain JSON.
+    otherwise it is written as plain JSON.  The undo/redo stacks are capped at
+    _UNDO_CAP entries each before saving.
     """
     path = data_file or _DEFAULT_DATA_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
+    payload: dict[str, Any] = {
         "tasks": [_task_to_dict(t) for t in tasks],
         "folders": [_folder_to_dict(f) for f in folders],
     }
+    if undo_stack is not None:
+        payload["undo_stack"] = _undo_stack_to_list(undo_stack[-_UNDO_CAP:])
+    if redo_stack is not None:
+        payload["redo_stack"] = _undo_stack_to_list(redo_stack[-_UNDO_CAP:])
     json_bytes = json.dumps(payload, indent=2).encode()
     write_bytes = encrypt_data(json_bytes, password) if password else json_bytes
 
@@ -192,3 +254,14 @@ def save_tasks(
     """Atomically save tasks to disk, preserving any existing folder data."""
     existing_folders = load_folders(data_file, password=password)
     save_data(tasks, existing_folders, data_file, password=password)
+
+
+__all__ = [
+    "UndoStack",
+    "load_folders",
+    "load_redo_stack",
+    "load_tasks",
+    "load_undo_stack",
+    "save_data",
+    "save_tasks",
+]

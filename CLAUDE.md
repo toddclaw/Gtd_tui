@@ -416,14 +416,22 @@ When the user asks to make a release (e.g. "release v1.3.0" or "merge and tag"),
 
 1. **Commit pending changes** on the current feature branch (if any uncommitted work exists)
 2. **Push the feature branch** to remote: `git push origin <branch>`
-3. **Checkout main**: `git checkout main`
-4. **Merge the feature branch**: `git merge <branch> --no-ff -m "Merge branch '<branch>' — v<X.Y.Z>"`
-5. **Bump version** in `pyproject.toml`: `version = "X.Y.Z"`
-6. **Commit the version bump**: `git commit -m "Bump version to X.Y.Z"`
-7. **Create annotated tag**: `git tag -a vX.Y.Z HEAD -m "vX.Y.Z — <short summary of changes>"`
-8. **Push main**: `git push origin main`
-9. **Push tags**: `git push origin vX.Y.Z`
-10. **Return to feature branch**: `git checkout <branch>`
+3. **Open a pull request** from the feature branch into `main`:
+   - Use `gh pr create` with a title of the form `Release vX.Y.Z`
+   - The PR body must include:
+     - A one-paragraph summary of all changes being merged (synthesised from the commit log and `CHANGELOG.md [Unreleased]` section)
+     - A bulleted list of every BACKLOG item completed (title only, not acceptance criteria)
+     - The version being released
+   - Example: `gh pr create --title "Release vX.Y.Z" --body "$(cat <<'EOF'\n...\nEOF\n)"`
+4. **Merge the pull request**: `gh pr merge <number> --merge --subject "Merge branch '<branch>' — vX.Y.Z"`
+   (use `--merge` for a standard merge commit, preserving full history)
+5. **Checkout main and pull**: `git checkout main && git pull origin main`
+6. **Bump version** in `pyproject.toml`: `version = "X.Y.Z"`
+7. **Commit the version bump**: `git commit -m "Bump version to X.Y.Z"`
+8. **Create annotated tag**: `git tag -a vX.Y.Z HEAD -m "vX.Y.Z — <short summary of changes>"`
+9. **Push main**: `git push origin main`
+10. **Push tags**: `git push origin vX.Y.Z`
+11. **Return to feature branch**: `git checkout <branch>`
 
 GitHub Actions will automatically build the wheel and publish the release once the tag arrives.
 
@@ -450,7 +458,7 @@ See [BACKLOG.md](BACKLOG.md) for the full feature backlog.
 
 ## Notes for AI Assistants
 
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22 are **complete**. BACKLOG-23 is pending. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 33 are **complete**. BACKLOG-23 is pending. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.

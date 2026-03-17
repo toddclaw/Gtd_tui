@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import copy
+import os
+import signal
 import uuid
+from datetime import date
 from pathlib import Path
 
 import pyperclip
@@ -62,7 +65,14 @@ from gtd_tui.gtd.operations import (
     weekly_review_tasks,
 )
 from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
-from gtd_tui.storage.file import load_folders, load_tasks, save_data
+from gtd_tui.storage.file import (
+    UndoStack,
+    load_folders,
+    load_redo_stack,
+    load_tasks,
+    load_undo_stack,
+    save_data,
+)
 from gtd_tui.widgets.vim_input import VimInput
 
 
@@ -91,7 +101,7 @@ class HelpScreen(ModalScreen[None]):
   Ctrl+u       Half-page up
   h / l        Focus sidebar / task list
   i            Jump to Inbox
-  1–9          Jump to nth sidebar item
+  0–9          Jump to nth sidebar item (0=Inbox, 1=Today, …)
 
 [bold]Task Actions[/bold]
   Enter        Open task detail / edit
@@ -103,7 +113,7 @@ class HelpScreen(ModalScreen[None]):
   m            Move selected task to a folder
   J / K        Move selected task down / up
   w            Move task to Waiting On  (Today view)
-  t            Move task to Today       (Waiting On view)
+  t            Move to Today (Waiting On / Inbox) or schedule for today (user folders)
   y            Yank (copy) task title and notes to clipboard
   u            Undo last action
   Ctrl+R       Redo last undone action
@@ -119,7 +129,7 @@ class HelpScreen(ModalScreen[None]):
   s            Schedule all selected tasks
   m            Move all selected tasks to a folder
   w            Move all selected tasks to Waiting On
-  t            Move all selected tasks to Today
+  t            Move to Today (Waiting On / Inbox) or schedule for today (user folders)
   y            Yank all selected tasks to clipboard (title + notes, blank line between)
   J / K        Move selected block down / up
   u            Undo last bulk action (exits VISUAL mode)
@@ -133,8 +143,12 @@ class HelpScreen(ModalScreen[None]):
   Enter        Confirm and advance to next field
   Esc          Save and close
   Deadline     Hard due date — [bold red]red[/bold red] if overdue, [yellow]yellow[/yellow] if ≤3 days
+  y            Yank current line to clipboard and internal register
+  p / P        Paste register after / before cursor (or below / above in notes)
 
 [bold]Sidebar Folder Actions (sidebar focused)[/bold]
+  g g          Jump to top of sidebar
+  G            Jump to bottom of sidebar
   o / O        Create new folder after / before selected
   N            Create new folder at end
   r            Rename selected folder
@@ -152,6 +166,7 @@ class HelpScreen(ModalScreen[None]):
 
 [bold]General[/bold]
   q            Quit
+  Ctrl+Z       Suspend to background (resume with fg)
 
   j / k to scroll  ·  Esc, Enter, or q to close\
 """
@@ -777,8 +792,8 @@ class GtdApp(App[None]):
         self._current_view: str = "today"
         # Parallel to ListView children: Task for rows, None for separators/placeholders
         self._list_entries: list[Task | None] = []
-        self._undo_stack: list[tuple[list[Task], list[Folder]]] = []
-        self._redo_stack: list[tuple[list[Task], list[Folder]]] = []
+        self._undo_stack: UndoStack = load_undo_stack(data_file, password=password)
+        self._redo_stack: UndoStack = load_redo_stack(data_file, password=password)
         self._pending_anchor_id: str = ""
         self._pending_insert_position: str = "after"  # "after" or "before"
         # Placeholder row shown in the list while a new task is being typed
@@ -1210,10 +1225,14 @@ class GtdApp(App[None]):
         if self._mode == "NORMAL" and not sidebar.has_focus:
             list_view.focus()
 
+    _UNDO_CAP = 20
+
     def _push_undo(self) -> None:
         self._undo_stack.append(
             (copy.deepcopy(self._all_tasks), copy.deepcopy(self._all_folders))
         )
+        if len(self._undo_stack) > self._UNDO_CAP:
+            self._undo_stack.pop(0)
         self._redo_stack.clear()
 
     def _update_status(self, message: str = "") -> None:
@@ -1238,7 +1257,12 @@ class GtdApp(App[None]):
 
     def _save(self) -> None:
         save_data(
-            self._all_tasks, self._all_folders, self._data_file, password=self._password
+            self._all_tasks,
+            self._all_folders,
+            self._data_file,
+            password=self._password,
+            undo_stack=self._undo_stack,
+            redo_stack=self._redo_stack,
         )
 
     def _task_to_yank_text(self, task: Task) -> str:
@@ -1280,6 +1304,11 @@ class GtdApp(App[None]):
         # Don't intercept keys when a modal overlay is active — let the modal handle them.
         if len(self.screen_stack) > 1:
             return
+        # Ctrl-Z: suspend to background (SIGTSTP)
+        if event.key == "ctrl+z":
+            event.prevent_default()
+            os.kill(os.getpid(), signal.SIGTSTP)
+            return
         # Delete-folder confirmation takes priority
         if self._delete_confirm_folder_id:
             self._handle_delete_confirm_key(event)
@@ -1313,7 +1342,25 @@ class GtdApp(App[None]):
                 self._cancel_move_mode()
             return
 
-        if event.key == "j":
+        pending = self._pending_key
+        self._pending_key = ""
+
+        if pending == "g" and event.key == "g":
+            event.prevent_default()
+            if self._sidebar_view_ids:
+                sidebar.index = 0
+            return
+        elif event.key == "g":
+            self._pending_key = "g"
+            return
+
+        if event.key == "G":
+            event.prevent_default()
+            n = len(self._sidebar_view_ids)
+            if n > 0:
+                sidebar.index = n - 1
+            return
+        elif event.key == "j":
             event.prevent_default()
             sidebar.action_cursor_down()
         elif event.key == "k":
@@ -1343,9 +1390,9 @@ class GtdApp(App[None]):
         elif event.key == "i":
             event.prevent_default()
             self._jump_to_view_id("inbox")
-        elif event.key.isdigit() and event.key != "0":
+        elif event.key.isdigit():
             event.prevent_default()
-            self._jump_to_view(int(event.key) - 1)
+            self._jump_to_view(int(event.key))
         elif event.key == "slash":
             event.prevent_default()
             self._open_search()
@@ -1461,9 +1508,9 @@ class GtdApp(App[None]):
         elif event.key == "i":
             event.prevent_default()
             self._jump_to_view_id("inbox")
-        elif event.key.isdigit() and event.key != "0":
+        elif event.key.isdigit():
             event.prevent_default()
-            self._jump_to_view(int(event.key) - 1)
+            self._jump_to_view(int(event.key))
         elif event.key == "o":
             event.prevent_default()
             if self._current_view != "logbook":
@@ -1490,9 +1537,9 @@ class GtdApp(App[None]):
         elif event.key == "w" and self._current_view == "today":
             event.prevent_default()
             self._move_selected_to_waiting_on()
-        elif event.key == "t" and self._current_view == "waiting_on":
+        elif event.key == "t":
             event.prevent_default()
-            self._move_selected_to_today()
+            self._handle_t_key()
         elif event.key == "x" or event.key == "space":
             event.prevent_default()
             self._complete_selected()
@@ -2173,7 +2220,7 @@ class GtdApp(App[None]):
 
         elif event.key == "t":
             event.prevent_default()
-            self._bulk_move_to_today()
+            self._bulk_handle_t_key()
 
         elif event.key == "J":
             event.prevent_default()
@@ -2282,6 +2329,22 @@ class GtdApp(App[None]):
         self._rebuild_sidebar()
         self._refresh_list()
 
+    def _bulk_handle_t_key(self) -> None:
+        """Context-aware t in VISUAL mode: move to Today or schedule in-place."""
+        tasks = self._visual_selected_tasks
+        if not tasks:
+            self._exit_visual_mode()
+            return
+        if self._current_view in ("waiting_on", "inbox"):
+            self._bulk_move_to_today()
+        elif self._current_view not in BUILTIN_FOLDER_IDS:
+            self._push_undo()
+            for task in tasks:
+                self._all_tasks = schedule_task(self._all_tasks, task.id, date.today())
+            self._exit_visual_mode()
+            self._save()
+            self._refresh_list()
+
     def _bulk_move_block_down(self) -> None:
         tasks = self._visual_selected_tasks
         if not tasks or any(not self._can_reorder(t) for t in tasks):
@@ -2290,7 +2353,6 @@ class GtdApp(App[None]):
             self._list_entries[self._visual_anchor_idx]
             if self._visual_anchor_idx is not None
             and self._visual_anchor_idx < len(self._list_entries)
-            and self._list_entries[self._visual_anchor_idx] is not None
             else None
         )
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
@@ -2312,7 +2374,6 @@ class GtdApp(App[None]):
             self._list_entries[self._visual_anchor_idx]
             if self._visual_anchor_idx is not None
             and self._visual_anchor_idx < len(self._list_entries)
-            and self._list_entries[self._visual_anchor_idx] is not None
             else None
         )
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
@@ -2377,6 +2438,23 @@ class GtdApp(App[None]):
         self._current_view = "today"
         self._rebuild_sidebar()
         self._refresh_list(select_task_id=task.id)
+
+    def _handle_t_key(self) -> None:
+        """Context-aware t key:
+        - waiting_on / today views: move to Today (existing behaviour).
+        - inbox view: move task to Today folder.
+        - user folder views: set scheduled_date = today (schedule in-place).
+        """
+        task = self._get_selected_task()
+        if task is None:
+            return
+        if self._current_view in ("waiting_on", "inbox"):
+            self._move_selected_to_today()
+        elif self._current_view not in BUILTIN_FOLDER_IDS:
+            self._push_undo()
+            self._all_tasks = schedule_task(self._all_tasks, task.id, date.today())
+            self._save()
+            self._refresh_list(select_task_id=task.id)
 
     # ------------------------------------------------------------------ #
     # Folder creation / rename / delete                                   #
