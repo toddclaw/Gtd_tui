@@ -1188,8 +1188,6 @@ def test_search_active_before_logbook():
     logbook_id = tasks[-1].id
     tasks = complete_task(tasks, logbook_id)
     results = search_tasks(tasks, "buy")
-    [r for r in results if r[0].folder_id != "logbook"]
-    [r for r in results if r[0].folder_id == "logbook"]
     # active results appear first in the list
     active_indices = [i for i, r in enumerate(results) if r[0].folder_id != "logbook"]
     logbook_indices = [i for i, r in enumerate(results) if r[0].folder_id == "logbook"]

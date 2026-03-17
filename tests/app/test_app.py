@@ -921,7 +921,6 @@ async def test_o_inserts_folder_after_selected(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_new_task_has_created_at(tmp_path: Path) -> None:
-    _make_app(tmp_path)._data_file
     app = GtdApp(data_file=tmp_path / "data.json")
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1117,8 +1116,9 @@ async def test_visual_yank_exits_visual_mode(tmp_path: Path) -> None:
 
 async def test_colon_help_opens_help_screen(tmp_path: Path) -> None:
     """Typing :help<Enter> via the command buffer pushes HelpScreen onto the stack."""
-    from gtd_tui.app import HelpScreen
     from textual.widgets import Input
+
+    from gtd_tui.app import HelpScreen
 
     app = _make_app(tmp_path)
     async with app.run_test() as pilot:
@@ -1137,8 +1137,9 @@ async def test_colon_help_opens_help_screen(tmp_path: Path) -> None:
 
 async def test_colon_h_abbreviation_opens_help_screen(tmp_path: Path) -> None:
     """:h is the short form of :help and also opens HelpScreen."""
-    from gtd_tui.app import HelpScreen
     from textual.widgets import Input
+
+    from gtd_tui.app import HelpScreen
 
     app = _make_app(tmp_path)
     async with app.run_test() as pilot:
@@ -1192,8 +1193,9 @@ async def test_m_key_normal_mode_moves_task_to_folder(tmp_path: Path) -> None:
 async def test_spawn_repeating_tasks_fires_on_launch(tmp_path: Path) -> None:
     """Tasks with a past-due repeat rule get a Today copy spawned on app launch."""
     from datetime import date, timedelta
-    from gtd_tui.gtd.task import RepeatRule
+
     from gtd_tui.gtd.operations import set_repeat_rule
+    from gtd_tui.gtd.task import RepeatRule
 
     data_file = tmp_path / "data.json"
     tasks = add_task([], "Daily standup")
