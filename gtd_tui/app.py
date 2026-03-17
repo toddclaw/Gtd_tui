@@ -484,14 +484,18 @@ class SearchScreen(ModalScreen[str | None]):
         active_results = [(t, mt) for t, mt in results if t.folder_id != "logbook"]
         logbook_results = [(t, mt) for t, mt in results if t.folder_id == "logbook"]
 
+        def _escape(text: str) -> str:
+            """Escape all [ in user text so Textual never treats them as markup."""
+            return text.replace("[", "\\[")
+
         def _highlight(text: str, query: str) -> str:
             q_lower = query.lower()
             idx = text.lower().find(q_lower)
             if idx == -1:
-                return markup_escape(text)
-            before = markup_escape(text[:idx])
-            match = markup_escape(text[idx : idx + len(query)])
-            after = markup_escape(text[idx + len(query) :])
+                return _escape(text)
+            before = _escape(text[:idx])
+            match = _escape(text[idx : idx + len(query)])
+            after = _escape(text[idx + len(query) :])
             return f"{before}[bold yellow]{match}[/bold yellow]{after}"
 
         def _folder_tag(task: Task) -> str:
@@ -505,10 +509,11 @@ class SearchScreen(ModalScreen[str | None]):
 
         for task, match_type in active_results:
             tag = _folder_tag(task)
+            tag_prefix = markup_escape(f"[{tag}]")
             if match_type == "notes":
-                label_text = f"[{tag}] {_highlight(task.title, query)}  [dim](notes)[/dim]"
+                label_text = f"{tag_prefix} {_highlight(task.title, query)}  [dim](notes)[/dim]"
             else:
-                label_text = f"[{tag}] {_highlight(task.title, query)}"
+                label_text = f"{tag_prefix} {_highlight(task.title, query)}"
             self._result_entries.append((task.id, task.title, False))
             list_view.append(ListItem(Label(label_text)))
 
@@ -517,10 +522,11 @@ class SearchScreen(ModalScreen[str | None]):
             list_view.append(ListItem(Label("── Logbook ──")))
 
         for task, match_type in logbook_results:
+            tag_prefix = markup_escape("[Logbook]")
             if match_type == "notes":
-                label_text = f"[Logbook] {_highlight(task.title, query)}  [dim](notes)[/dim]"
+                label_text = f"{tag_prefix} {_highlight(task.title, query)}  [dim](notes)[/dim]"
             else:
-                label_text = f"[Logbook] {_highlight(task.title, query)}"
+                label_text = f"{tag_prefix} {_highlight(task.title, query)}"
             self._result_entries.append((task.id, task.title, False))
             list_view.append(ListItem(Label(label_text)))
 

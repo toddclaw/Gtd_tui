@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from gtd_tui.app import GtdApp, SearchScreen, TaskDetailScreen
-from gtd_tui.gtd.operations import add_task
+from gtd_tui.gtd.operations import add_task, add_task_to_folder, create_folder
 from gtd_tui.storage.file import save_data
 from textual.widgets import Label, ListView
 
@@ -430,6 +430,57 @@ async def test_escape_closes_search_screen(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("slash")
         await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, SearchScreen)
+
+
+async def test_search_tasks_in_user_folder_no_markup_crash(tmp_path: Path) -> None:
+    """Searching when tasks exist in a user-created folder must not raise MarkupError.
+
+    Previously, the search result label used f"[{folder_id[:8]}] ..." which Textual
+    parsed as a markup tag.  When the highlight span [bold yellow]...[/bold yellow]
+    followed, the closing tag had no matching open tag and raised MarkupError.
+    """
+    data_file = tmp_path / "data.json"
+    folders = create_folder([], "My Projects")
+    folder_id = folders[0].id
+    tasks = add_task_to_folder([], folder_id, "Schedule a meeting")
+    save_data(tasks, folders, data_file=data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("slash")
+        await pilot.pause()
+        # typing "s" matches "Schedule a meeting" in the user folder — this
+        # previously caused a MarkupError crash
+        await pilot.press("s")
+        await pilot.pause()
+        assert isinstance(app.screen, SearchScreen)
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not isinstance(app.screen, SearchScreen)
+
+
+async def test_search_title_with_brackets_no_markup_crash(tmp_path: Path) -> None:
+    """Task titles containing '[' must not cause MarkupError when highlighted.
+
+    Rich's markup_escape only escapes '[' when it forms a complete '[markup]'
+    pattern.  A bare '[' left by splitting the title at the match position
+    (e.g. '(ab) [cd]' matched on 'c' gives before='(ab) [') was not escaped,
+    producing invalid markup like '(ab) [[bold yellow]c[/bold yellow]d]'.
+    """
+    data_file = _prepopulate(tmp_path, "(ab) [cd] {ef}")
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("slash")
+        await pilot.pause()
+        await pilot.press("c")
+        await pilot.pause()
+        assert isinstance(app.screen, SearchScreen)
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, SearchScreen)
