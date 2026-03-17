@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gtd-tui"
-version = "1.2.2"
+version = "1.2.3"
 description = "GTD task manager TUI"
 requires-python = ">=3.11"
 dependencies = [
