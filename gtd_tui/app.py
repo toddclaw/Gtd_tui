@@ -374,6 +374,34 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
     def on_mount(self) -> None:
         self.query_one("#detail-title-input", VimInput).focus()
 
+    def _normalize_field(self, widget_id: str) -> None:
+        """Rewrite a parseable field to its canonical form so the user can
+        confirm their input was understood before closing the modal."""
+        inp = self.query_one(f"#{widget_id}", VimInput)
+        raw = inp.value.strip()
+        if not raw:
+            return
+        if widget_id in ("detail-date-input", "detail-deadline-input"):
+            if widget_id == "detail-date-input" and raw.lower() == "someday":
+                inp.value = "someday"
+                return
+            try:
+                parsed = parse_date_input(raw)
+                inp.value = parsed.isoformat() if parsed else ""
+            except InvalidDateError:
+                inp.value = "(invalid)"
+        elif widget_id in ("detail-repeat-input", "detail-recur-input"):
+            try:
+                parsed = parse_repeat_input(raw)
+                if parsed is None:
+                    inp.value = ""
+                else:
+                    interval, unit = parsed
+                    display_unit = unit if interval != 1 else unit.rstrip("s")
+                    inp.value = f"{interval} {display_unit}"
+            except InvalidRepeatError:
+                inp.value = "(invalid)"
+
     def action_save_and_close(self) -> None:
         title = self.query_one("#detail-title-input", VimInput).value.strip()
         date_text = self.query_one("#detail-date-input", VimInput).value.strip()
@@ -391,16 +419,23 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
             "detail-deadline-input",
             "detail-repeat-input",
         ):
+            self._normalize_field(event.vim_input.id)
             self.focus_next()
         elif event.vim_input.id == "detail-recur-input":
+            self._normalize_field("detail-recur-input")
             self.action_save_and_close()
 
     def on_key(self, event: events.Key) -> None:
+        focused = self.focused
         if event.key == "j":
+            if focused and isinstance(focused, VimInput):
+                self._normalize_field(focused.id)
             self.focus_next()
             event.stop()
             event.prevent_default()
         elif event.key == "k":
+            if focused and isinstance(focused, VimInput):
+                self._normalize_field(focused.id)
             self.focus_previous()
             event.stop()
             event.prevent_default()

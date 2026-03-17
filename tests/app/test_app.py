@@ -15,6 +15,7 @@ import pytest
 from gtd_tui.app import GtdApp, SearchScreen, TaskDetailScreen
 from gtd_tui.gtd.operations import add_task, add_task_to_folder, create_folder
 from gtd_tui.storage.file import save_data
+from gtd_tui.widgets.vim_input import VimInput
 from textual.widgets import Label, ListView
 
 
@@ -334,6 +335,52 @@ async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
         saved_task = next(t for t in saved if t.folder_id != "logbook")
         assert saved_task.title == "foo bar"
         assert saved_task.notes == "bar"
+
+
+async def test_detail_fields_normalised_on_focus_advance(tmp_path: Path) -> None:
+    """Parseable fields are rewritten to canonical form when focus leaves them.
+
+    Date 'tomorrow' → ISO date string.  Invalid repeat → '(invalid)'.
+    """
+    from datetime import date, timedelta
+    data_file = _prepopulate(tmp_path, "Buy milk")
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")           # open detail view
+        await pilot.pause()
+        assert isinstance(app.screen, TaskDetailScreen)
+
+        # Advance from Title to Date field
+        await pilot.press("enter")
+        await pilot.pause()
+
+        # Type 'tomorrow' then advance away — Date should normalise to ISO
+        await pilot.press("i")
+        for ch in "tomorrow":
+            await pilot.press(ch)
+        await pilot.press("escape")          # back to COMMAND mode
+        await pilot.press("j")               # j → normalise + advance to Deadline
+        await pilot.pause()
+
+        date_inp = app.screen.query_one("#detail-date-input", VimInput)
+        expected = (date.today() + timedelta(days=1)).isoformat()
+        assert date_inp.value == expected
+
+        # Now on Deadline — type an invalid value and advance away
+        await pilot.press("i")
+        for ch in "not-a-date":
+            await pilot.press(ch)
+        await pilot.press("escape")
+        await pilot.press("j")               # j → normalise + advance to Notes
+        await pilot.pause()
+
+        deadline_inp = app.screen.query_one("#detail-deadline-input", VimInput)
+        assert deadline_inp.value == "(invalid)"
+
+        await pilot.press("escape")          # save & close
+        await pilot.pause()
+        assert not isinstance(app.screen, TaskDetailScreen)
 
 
 async def test_detail_date_someday_moves_task_to_someday_folder(tmp_path: Path) -> None:
