@@ -465,13 +465,24 @@ class TaskDetailScreen(
         self.query_one("#detail-title-input", VimInput).focus()
         self._render_checklist()
 
-    def _render_checklist(self) -> None:
+    def _render_checklist(self, restore_index: int | None = None) -> None:
+        """Rebuild the checklist ListView.
+
+        Pass *restore_index* to re-select a row after the DOM has settled;
+        the index is applied via call_after_refresh so it sticks once the
+        newly appended items have finished mounting.
+        """
         lv = self.query_one("#detail-checklist-list", ListView)
         lv.clear()
         for item in self._checklist:
-            check = markup_escape("[X]") if item.checked else markup_escape("[ ]")
-            label_text = f"{check} {markup_escape(item.label)}"
-            lv.append(ListItem(Label(label_text)))
+            # Use markup=False so that "[X]" and "[ ]" are always literal text
+            # and never interpreted as Rich markup tags.
+            check = "[X]" if item.checked else "[ ]"
+            lv.append(ListItem(Label(f"{check} {item.label}", markup=False)))
+        if restore_index is not None and self._checklist:
+            target = min(restore_index, len(self._checklist) - 1)
+            target = max(target, 0)
+            self.call_after_refresh(lambda t=target: setattr(lv, "index", t))
 
     def _normalize_field(self, widget_id: str) -> None:
         """Rewrite a parseable field to its canonical form so the user can
@@ -554,7 +565,8 @@ class TaskDetailScreen(
             lv = self.query_one("#detail-checklist-list", ListView)
             lv.focus()
             if self._checklist:
-                lv.index = len(self._checklist) - 1
+                last = len(self._checklist) - 1
+                self.call_after_refresh(lambda t=last: setattr(lv, "index", t))
                 self._checklist_active = True
             event.stop()
             event.prevent_default()
@@ -566,7 +578,7 @@ class TaskDetailScreen(
             and isinstance(focused, ListView)
             and focused.id == "detail-checklist-list"
         ):
-            if event.key == "escape":
+            if event.key in ("escape", "enter"):
                 self._checklist_active = False
                 event.stop()
                 event.prevent_default()
@@ -588,8 +600,7 @@ class TaskDetailScreen(
                     self._checklist[idx] = ChecklistItem(
                         id=item.id, label=item.label, checked=not item.checked
                     )
-                    self._render_checklist()
-                    focused.index = idx
+                    self._render_checklist(restore_index=idx)
                 event.stop()
                 event.prevent_default()
                 return
@@ -597,10 +608,10 @@ class TaskDetailScreen(
                 idx = focused.index
                 if idx is not None and 0 <= idx < len(self._checklist):
                     self._checklist.pop(idx)
-                    self._render_checklist()
-                    new_idx = min(idx, len(self._checklist) - 1)
-                    if new_idx >= 0:
-                        focused.index = new_idx
+                    # Go to the item above if possible, otherwise stay at idx (which
+                    # now points to the next item), clamped to the new list length.
+                    restore = max(0, idx - 1) if idx > 0 else 0
+                    self._render_checklist(restore_index=restore)
                 event.stop()
                 event.prevent_default()
                 return
@@ -619,8 +630,7 @@ class TaskDetailScreen(
                         self._checklist[idx + 1],
                         self._checklist[idx],
                     )
-                    self._render_checklist()
-                    focused.index = idx + 1
+                    self._render_checklist(restore_index=idx + 1)
                 event.stop()
                 event.prevent_default()
                 return
@@ -631,8 +641,7 @@ class TaskDetailScreen(
                         self._checklist[idx - 1],
                         self._checklist[idx],
                     )
-                    self._render_checklist()
-                    focused.index = idx - 1
+                    self._render_checklist(restore_index=idx - 1)
                 event.stop()
                 event.prevent_default()
                 return
