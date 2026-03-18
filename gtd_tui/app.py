@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pyperclip
 from rich.markup import escape as markup_escape
+from rich.text import Text as RichText
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -465,24 +466,41 @@ class TaskDetailScreen(
         self.query_one("#detail-title-input", VimInput).focus()
         self._render_checklist()
 
-    def _render_checklist(self, restore_index: int | None = None) -> None:
-        """Rebuild the checklist ListView.
+    @staticmethod
+    def _checklist_label_text(item: "ChecklistItem") -> RichText:
+        check = "[X]" if item.checked else "[ ]"
+        return RichText(f"{check} {item.label}")
 
-        Pass *restore_index* to re-select a row after the DOM has settled;
-        the index is applied via call_after_refresh so it sticks once the
-        newly appended items have finished mounting.
+    def _render_checklist(self, restore_index: int | None = None) -> None:
+        """Refresh the checklist ListView.
+
+        When the item count is unchanged (toggle, reorder), labels are updated
+        in place so the ListView's current index and highlight are preserved.
+        When the count changes (add, delete), a full rebuild is done and
+        *restore_index* is applied via call_after_refresh.
         """
         lv = self.query_one("#detail-checklist-list", ListView)
-        lv.clear()
-        for item in self._checklist:
-            # Use markup=False so that "[X]" and "[ ]" are always literal text
-            # and never interpreted as Rich markup tags.
-            check = "[X]" if item.checked else "[ ]"
-            lv.append(ListItem(Label(f"{check} {item.label}", markup=False)))
-        if restore_index is not None and self._checklist:
-            target = min(restore_index, len(self._checklist) - 1)
-            target = max(target, 0)
-            self.call_after_refresh(lambda t=target: setattr(lv, "index", t))
+        existing = list(lv.query(ListItem))
+
+        if len(existing) == len(self._checklist):
+            # Same count: update labels in place — preserves highlight/index.
+            for list_item, checklist_item in zip(existing, self._checklist):
+                list_item.query_one(Label).update(
+                    self._checklist_label_text(checklist_item)
+                )
+            if restore_index is not None and self._checklist:
+                target = min(max(restore_index, 0), len(self._checklist) - 1)
+                lv.index = target
+        else:
+            # Count changed: full rebuild required.
+            lv.clear()
+            for item in self._checklist:
+                lv.append(
+                    ListItem(Label(self._checklist_label_text(item), markup=False))
+                )
+            if restore_index is not None and self._checklist:
+                target = min(max(restore_index, 0), len(self._checklist) - 1)
+                self.call_after_refresh(lambda t=target: setattr(lv, "index", t))
 
     def _normalize_field(self, widget_id: str) -> None:
         """Rewrite a parseable field to its canonical form so the user can
