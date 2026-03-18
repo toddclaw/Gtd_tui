@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Areas of responsibility (BACKLOG-32): new `Area` dataclass (`id`, `name`, `position`); `Folder.area_id` and `Project.area_id` optional fields (default `None`, backward-compatible with existing data); sidebar renders Areas as collapsible `▾`/`▸` section headings (bold primary colour) with their folders and projects indented beneath when expanded; `A` while sidebar is focused creates a new Area; `m` while a user folder or project is selected in the sidebar opens an `AreaPickerScreen` modal to assign it to an Area (or unassign via "No area"); `Enter` on an Area header collapses/expands it; areas survive save/load round-trips; 22 new unit tests in `tests/gtd/test_areas.py`
+- Projects (BACKLOG-31): new `Project` dataclass (`id`, `title`, `notes`, `folder_id`, `position`, `deadline`, `completed_at`); `Task.project_id: str | None` (default `None`, backward-compatible); Projects section in sidebar with `Title (done/total)` progress display; deadline urgency rendered red/yellow matching task deadlines; `N` while sidebar is focused on the Projects section creates a new project; selecting a project shows its sub-tasks in the main task list; `o`/`O`, `x`/Space, `J`/`K`, `m`, `s` work within project view; completing all sub-tasks auto-completes the project; projects and sub-tasks survive save/load round-trips; 18 new unit tests in `tests/gtd/test_projects.py`
+- Tags / Contexts (BACKLOG-30): `Task.tags: list[str]` field; comma-separated Tags input in task detail view; inline cyan tag display in task list; Tags section in sidebar listing all unique tags with counts; selecting a tag shows a cross-folder filtered view supporting `x`/Space to complete and `m` to move; storage round-trip backward-compatible with old JSON files; 10 new unit tests in `tests/gtd/test_tags.py`
+
 ---
 
 ## [1.3.0] — 2026-03-17

@@ -51,6 +51,8 @@ class Task:
     created_at: Optional[datetime] = None
 
     is_deleted: bool = False
+    tags: list[str] = field(default_factory=list)
+    project_id: Optional[str] = None
 
     @property
     def is_complete(self) -> bool:

@@ -9,7 +9,9 @@ from typing import Any
 
 from platformdirs import user_data_dir
 
+from gtd_tui.gtd.area import Area
 from gtd_tui.gtd.folder import Folder
+from gtd_tui.gtd.project import Project
 from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
 from gtd_tui.storage.crypto import (
     DecryptionError,
@@ -65,6 +67,8 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         ),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "is_deleted": task.is_deleted,
+        "tags": task.tags,
+        "project_id": task.project_id,
     }
 
 
@@ -101,15 +105,75 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
             else None
         ),
         is_deleted=data.get("is_deleted", False),
+        tags=data.get("tags", []),
+        project_id=data.get("project_id", None),
+    )
+
+
+def _project_to_dict(project: Project) -> dict[str, Any]:
+    return {
+        "id": project.id,
+        "title": project.title,
+        "notes": project.notes,
+        "folder_id": project.folder_id,
+        "position": project.position,
+        "deadline": project.deadline.isoformat() if project.deadline else None,
+        "completed_at": (
+            project.completed_at.isoformat() if project.completed_at else None
+        ),
+        "created_at": project.created_at.isoformat() if project.created_at else None,
+        "area_id": project.area_id,
+    }
+
+
+def _project_from_dict(data: dict[str, Any]) -> Project:
+    return Project(
+        id=data["id"],
+        title=data["title"],
+        notes=data.get("notes", ""),
+        folder_id=data.get("folder_id", "today"),
+        position=data.get("position", 0),
+        deadline=(
+            date.fromisoformat(data["deadline"]) if data.get("deadline") else None
+        ),
+        completed_at=(
+            datetime.fromisoformat(data["completed_at"])
+            if data.get("completed_at")
+            else None
+        ),
+        created_at=(
+            datetime.fromisoformat(data["created_at"])
+            if data.get("created_at")
+            else None
+        ),
+        area_id=data.get("area_id"),
     )
 
 
 def _folder_to_dict(folder: Folder) -> dict[str, Any]:
-    return {"id": folder.id, "name": folder.name, "position": folder.position}
+    return {
+        "id": folder.id,
+        "name": folder.name,
+        "position": folder.position,
+        "area_id": folder.area_id,
+    }
 
 
 def _folder_from_dict(data: dict[str, Any]) -> Folder:
-    return Folder(id=data["id"], name=data["name"], position=data.get("position", 0))
+    return Folder(
+        id=data["id"],
+        name=data["name"],
+        position=data.get("position", 0),
+        area_id=data.get("area_id"),
+    )
+
+
+def _area_to_dict(area: Area) -> dict[str, Any]:
+    return {"id": area.id, "name": area.name, "position": area.position}
+
+
+def _area_from_dict(data: dict[str, Any]) -> Area:
+    return Area(id=data["id"], name=data["name"], position=data.get("position", 0))
 
 
 def _read_raw(path: Path, password: str | None) -> dict[str, Any]:
@@ -212,8 +276,10 @@ def save_data(
     password: str | None = None,
     undo_stack: UndoStack | None = None,
     redo_stack: UndoStack | None = None,
+    projects: list[Project] | None = None,
+    areas: list[Area] | None = None,
 ) -> None:
-    """Atomically save tasks, folders, and optional undo/redo stacks to disk.
+    """Atomically save tasks, folders, optional undo/redo stacks, projects, and areas to disk.
 
     If *password* is provided the file is written as an encrypted binary blob;
     otherwise it is written as plain JSON.  The undo/redo stacks are capped at
@@ -229,6 +295,10 @@ def save_data(
         payload["undo_stack"] = _undo_stack_to_list(undo_stack[-_UNDO_CAP:])
     if redo_stack is not None:
         payload["redo_stack"] = _undo_stack_to_list(redo_stack[-_UNDO_CAP:])
+    if projects is not None:
+        payload["projects"] = [_project_to_dict(p) for p in projects]
+    if areas is not None:
+        payload["areas"] = [_area_to_dict(a) for a in areas]
     json_bytes = json.dumps(payload, indent=2).encode()
     write_bytes = encrypt_data(json_bytes, password) if password else json_bytes
 
@@ -256,9 +326,39 @@ def save_tasks(
     save_data(tasks, existing_folders, data_file, password=password)
 
 
+def load_projects(
+    data_file: Path | None = None, password: str | None = None
+) -> list[Project]:
+    """Load projects from disk. Returns empty list if file is missing or corrupt."""
+    path = data_file or _DEFAULT_DATA_FILE
+    if not path.exists():
+        return []
+    try:
+        raw = _read_raw(path, password)
+        return [_project_from_dict(p) for p in raw.get("projects", [])]
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return []
+
+
+def load_areas(
+    data_file: Path | None = None, password: str | None = None
+) -> list[Area]:
+    """Load areas from disk. Returns empty list if file is missing or corrupt."""
+    path = data_file or _DEFAULT_DATA_FILE
+    if not path.exists():
+        return []
+    try:
+        raw = _read_raw(path, password)
+        return [_area_from_dict(a) for a in raw.get("areas", [])]
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return []
+
+
 __all__ = [
     "UndoStack",
+    "load_areas",
     "load_folders",
+    "load_projects",
     "load_redo_stack",
     "load_tasks",
     "load_undo_stack",

@@ -16,13 +16,21 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
+from gtd_tui.gtd.area import Area
 from gtd_tui.gtd.dates import InvalidDateError, format_date, parse_date_input
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.operations import (
     InvalidRepeatError,
+    add_area,
+    add_project,
     add_task,
     add_task_to_folder,
+    add_task_to_project,
     add_waiting_on_task,
+    all_tags,
+    assign_folder_to_area,
+    assign_project_to_area,
+    check_auto_complete_project,
     clear_deadline,
     complete_task,
     deadline_status,
@@ -49,6 +57,8 @@ from gtd_tui.gtd.operations import (
     move_to_today,
     move_to_waiting_on,
     parse_repeat_input,
+    project_progress,
+    project_tasks,
     purge_logbook_task,
     rename_folder,
     schedule_task,
@@ -56,24 +66,47 @@ from gtd_tui.gtd.operations import (
     set_deadline,
     set_recur_rule,
     set_repeat_rule,
+    set_tags,
     someday_tasks,
     spawn_repeating_tasks,
+    tasks_with_tag,
     today_tasks,
     unschedule_task,
     upcoming_tasks,
     waiting_on_tasks,
     weekly_review_tasks,
 )
+from gtd_tui.gtd.project import Project
 from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
 from gtd_tui.storage.file import (
     UndoStack,
+    load_areas,
     load_folders,
+    load_projects,
     load_redo_stack,
     load_tasks,
     load_undo_stack,
     save_data,
 )
 from gtd_tui.widgets.vim_input import VimInput
+
+
+def _project_deadline_label(project: Project) -> tuple[str, str] | None:
+    """Return (label, severity) for a project deadline, or None if no deadline.
+
+    severity is one of 'overdue', 'soon', 'ok'.
+    """
+    if project.deadline is None:
+        return None
+    today = date.today()
+    delta = (project.deadline - today).days
+    label = f"due {format_date(project.deadline)}"
+    if delta < 0:
+        return (label, "overdue")
+    elif delta <= 3:
+        return (label, "soon")
+    else:
+        return (label, "ok")
 
 
 class HelpScreen(ModalScreen[None]):
@@ -150,9 +183,16 @@ class HelpScreen(ModalScreen[None]):
   g g          Jump to top of sidebar
   G            Jump to bottom of sidebar
   o / O        Create new folder after / before selected
-  N            Create new folder at end
+  N            Create new folder at end (or new project when on Projects section)
+  A            Create new Area of responsibility
   r            Rename selected folder
   d            Delete selected folder
+  m            Assign selected folder or project to an Area
+  Enter        Collapse / expand Area (when on an Area header)
+
+[bold]Projects (sidebar focused, Projects section)[/bold]
+  N            Create new project
+  Enter / l    Open project sub-task list
 
 [bold]INSERT Mode[/bold]
   Esc          Return to COMMAND mode
@@ -244,18 +284,17 @@ class WeeklyReviewScreen(ModalScreen[None]):
             self.dismiss()
 
 
-class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
+class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str, str] | None]):
     """Detail and edit view for a single task.
 
     Opens directly in edit mode with inputs pre-filled.
     j/k in COMMAND mode navigate between fields; Enter on single-line fields
     advances to the next; Esc always saves and closes.
 
-    Dismissed value: (title, notes, date_text, deadline_text, repeat_text, recur_text)
+    Dismissed value: (title, notes, date_text, deadline_text, repeat_text, recur_text, tags_raw)
     or None if title was cleared.  date_text / deadline_text are ISO (YYYY-MM-DD) or
     any parse_date_input format; empty = clear.  repeat_text / recur_text are raw
-    strings (e.g. '7 days', empty = clear).  If both repeat and recur are non-empty,
-    repeat takes precedence.
+    strings (e.g. '7 days', empty = clear).  tags_raw is a comma-separated string.
     """
 
     BINDINGS = [
@@ -311,6 +350,10 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
     }
 
     #detail-recur-input {
+        margin-bottom: 1;
+    }
+
+    #detail-tags-input {
         margin-bottom: 1;
     }
 
@@ -412,6 +455,16 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                 start_mode="command",
                 id="detail-recur-input",
             )
+            yield Label(
+                "Tags  (comma-separated, e.g. @home, @work — empty to clear)",
+                classes="field-label",
+            )
+            yield VimInput(
+                value=", ".join(self._gtd_task.tags),
+                placeholder="(none)",
+                start_mode="command",
+                id="detail-tags-input",
+            )
             if self._gtd_task.created_at:
                 yield Label(
                     f"Created: {format_date(self._gtd_task.created_at.date())}",
@@ -466,8 +519,11 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
         )
         repeat = self.query_one("#detail-repeat-input", VimInput).value.strip()
         recur = self.query_one("#detail-recur-input", VimInput).value.strip()
+        tags_raw = self.query_one("#detail-tags-input", VimInput).value.strip()
         self.dismiss(
-            (title, notes, date_text, deadline_text, repeat, recur) if title else None
+            (title, notes, date_text, deadline_text, repeat, recur, tags_raw)
+            if title
+            else None
         )
 
     def on_vim_input_submitted(self, event: VimInput.Submitted) -> None:
@@ -476,6 +532,7 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
             "detail-date-input",
             "detail-deadline-input",
             "detail-repeat-input",
+            "detail-tags-input",
         ):
             self._normalize_field(event.vim_input.id)
             self.focus_next()
@@ -702,6 +759,80 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
         self.dismiss((task_id, self._last_query))
 
 
+class AreaPickerScreen(ModalScreen[str | None]):
+    """Pick an area to assign to a folder or project."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", show=False, priority=True),
+        Binding("ctrl+c", "cancel", show=False, priority=True),
+        Binding("enter", "select", show=False, priority=True),
+        Binding("j", "cursor_down", show=False),
+        Binding("k", "cursor_up", show=False),
+    ]
+
+    CSS = """
+    AreaPickerScreen {
+        align: center middle;
+    }
+
+    #area-picker-panel {
+        width: 50;
+        height: auto;
+        max-height: 20;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #area-picker-header {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 1;
+    }
+
+    #area-picker-list {
+        height: auto;
+        max-height: 12;
+    }
+    """
+
+    def __init__(self, areas: list[Area]) -> None:
+        super().__init__()
+        self._areas = areas
+
+    def compose(self) -> ComposeResult:
+        with VerticalScroll(id="area-picker-panel"):
+            yield Label("Assign to Area", id="area-picker-header")
+            yield ListView(id="area-picker-list")
+
+    def on_mount(self) -> None:
+        lv = self.query_one("#area-picker-list", ListView)
+        lv.append(ListItem(Label("(No area)")))
+        for area in self._areas:
+            lv.append(ListItem(Label(markup_escape(area.name))))
+        lv.focus()
+        lv.index = 0
+
+    def action_select(self) -> None:
+        lv = self.query_one("#area-picker-list", ListView)
+        idx = lv.index
+        if idx is None:
+            return
+        if idx == 0:
+            self.dismiss(None)  # unassign
+        else:
+            self.dismiss(self._areas[idx - 1].id)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+    def action_cursor_down(self) -> None:
+        self.query_one("#area-picker-list", ListView).action_cursor_down()
+
+    def action_cursor_up(self) -> None:
+        self.query_one("#area-picker-list", ListView).action_cursor_up()
+
+
 class GtdApp(App[None]):
     ESCAPE_TO_MINIMIZE = False  # prevent Textual's minimize-on-Esc delay
 
@@ -773,6 +904,16 @@ class GtdApp(App[None]):
     #task-list > ListItem.visual-selected {
         background: $accent 30%;
     }
+
+    .sidebar-section-header {
+        color: $text-muted;
+        text-style: bold;
+    }
+
+    .sidebar-area-header {
+        color: $primary;
+        text-style: bold;
+    }
     """
 
     def __init__(
@@ -783,9 +924,12 @@ class GtdApp(App[None]):
         self._password: str | None = password
         self._all_tasks: list[Task] = load_tasks(data_file, password=password)
         self._all_folders: list[Folder] = load_folders(data_file, password=password)
+        self._all_projects: list[Project] = load_projects(data_file, password=password)
+        self._all_areas: list[Area] = load_areas(data_file, password=password)
+        self._collapsed_areas: set[str] = set()
         self._mode: str = "NORMAL"
         self._input_stage: str = (
-            ""  # "title", "notes", "date", "command", "folder_name", "folder_rename"
+            ""  # "title", "notes", "date", "command", "folder_name", "folder_rename", "project_name"
         )
         self._pending_title: str = ""
         self._pending_task_id: str = ""
@@ -835,27 +979,65 @@ class GtdApp(App[None]):
         user_folders = sorted(self._all_folders, key=lambda f: f.position)
         ids: list[str] = ["inbox", "today", "upcoming", "waiting_on"]
 
+        # Sort areas, all user folders, and active projects by position
+        areas_sorted = sorted(self._all_areas, key=lambda a: a.position)
+        active_projects_sorted = sorted(
+            [p for p in self._all_projects if not p.is_complete],
+            key=lambda p: p.position,
+        )
+
+        # Uncategorized (no area_id) user folders — with placeholder support
+        uncategorized_folders = [f for f in user_folders if f.area_id is None]
+
         pos = self._sidebar_placeholder_insert
         anchor = self._sidebar_placeholder_anchor_id
+
+        # Area sections (collapsible)
+        for area in areas_sorted:
+            ids.append(f"area:{area.id}")
+            if area.id not in self._collapsed_areas:
+                # Folders in this area (no placeholder support within areas for now)
+                for f in user_folders:
+                    if f.area_id == area.id:
+                        ids.append(f.id)
+                # Projects in this area
+                for p in active_projects_sorted:
+                    if p.area_id == area.id:
+                        ids.append(f"project:{p.id}")
+
+        # Uncategorized folders (no area_id), with placeholder support
         if not pos:
-            ids += [f.id for f in user_folders]
+            ids += [f.id for f in uncategorized_folders]
         else:
             anchor_idx = next(
-                (i for i, f in enumerate(user_folders) if f.id == anchor), None
+                (i for i, f in enumerate(uncategorized_folders) if f.id == anchor),
+                None,
             )
             if pos == "end" or anchor_idx is None:
-                ids += [f.id for f in user_folders]
+                ids += [f.id for f in uncategorized_folders]
                 ids.append("__new_folder__")
             elif pos == "after":
-                ids += [f.id for f in user_folders[: anchor_idx + 1]]
+                ids += [f.id for f in uncategorized_folders[: anchor_idx + 1]]
                 ids.append("__new_folder__")
-                ids += [f.id for f in user_folders[anchor_idx + 1 :]]
+                ids += [f.id for f in uncategorized_folders[anchor_idx + 1 :]]
             else:  # "before"
-                ids += [f.id for f in user_folders[:anchor_idx]]
+                ids += [f.id for f in uncategorized_folders[:anchor_idx]]
                 ids.append("__new_folder__")
-                ids += [f.id for f in user_folders[anchor_idx:]]
+                ids += [f.id for f in uncategorized_folders[anchor_idx:]]
+
+        # Uncategorized projects (no area_id)
+        uncategorized_projects = [
+            p for p in active_projects_sorted if p.area_id is None
+        ]
+        if uncategorized_projects:
+            ids.append("__projects_header__")
+            ids += [f"project:{p.id}" for p in uncategorized_projects]
 
         ids += ["someday", "logbook"]
+        tag_list = all_tags(self._all_tasks)
+        if tag_list:
+            ids.append("__tags_header__")
+            ids += [f"tag:{tag}" for tag, _ in tag_list]
         return ids
 
     def _view_label(self, view_id: str) -> str:
@@ -871,6 +1053,16 @@ class GtdApp(App[None]):
             return "Someday"
         if view_id == "logbook":
             return "Logbook"
+        if view_id.startswith("area:"):
+            area_id = view_id[5:]
+            area = next((a for a in self._all_areas if a.id == area_id), None)
+            return area.name if area else view_id
+        if view_id.startswith("tag:"):
+            return view_id[4:]
+        if view_id.startswith("project:"):
+            project_id = view_id[8:]
+            proj = next((p for p in self._all_projects if p.id == project_id), None)
+            return proj.title if proj else view_id
         for folder in self._all_folders:
             if folder.id == view_id:
                 return folder.name
@@ -965,6 +1157,60 @@ class GtdApp(App[None]):
                 )
             elif view_id == "__new_folder__":
                 sidebar.append(ListItem(Label("▸ …", classes="sidebar-placeholder")))
+            elif view_id == "__projects_header__":
+                sidebar.append(
+                    ListItem(Label("── Projects ──", classes="sidebar-section-header"))
+                )
+            elif view_id.startswith("project:"):
+                project_id = view_id[8:]
+                project = next(
+                    (p for p in self._all_projects if p.id == project_id), None
+                )
+                if project:
+                    done, total = project_progress(self._all_tasks, project_id)
+                    title_escaped = markup_escape(project.title)
+                    dl = _project_deadline_label(project)
+                    if dl is None:
+                        dl_text = ""
+                    elif dl[1] == "overdue":
+                        dl_text = f"  [bold red]{markup_escape(dl[0])}[/bold red]"
+                    elif dl[1] == "soon":
+                        dl_text = f"  [yellow]{markup_escape(dl[0])}[/yellow]"
+                    else:
+                        dl_text = f"  {markup_escape(dl[0])}"
+                    sidebar.append(
+                        ListItem(Label(f"  {title_escaped} ({done}/{total}){dl_text}"))
+                    )
+            elif view_id.startswith("area:"):
+                area_id = view_id[5:]
+                area = next((a for a in self._all_areas if a.id == area_id), None)
+                if area:
+                    collapsed = area_id in self._collapsed_areas
+                    indicator = "▸" if collapsed else "▾"
+                    sidebar.append(
+                        ListItem(
+                            Label(
+                                f"{indicator} {markup_escape(area.name)}",
+                                classes="sidebar-area-header",
+                            )
+                        )
+                    )
+            elif view_id == "__tags_header__":
+                sidebar.append(
+                    ListItem(Label("── Tags ──", classes="sidebar-section-header"))
+                )
+            elif view_id.startswith("tag:"):
+                tag_name = view_id[4:]
+                count = sum(
+                    1
+                    for t in self._all_tasks
+                    if tag_name in t.tags
+                    and t.folder_id != "logbook"
+                    and not t.is_deleted
+                )
+                sidebar.append(
+                    ListItem(Label(f"  {markup_escape(tag_name)} ({count})"))
+                )
             else:
                 folder = folder_map.get(view_id)
                 if folder:
@@ -996,7 +1242,6 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    @staticmethod
     def _task_label(task: Task) -> str:
         """Build the display label for a task row, with recurrence and deadline markers."""
         marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
@@ -1009,7 +1254,12 @@ class GtdApp(App[None]):
             dl_suffix = f"  [yellow]{markup_escape(dl[0])}[/yellow]"
         else:
             dl_suffix = f"  {markup_escape(dl[0])}"
-        return f"{markup_escape(task.title)}{marker}{dl_suffix}"
+        tag_suffix = ""
+        if task.tags:
+            tag_suffix = "  " + "  ".join(
+                f"[cyan]{markup_escape(tag)}[/cyan]" for tag in task.tags
+            )
+        return f"{markup_escape(task.title)}{marker}{tag_suffix}{dl_suffix}"
 
     def _refresh_list(self, select_task_id: str | None = None) -> None:
         list_view = self.query_one("#task-list", ListView)
@@ -1031,6 +1281,10 @@ class GtdApp(App[None]):
             self._render_someday_view(list_view)
         elif self._current_view == "logbook":
             self._render_logbook_view(list_view)
+        elif self._current_view.startswith("tag:"):
+            self._render_tag_view(list_view, self._current_view[4:])
+        elif self._current_view.startswith("project:"):
+            self._render_project_view(list_view, self._current_view[8:])
         else:
             self._render_folder_view(list_view, self._current_view)
 
@@ -1171,6 +1425,25 @@ class GtdApp(App[None]):
         self.query_one("#header", Label).update(f"{label} ({len(tasks)})")
         self._render_simple_list(list_view, tasks, self._task_label)
 
+    def _render_tag_view(self, list_view: ListView, tag_name: str) -> None:
+        tasks = tasks_with_tag(self._all_tasks, tag_name)
+        self.query_one("#header", Label).update(
+            f"{markup_escape(tag_name)} ({len(tasks)})"
+        )
+        self._render_simple_list(list_view, tasks, self._task_label)
+
+    def _render_project_view(self, list_view: ListView, project_id: str) -> None:
+        project = next((p for p in self._all_projects if p.id == project_id), None)
+        if project is None:
+            self.query_one("#header", Label).update("Project")
+            return
+        done, total = project_progress(self._all_tasks, project_id)
+        self.query_one("#header", Label).update(
+            f"{markup_escape(project.title)} ({done}/{total})"
+        )
+        tasks = project_tasks(self._all_tasks, project_id)
+        self._render_simple_list(list_view, tasks, self._task_label)
+
     def _placeholder_insert_idx(self, active: list[Task]) -> int:
         """Index within `active` before which the placeholder row is inserted."""
         if not self._pending_anchor_id:
@@ -1263,6 +1536,8 @@ class GtdApp(App[None]):
             password=self._password,
             undo_stack=self._undo_stack,
             redo_stack=self._redo_stack,
+            projects=self._all_projects,
+            areas=self._all_areas,
         )
 
     def _task_to_yank_text(self, task: Task) -> str:
@@ -1374,13 +1649,48 @@ class GtdApp(App[None]):
             self._move_selected_folder_up()
         elif event.key in ("l", "enter"):
             event.prevent_default()
-            self.query_one("#task-list", ListView).focus()
+            # If the highlighted item is an area header, toggle collapse on Enter.
+            idx = sidebar.index
+            view_ids = self._sidebar_view_ids
+            current_sid = (
+                view_ids[idx] if idx is not None and idx < len(view_ids) else ""
+            )
+            if current_sid.startswith("area:"):
+                area_id = current_sid[5:]
+                if area_id in self._collapsed_areas:
+                    self._collapsed_areas.discard(area_id)
+                else:
+                    self._collapsed_areas.add(area_id)
+                self._rebuild_sidebar()
+            else:
+                self.query_one("#task-list", ListView).focus()
         elif event.key == "o":
             event.prevent_default()
             self._start_create_folder("after")
-        elif event.key in ("O", "N"):
+        elif event.key == "O":
             event.prevent_default()
-            self._start_create_folder("before" if event.key == "O" else "end")
+            self._start_create_folder("before")
+        elif event.key == "N":
+            event.prevent_default()
+            # Context-aware: create a project if sidebar is in the projects section,
+            # otherwise create a folder at the end.
+            idx = sidebar.index
+            view_ids = self._sidebar_view_ids
+            current_sid = (
+                view_ids[idx] if idx is not None and idx < len(view_ids) else ""
+            )
+            if current_sid == "__projects_header__" or current_sid.startswith(
+                "project:"
+            ):
+                self._start_new_project()
+            else:
+                self._start_create_folder("end")
+        elif event.key == "A":
+            event.prevent_default()
+            self._start_new_area()
+        elif event.key == "m":
+            event.prevent_default()
+            self._start_assign_to_area()
         elif event.key == "r":
             event.prevent_default()
             self._start_rename_folder()
@@ -1578,7 +1888,12 @@ class GtdApp(App[None]):
         if idx >= len(view_ids):
             return
         new_view = view_ids[idx]
-        if new_view in ("__new_folder__", self._current_view):
+        if new_view in (
+            "__new_folder__",
+            "__tags_header__",
+            "__projects_header__",
+            self._current_view,
+        ) or new_view.startswith("area:"):
             return
         self._current_view = new_view
         self._refresh_list()
@@ -1642,6 +1957,8 @@ class GtdApp(App[None]):
             vim.set_placeholder("Someday task title...")
         elif self._current_view == "inbox":
             vim.set_placeholder("Inbox task title...")
+        elif self._current_view.startswith("project:"):
+            vim.set_placeholder("Sub-task title...")
         else:
             vim.set_placeholder("Task title...")
         vim.clear()
@@ -1660,6 +1977,105 @@ class GtdApp(App[None]):
         inp.focus()
         self._update_status(":")
 
+    def _start_new_project(self) -> None:
+        """Open the vim-input bar to capture a new project name."""
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_placeholder("New project name…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
+        self._input_stage = "project_name"
+        self._mode = "INSERT"
+        self._update_status()
+
+    def _finish_new_project(self, title: str) -> None:
+        """Create the new project from the captured title and navigate to it."""
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.remove_class("active")
+        self._input_stage = ""
+        self._mode = "NORMAL"
+        if title.strip():
+            self._push_undo()
+            self._all_projects = add_project(self._all_projects, title.strip())
+            new_proj = self._all_projects[-1]
+            self._current_view = f"project:{new_proj.id}"
+            self._save()
+            self._rebuild_sidebar()
+            self._refresh_list()
+        self._update_status()
+        self.query_one("#task-list", ListView).focus()
+
+    def _start_new_area(self) -> None:
+        """Open the vim-input bar to capture a new area name."""
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_placeholder("New area name…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
+        self._input_stage = "area_name"
+        self._mode = "INSERT"
+        self._update_status()
+
+    def _finish_new_area(self, name: str) -> None:
+        """Create the new area from the captured name."""
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.remove_class("active")
+        self._input_stage = ""
+        self._mode = "NORMAL"
+        if name.strip():
+            self._all_areas = add_area(self._all_areas, name.strip())
+            self._save()
+            self._rebuild_sidebar()
+        self._update_status()
+        self.query_one("#task-list", ListView).focus()
+
+    def _start_assign_to_area(self) -> None:
+        """Assign the currently-selected sidebar folder or project to an area."""
+        if not self._all_areas:
+            self._update_status("(no areas defined — press A to create one)")
+            return
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        # Guard: only user folders and projects are assignable
+        if (
+            current_sid in BUILTIN_FOLDER_IDS
+            or current_sid.startswith("__")
+            or current_sid.startswith("tag:")
+            or current_sid.startswith("area:")
+        ):
+            return
+
+        if current_sid.startswith("project:"):
+            project_id = current_sid[8:]
+
+            def _on_area_pick(area_id: str | None) -> None:
+                self._all_projects = assign_project_to_area(
+                    self._all_projects, project_id, area_id
+                )
+                self._save()
+                self._rebuild_sidebar()
+
+            self.push_screen(AreaPickerScreen(self._all_areas), _on_area_pick)
+        else:
+            folder_id = current_sid
+
+            def _on_area_pick_folder(area_id: str | None) -> None:
+                self._all_folders = assign_folder_to_area(
+                    self._all_folders, folder_id, area_id
+                )
+                self._save()
+                self._rebuild_sidebar()
+
+            self.push_screen(AreaPickerScreen(self._all_areas), _on_area_pick_folder)
+
     def on_vim_input_submitted(self, event: VimInput.Submitted) -> None:
         """Handle title/notes submission from the inline VimInput widget."""
         if event.vim_input.id != "vim-input":
@@ -1676,11 +2092,24 @@ class GtdApp(App[None]):
         elif self._input_stage == "notes":
             self._save_new_task(value)
 
+        elif self._input_stage == "project_name":
+            self._finish_new_project(value)
+
+        elif self._input_stage == "area_name":
+            self._finish_new_area(value)
+
     def _save_new_task(self, notes: str) -> None:
         """Create the pending task with the given notes and clean up."""
         self._push_undo()
         new_id = str(uuid.uuid4())
-        if self._current_view == "waiting_on":
+        if self._current_view.startswith("project:"):
+            project_id = self._current_view[8:]
+            self._all_tasks = add_task_to_project(
+                self._all_tasks, project_id, self._pending_title, notes=notes
+            )
+            # Override new_id to be the actual last-added task's id
+            new_id = self._all_tasks[-1].id
+        elif self._current_view == "waiting_on":
             if self._pending_anchor_id:
                 if self._pending_insert_position == "before":
                     self._all_tasks = insert_waiting_on_task_before(
@@ -1955,13 +2384,19 @@ class GtdApp(App[None]):
         old_deadline = task.deadline
 
         def _on_detail_close(
-            result: tuple[str, str, str, str, str, str] | None,
+            result: tuple[str, str, str, str, str, str, str] | None,
         ) -> None:
             if result is None:
                 return
-            new_title, new_notes, date_text, deadline_text, repeat_text, recur_text = (
-                result
-            )
+            (
+                new_title,
+                new_notes,
+                date_text,
+                deadline_text,
+                repeat_text,
+                recur_text,
+                tags_raw,
+            ) = result
 
             # Parse date field.
             move_to_someday = date_text.strip().lower() == "someday"
@@ -2029,17 +2464,26 @@ class GtdApp(App[None]):
                 )
                 new_deadline = old_deadline
 
+            new_tags = (
+                [t.strip() for t in tags_raw.split(",") if t.strip()]
+                if tags_raw
+                else []
+            )
+            old_tags = task.tags
+
             title_changed = new_title != task.title or new_notes != task.notes
             date_changed = move_to_someday or (new_date != old_date)
             deadline_changed = new_deadline != old_deadline
             repeat_changed = new_repeat != old_repeat
             recur_changed = new_recur != old_recur
+            tags_changed = new_tags != old_tags
             if not (
                 title_changed
                 or date_changed
                 or deadline_changed
                 or repeat_changed
                 or recur_changed
+                or tags_changed
             ):
                 return
 
@@ -2069,6 +2513,8 @@ class GtdApp(App[None]):
                 self._all_tasks = set_repeat_rule(self._all_tasks, task_id, new_repeat)
             if recur_changed:
                 self._all_tasks = set_recur_rule(self._all_tasks, task_id, new_recur)
+            if tags_changed:
+                self._all_tasks = set_tags(self._all_tasks, task_id, new_tags)
             self._rebuild_sidebar()
             self._save()
             self._refresh_list(select_task_id=task_id)
@@ -2250,8 +2696,13 @@ class GtdApp(App[None]):
             self._exit_visual_mode()
             return
         self._push_undo()
+        project_ids = {t.project_id for t in tasks if t.project_id}
         for task in tasks:
             self._all_tasks = complete_task(self._all_tasks, task.id)
+        for pid in project_ids:
+            self._all_projects = check_auto_complete_project(
+                self._all_tasks, self._all_projects, pid
+            )
         self._exit_visual_mode()
         self._save()
         self._rebuild_sidebar()
@@ -2615,7 +3066,12 @@ class GtdApp(App[None]):
         if task is None:
             return
         self._push_undo()
+        project_id = task.project_id
         self._all_tasks = complete_task(self._all_tasks, task.id)
+        if project_id:
+            self._all_projects = check_auto_complete_project(
+                self._all_tasks, self._all_projects, project_id
+            )
         self._save()
         self._rebuild_sidebar()
         self._refresh_list()
