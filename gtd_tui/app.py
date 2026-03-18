@@ -41,6 +41,8 @@ from gtd_tui.gtd.operations import (
     insert_waiting_on_task_before,
     logbook_tasks,
     make_repeat_rule,
+    move_block_down,
+    move_block_up,
     move_folder_down,
     move_folder_tasks_to_today,
     move_folder_up,
@@ -2103,7 +2105,7 @@ class GtdApp(App[None]):
         )
         if value.strip().lower() == "someday":
             self._push_undo()
-            for tid in task_ids:
+            for tid in reversed(task_ids):
                 self._all_tasks = unschedule_task(self._all_tasks, tid)
                 self._all_tasks = move_task_to_folder(self._all_tasks, tid, "someday")
             self._rebuild_sidebar()
@@ -2163,7 +2165,7 @@ class GtdApp(App[None]):
             if self._pending_task_ids
             else [self._pending_task_id]
         )
-        for tid in task_ids:
+        for tid in reversed(task_ids):
             self._all_tasks = move_task_to_folder(
                 self._all_tasks, tid, target_folder_id
             )
@@ -2565,7 +2567,7 @@ class GtdApp(App[None]):
             self._exit_visual_mode()
             return
         self._push_undo()
-        for task in tasks:
+        for task in reversed(tasks):
             self._all_tasks = move_to_waiting_on(self._all_tasks, task.id)
         self._exit_visual_mode()
         self._save()
@@ -2578,7 +2580,7 @@ class GtdApp(App[None]):
             self._exit_visual_mode()
             return
         self._push_undo()
-        for task in tasks:
+        for task in reversed(tasks):
             self._all_tasks = move_to_today(self._all_tasks, task.id)
         self._exit_visual_mode()
         self._save()
@@ -2614,8 +2616,7 @@ class GtdApp(App[None]):
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
-        for task in sorted(tasks, key=lambda t: t.position, reverse=True):
-            self._all_tasks = move_task_down(self._all_tasks, task.id)
+        self._all_tasks = move_block_down(self._all_tasks, selected_ids)
         self._save()
         self._refresh_list()
         self.call_after_refresh(
@@ -2635,8 +2636,7 @@ class GtdApp(App[None]):
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
-        for task in sorted(tasks, key=lambda t: t.position):
-            self._all_tasks = move_task_up(self._all_tasks, task.id)
+        self._all_tasks = move_block_up(self._all_tasks, selected_ids)
         self._save()
         self._refresh_list()
         self.call_after_refresh(

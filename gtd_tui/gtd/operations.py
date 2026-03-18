@@ -366,6 +366,62 @@ def move_task_down(tasks: list[Task], task_id: str) -> list[Task]:
     return tasks
 
 
+def move_block_down(tasks: list[Task], task_ids: set[str]) -> list[Task]:
+    """Move a block of tasks down by one position as a unit.
+
+    Rotates the single task immediately below the block to just above the block,
+    keeping the block's internal order intact.  No-op if the block is already
+    at the last position or any task_id is not found.
+    """
+    block = [t for t in tasks if t.id in task_ids]
+    if not block:
+        return tasks
+    peers = _visible_peers(tasks, block[0])
+    block_peer_indices = sorted(i for i, t in enumerate(peers) if t.id in task_ids)
+    if not block_peer_indices:
+        return tasks
+    bottom_idx = block_peer_indices[-1]
+    if bottom_idx >= len(peers) - 1:
+        return tasks  # block is at the boundary
+    after_task = peers[bottom_idx + 1]
+    # Collect positions of [block tasks in order] + [after_task]
+    involved = block_peer_indices + [bottom_idx + 1]
+    positions = [peers[i].position for i in involved]
+    # Rotate left: after_task gets the top block position; block tasks shift down
+    after_task.position = positions[0]
+    for i, peer_idx in enumerate(block_peer_indices):
+        peers[peer_idx].position = positions[i + 1]
+    return tasks
+
+
+def move_block_up(tasks: list[Task], task_ids: set[str]) -> list[Task]:
+    """Move a block of tasks up by one position as a unit.
+
+    Rotates the single task immediately above the block to just below the block,
+    keeping the block's internal order intact.  No-op if the block is already
+    at the first position or any task_id is not found.
+    """
+    block = [t for t in tasks if t.id in task_ids]
+    if not block:
+        return tasks
+    peers = _visible_peers(tasks, block[0])
+    block_peer_indices = sorted(i for i, t in enumerate(peers) if t.id in task_ids)
+    if not block_peer_indices:
+        return tasks
+    top_idx = block_peer_indices[0]
+    if top_idx == 0:
+        return tasks  # block is at the boundary
+    before_task = peers[top_idx - 1]
+    # Collect positions of [before_task] + [block tasks in order]
+    involved = [top_idx - 1] + block_peer_indices
+    positions = [peers[i].position for i in involved]
+    # Rotate right: before_task gets the bottom block position; block tasks shift up
+    before_task.position = positions[-1]
+    for i, peer_idx in enumerate(block_peer_indices):
+        peers[peer_idx].position = positions[i]
+    return tasks
+
+
 def _visible_peers(tasks: list[Task], task: Task) -> list[Task]:
     """Return the ordered list of peers used for J/K reordering.
 
