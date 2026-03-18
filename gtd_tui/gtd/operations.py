@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import calendar
 import re
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Literal
 
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
-from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
+from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
 
 _UnitLiteral = Literal["days", "weeks", "months", "years"]
 
@@ -966,6 +967,68 @@ def spawn_repeating_tasks(tasks: list[Task], as_of: date | None = None) -> list[
         task.position = i
 
     return tasks + spawned
+
+
+# ---------------------------------------------------------------------------
+# Checklist operations
+# ---------------------------------------------------------------------------
+
+
+def add_checklist_item(tasks: list[Task], task_id: str, label: str) -> list[Task]:
+    """Append a new unchecked checklist item to the given task."""
+    return [
+        (
+            replace(t, checklist=[*t.checklist, ChecklistItem(label=label)])
+            if t.id == task_id
+            else t
+        )
+        for t in tasks
+    ]
+
+
+def toggle_checklist_item(tasks: list[Task], task_id: str, item_id: str) -> list[Task]:
+    """Toggle the checked state of a checklist item."""
+
+    def _toggle(t: Task) -> Task:
+        if t.id != task_id:
+            return t
+        new_checklist = [
+            replace(item, checked=not item.checked) if item.id == item_id else item
+            for item in t.checklist
+        ]
+        return replace(t, checklist=new_checklist)
+
+    return [_toggle(t) for t in tasks]
+
+
+def delete_checklist_item(tasks: list[Task], task_id: str, item_id: str) -> list[Task]:
+    """Remove a checklist item by id."""
+
+    def _delete(t: Task) -> Task:
+        if t.id != task_id:
+            return t
+        return replace(t, checklist=[i for i in t.checklist if i.id != item_id])
+
+    return [_delete(t) for t in tasks]
+
+
+def move_checklist_item(
+    tasks: list[Task], task_id: str, item_id: str, delta: int
+) -> list[Task]:
+    """Move a checklist item up (delta=-1) or down (delta=+1)."""
+
+    def _move(t: Task) -> Task:
+        if t.id != task_id:
+            return t
+        items = list(t.checklist)
+        idx = next((i for i, it in enumerate(items) if it.id == item_id), None)
+        if idx is None:
+            return t
+        new_idx = max(0, min(len(items) - 1, idx + delta))
+        items.insert(new_idx, items.pop(idx))
+        return replace(t, checklist=items)
+
+    return [_move(t) for t in tasks]
 
 
 # ---------------------------------------------------------------------------

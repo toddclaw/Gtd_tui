@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- Checklist sub-steps within a task (BACKLOG-29): `ChecklistItem` dataclass (`id`, `label`, `checked`); `Task.checklist` field (default `[]`, backwards-compatible with old JSON files); four pure operations (`add_checklist_item`, `toggle_checklist_item`, `delete_checklist_item`, `move_checklist_item`); task detail view gains a Checklist section below Notes with `o`/`O` to add items, `x`/Space to toggle, `d` to delete, `J`/`K` to reorder, and struck-through rendering for completed items; task list rows show `[N/M]` completion ratio when checklist is non-empty.
+
 ---
 
 ## [1.3.0] — 2026-03-17

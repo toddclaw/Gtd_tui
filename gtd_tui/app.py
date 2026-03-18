@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pyperclip
 from rich.markup import escape as markup_escape
+from rich.text import Text as RichText
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -64,7 +65,7 @@ from gtd_tui.gtd.operations import (
     waiting_on_tasks,
     weekly_review_tasks,
 )
-from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
+from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
 from gtd_tui.storage.file import (
     UndoStack,
     load_folders,
@@ -244,14 +245,17 @@ class WeeklyReviewScreen(ModalScreen[None]):
             self.dismiss()
 
 
-class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
+class TaskDetailScreen(
+    ModalScreen[tuple[str, str, str, str, str, str, list[ChecklistItem]] | None]
+):
     """Detail and edit view for a single task.
 
     Opens directly in edit mode with inputs pre-filled.
     j/k in COMMAND mode navigate between fields; Enter on single-line fields
     advances to the next; Esc always saves and closes.
 
-    Dismissed value: (title, notes, date_text, deadline_text, repeat_text, recur_text)
+    Dismissed value:
+        (title, notes, date_text, deadline_text, repeat_text, recur_text, checklist)
     or None if title was cleared.  date_text / deadline_text are ISO (YYYY-MM-DD) or
     any parse_date_input format; empty = clear.  repeat_text / recur_text are raw
     strings (e.g. '7 days', empty = clear).  If both repeat and recur are non-empty,
@@ -314,6 +318,27 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
         margin-bottom: 1;
     }
 
+    #detail-checklist-header {
+        color: $text-muted;
+        margin-top: 1;
+        margin-bottom: 0;
+    }
+
+    #detail-checklist-list {
+        height: auto;
+        max-height: 8;
+        margin-bottom: 0;
+        border: none;
+    }
+
+    #detail-checklist-list > ListItem.--highlight {
+        background: $accent 40%;
+    }
+
+    #detail-checklist-new {
+        margin-bottom: 1;
+    }
+
     #detail-created {
         color: $text-muted;
         margin-top: 1;
@@ -328,6 +353,11 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
     def __init__(self, task: Task) -> None:
         super().__init__()
         self._gtd_task = task
+        self._checklist: list[ChecklistItem] = copy.deepcopy(task.checklist)
+        # True when the user has pressed Enter to enter checklist item-navigation mode
+        self._checklist_active: bool = False
+        # Undo history for checklist mutations within this detail screen
+        self._checklist_history: list[list[ChecklistItem]] = []
 
     @staticmethod
     def _interval_to_str(interval: int, unit: str) -> str:
@@ -393,6 +423,18 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                 id="detail-notes-input",
             )
             yield Label(
+                "Checklist  (o: add  x/Space: toggle  d: delete  J/K: reorder)",
+                classes="field-label",
+                id="detail-checklist-header",
+            )
+            yield ListView(id="detail-checklist-list")
+            yield VimInput(
+                value="",
+                placeholder="Add checklist item…",
+                start_mode="command",
+                id="detail-checklist-new",
+            )
+            yield Label(
                 "Repeat  (calendar-fixed — e.g. 7 days, 2 weeks — empty to clear)",
                 classes="field-label",
             )
@@ -418,12 +460,75 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
                     id="detail-created",
                 )
             yield Label(
-                "j/k: next/prev field  Tab: next field  Esc: save & close",
+                "j/k: next/prev field  Enter on checklist: edit items  Esc: save & close",
                 id="detail-status",
             )
 
     def on_mount(self) -> None:
         self.query_one("#detail-title-input", VimInput).focus()
+        self._render_checklist()
+
+    @staticmethod
+    def _checklist_label_text(item: "ChecklistItem") -> RichText:
+        check = "[X]" if item.checked else "[ ]"
+        return RichText(f"{check} {item.label}")
+
+    def _checklist_push_undo(self) -> None:
+        self._checklist_history.append(copy.deepcopy(self._checklist))
+
+    def _render_checklist(
+        self, restore_index: int | None = None, force_rebuild: bool = False
+    ) -> None:
+        """Refresh the checklist ListView with minimal DOM churn.
+
+        Same count (toggle/reorder): update labels in place — highlight stays.
+        One item deleted: update N-1 labels in place, remove the last DOM node
+          — highlight is set synchronously on the already-mounted items.
+        One item added: append a single new DOM node at the end.
+        Any other delta or *force_rebuild*: full clear + rebuild (uses
+          call_after_refresh for the index because DOM changes are async).
+        """
+        lv = self.query_one("#detail-checklist-list", ListView)
+        existing = list(lv.query(ListItem))
+        delta = len(self._checklist) - len(existing)
+
+        if not force_rebuild and delta == 0:
+            # In-place update — no DOM nodes added or removed.
+            for list_item, checklist_item in zip(existing, self._checklist):
+                list_item.query_one(Label).update(
+                    self._checklist_label_text(checklist_item)
+                )
+            if restore_index is not None and self._checklist:
+                lv.index = min(max(restore_index, 0), len(self._checklist) - 1)
+
+        elif not force_rebuild and delta == -1:
+            # One deleted: update survivors in place, drop the last DOM node.
+            for list_item, checklist_item in zip(existing, self._checklist):
+                list_item.query_one(Label).update(
+                    self._checklist_label_text(checklist_item)
+                )
+            existing[-1].remove()
+            if restore_index is not None and self._checklist:
+                lv.index = min(max(restore_index, 0), len(self._checklist) - 1)
+
+        elif not force_rebuild and delta == 1:
+            # One added: just append the new node.
+            lv.append(
+                ListItem(
+                    Label(self._checklist_label_text(self._checklist[-1]), markup=False)
+                )
+            )
+
+        else:
+            # Full rebuild (undo or multi-item change).
+            lv.clear()
+            for item in self._checklist:
+                lv.append(
+                    ListItem(Label(self._checklist_label_text(item), markup=False))
+                )
+            if restore_index is not None and self._checklist:
+                target = min(max(restore_index, 0), len(self._checklist) - 1)
+                self.call_after_refresh(lambda t=target: setattr(lv, "index", t))
 
     def _normalize_field(self, widget_id: str) -> None:
         """Rewrite a parseable field to its canonical form so the user can
@@ -467,7 +572,9 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
         repeat = self.query_one("#detail-repeat-input", VimInput).value.strip()
         recur = self.query_one("#detail-recur-input", VimInput).value.strip()
         self.dismiss(
-            (title, notes, date_text, deadline_text, repeat, recur) if title else None
+            (title, notes, date_text, deadline_text, repeat, recur, self._checklist)
+            if title
+            else None
         )
 
     def on_vim_input_submitted(self, event: VimInput.Submitted) -> None:
@@ -482,17 +589,148 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str] | None]):
         elif event.vim_input.id == "detail-recur-input":
             self._normalize_field("detail-recur-input")
             self.action_save_and_close()
+        elif event.vim_input.id == "detail-checklist-new":
+            label = event.vim_input.value.strip()
+            if label:
+                self._checklist.append(ChecklistItem(label=label))
+                self._render_checklist()
+            event.vim_input.value = ""
+            event.vim_input.set_mode("insert")  # stay ready for the next item
 
     def on_key(self, event: events.Key) -> None:
         focused = self.focused
+
+        # Esc on the add-item input: exit to checklist list (don't save & close).
+        # VimInput absorbs Esc in INSERT mode (switches to COMMAND); when it's
+        # already in COMMAND mode the key bubbles here — redirect focus instead.
+        if (
+            event.key == "escape"
+            and isinstance(focused, VimInput)
+            and focused.id == "detail-checklist-new"
+        ):
+            lv = self.query_one("#detail-checklist-list", ListView)
+            lv.focus()
+            if self._checklist:
+                last = len(self._checklist) - 1
+                self.call_after_refresh(lambda t=last: setattr(lv, "index", t))
+                self._checklist_active = True
+            event.stop()
+            event.prevent_default()
+            return
+
+        # Checklist item-navigation mode (activated by Enter on the list).
+        if (
+            self._checklist_active
+            and isinstance(focused, ListView)
+            and focused.id == "detail-checklist-list"
+        ):
+            if event.key in ("escape", "enter"):
+                self._checklist_active = False
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "j":
+                focused.action_cursor_down()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "k":
+                focused.action_cursor_up()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "u":
+                if self._checklist_history:
+                    self._checklist = self._checklist_history.pop()
+                    self._render_checklist(
+                        restore_index=focused.index or 0, force_rebuild=True
+                    )
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key in ("x", "space"):
+                cur: int | None = focused.index
+                if cur is not None and 0 <= cur < len(self._checklist):
+                    self._checklist_push_undo()
+                    item = self._checklist[cur]
+                    self._checklist[cur] = ChecklistItem(
+                        id=item.id, label=item.label, checked=not item.checked
+                    )
+                    self._render_checklist(restore_index=cur)
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "d":
+                cur = focused.index
+                if cur is not None and 0 <= cur < len(self._checklist):
+                    self._checklist_push_undo()
+                    self._checklist.pop(cur)
+                    restore = max(0, cur - 1) if cur > 0 else 0
+                    self._render_checklist(restore_index=restore)
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key in ("o", "O"):
+                new_inp = self.query_one("#detail-checklist-new", VimInput)
+                new_inp.focus()
+                new_inp.set_mode("insert")
+                self._checklist_active = False
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "J":
+                cur = focused.index
+                if cur is not None and cur < len(self._checklist) - 1:
+                    self._checklist_push_undo()
+                    self._checklist[cur], self._checklist[cur + 1] = (
+                        self._checklist[cur + 1],
+                        self._checklist[cur],
+                    )
+                    self._render_checklist(restore_index=cur + 1)
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "K":
+                cur = focused.index
+                if cur is not None and cur > 0:
+                    self._checklist_push_undo()
+                    self._checklist[cur], self._checklist[cur - 1] = (
+                        self._checklist[cur - 1],
+                        self._checklist[cur],
+                    )
+                    self._render_checklist(restore_index=cur - 1)
+                event.stop()
+                event.prevent_default()
+                return
+            # All other keys are consumed to prevent unintended field navigation.
+            event.stop()
+            event.prevent_default()
+            return
+
+        # Enter on the checklist list (not yet active): enter item-navigation mode.
+        if (
+            not self._checklist_active
+            and isinstance(focused, ListView)
+            and focused.id == "detail-checklist-list"
+            and event.key == "enter"
+            and self._checklist
+        ):
+            self._checklist_active = True
+            if focused.index is None:
+                focused.index = 0
+            event.stop()
+            event.prevent_default()
+            return
+
+        # j/k field navigation (checklist list treated as a single field).
         if event.key == "j":
-            if focused and isinstance(focused, VimInput):
+            if isinstance(focused, VimInput):
                 self._normalize_field(focused.id or "")
             self.focus_next()
             event.stop()
             event.prevent_default()
         elif event.key == "k":
-            if focused and isinstance(focused, VimInput):
+            if isinstance(focused, VimInput):
                 self._normalize_field(focused.id or "")
             self.focus_previous()
             event.stop()
@@ -996,7 +1234,6 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
 
     @staticmethod
-    @staticmethod
     def _task_label(task: Task) -> str:
         """Build the display label for a task row, with recurrence and deadline markers."""
         marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
@@ -1009,7 +1246,11 @@ class GtdApp(App[None]):
             dl_suffix = f"  [yellow]{markup_escape(dl[0])}[/yellow]"
         else:
             dl_suffix = f"  {markup_escape(dl[0])}"
-        return f"{markup_escape(task.title)}{marker}{dl_suffix}"
+        checklist_suffix = ""
+        if task.checklist:
+            done = sum(1 for i in task.checklist if i.checked)
+            checklist_suffix = f"  [dim][{done}/{len(task.checklist)}][/dim]"
+        return f"{markup_escape(task.title)}{marker}{checklist_suffix}{dl_suffix}"
 
     def _refresh_list(self, select_task_id: str | None = None) -> None:
         list_view = self.query_one("#task-list", ListView)
@@ -1955,13 +2196,19 @@ class GtdApp(App[None]):
         old_deadline = task.deadline
 
         def _on_detail_close(
-            result: tuple[str, str, str, str, str, str] | None,
+            result: tuple[str, str, str, str, str, str, list[ChecklistItem]] | None,
         ) -> None:
             if result is None:
                 return
-            new_title, new_notes, date_text, deadline_text, repeat_text, recur_text = (
-                result
-            )
+            (
+                new_title,
+                new_notes,
+                date_text,
+                deadline_text,
+                repeat_text,
+                recur_text,
+                new_checklist,
+            ) = result
 
             # Parse date field.
             move_to_someday = date_text.strip().lower() == "someday"
@@ -2034,12 +2281,14 @@ class GtdApp(App[None]):
             deadline_changed = new_deadline != old_deadline
             repeat_changed = new_repeat != old_repeat
             recur_changed = new_recur != old_recur
+            checklist_changed = new_checklist != task.checklist
             if not (
                 title_changed
                 or date_changed
                 or deadline_changed
                 or repeat_changed
                 or recur_changed
+                or checklist_changed
             ):
                 return
 
@@ -2069,6 +2318,13 @@ class GtdApp(App[None]):
                 self._all_tasks = set_repeat_rule(self._all_tasks, task_id, new_repeat)
             if recur_changed:
                 self._all_tasks = set_recur_rule(self._all_tasks, task_id, new_recur)
+            if checklist_changed:
+                from dataclasses import replace as dc_replace
+
+                self._all_tasks = [
+                    dc_replace(t, checklist=new_checklist) if t.id == task_id else t
+                    for t in self._all_tasks
+                ]
             self._rebuild_sidebar()
             self._save()
             self._refresh_list(select_task_id=task_id)
