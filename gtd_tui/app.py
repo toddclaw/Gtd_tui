@@ -353,6 +353,8 @@ class TaskDetailScreen(
         super().__init__()
         self._gtd_task = task
         self._checklist: list[ChecklistItem] = copy.deepcopy(task.checklist)
+        # True when the user has pressed Enter to enter checklist item-navigation mode
+        self._checklist_active: bool = False
 
     @staticmethod
     def _interval_to_str(interval: int, unit: str) -> str:
@@ -455,7 +457,7 @@ class TaskDetailScreen(
                     id="detail-created",
                 )
             yield Label(
-                "j/k: next/prev field  Tab: next field  Esc: save & close",
+                "j/k: next/prev field  Enter on checklist: edit items  Esc: save & close",
                 id="detail-status",
             )
 
@@ -467,7 +469,7 @@ class TaskDetailScreen(
         lv = self.query_one("#detail-checklist-list", ListView)
         lv.clear()
         for item in self._checklist:
-            check = "[X]" if item.checked else "[ ]"
+            check = markup_escape("[X]") if item.checked else markup_escape("[ ]")
             label_text = f"{check} {markup_escape(item.label)}"
             lv.append(ListItem(Label(label_text)))
 
@@ -536,16 +538,49 @@ class TaskDetailScreen(
                 self._checklist.append(ChecklistItem(label=label))
                 self._render_checklist()
             event.vim_input.value = ""
-            lv = self.query_one("#detail-checklist-list", ListView)
-            if self._checklist:
-                lv.focus()
-                lv.index = len(self._checklist) - 1
+            event.vim_input.set_mode("insert")  # stay ready for the next item
 
     def on_key(self, event: events.Key) -> None:
         focused = self.focused
 
-        # Checklist list navigation
-        if isinstance(focused, ListView) and focused.id == "detail-checklist-list":
+        # Esc on the add-item input: exit to checklist list (don't save & close).
+        # VimInput absorbs Esc in INSERT mode (switches to COMMAND); when it's
+        # already in COMMAND mode the key bubbles here — redirect focus instead.
+        if (
+            event.key == "escape"
+            and isinstance(focused, VimInput)
+            and focused.id == "detail-checklist-new"
+        ):
+            lv = self.query_one("#detail-checklist-list", ListView)
+            lv.focus()
+            if self._checklist:
+                lv.index = len(self._checklist) - 1
+                self._checklist_active = True
+            event.stop()
+            event.prevent_default()
+            return
+
+        # Checklist item-navigation mode (activated by Enter on the list).
+        if (
+            self._checklist_active
+            and isinstance(focused, ListView)
+            and focused.id == "detail-checklist-list"
+        ):
+            if event.key == "escape":
+                self._checklist_active = False
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "j":
+                focused.action_cursor_down()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "k":
+                focused.action_cursor_up()
+                event.stop()
+                event.prevent_default()
+                return
             if event.key in ("x", "space"):
                 idx = focused.index
                 if idx is not None and 0 <= idx < len(self._checklist):
@@ -558,7 +593,7 @@ class TaskDetailScreen(
                 event.stop()
                 event.prevent_default()
                 return
-            elif event.key == "d":
+            if event.key == "d":
                 idx = focused.index
                 if idx is not None and 0 <= idx < len(self._checklist):
                     self._checklist.pop(idx)
@@ -569,12 +604,15 @@ class TaskDetailScreen(
                 event.stop()
                 event.prevent_default()
                 return
-            elif event.key in ("o", "O"):
-                self.query_one("#detail-checklist-new", VimInput).focus()
+            if event.key in ("o", "O"):
+                new_inp = self.query_one("#detail-checklist-new", VimInput)
+                new_inp.focus()
+                new_inp.set_mode("insert")
+                self._checklist_active = False
                 event.stop()
                 event.prevent_default()
                 return
-            elif event.key == "J":
+            if event.key == "J":
                 idx = focused.index
                 if idx is not None and idx < len(self._checklist) - 1:
                     self._checklist[idx], self._checklist[idx + 1] = (
@@ -586,7 +624,7 @@ class TaskDetailScreen(
                 event.stop()
                 event.prevent_default()
                 return
-            elif event.key == "K":
+            if event.key == "K":
                 idx = focused.index
                 if idx is not None and idx > 0:
                     self._checklist[idx], self._checklist[idx - 1] = (
@@ -598,16 +636,35 @@ class TaskDetailScreen(
                 event.stop()
                 event.prevent_default()
                 return
+            # All other keys are consumed to prevent unintended field navigation.
+            event.stop()
+            event.prevent_default()
+            return
 
-        # j/k field navigation (existing behavior, skip if checklist list is focused)
+        # Enter on the checklist list (not yet active): enter item-navigation mode.
+        if (
+            not self._checklist_active
+            and isinstance(focused, ListView)
+            and focused.id == "detail-checklist-list"
+            and event.key == "enter"
+            and self._checklist
+        ):
+            self._checklist_active = True
+            if focused.index is None:
+                focused.index = 0
+            event.stop()
+            event.prevent_default()
+            return
+
+        # j/k field navigation (checklist list treated as a single field).
         if event.key == "j":
-            if focused and isinstance(focused, VimInput):
+            if isinstance(focused, VimInput):
                 self._normalize_field(focused.id or "")
             self.focus_next()
             event.stop()
             event.prevent_default()
         elif event.key == "k":
-            if focused and isinstance(focused, VimInput):
+            if isinstance(focused, VimInput):
                 self._normalize_field(focused.id or "")
             self.focus_previous()
             event.stop()
