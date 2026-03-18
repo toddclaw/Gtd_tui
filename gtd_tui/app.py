@@ -330,6 +330,10 @@ class TaskDetailScreen(
         border: none;
     }
 
+    #detail-checklist-list > ListItem.--highlight {
+        background: $accent 40%;
+    }
+
     #detail-checklist-new {
         margin-bottom: 1;
     }
@@ -463,13 +467,8 @@ class TaskDetailScreen(
         lv = self.query_one("#detail-checklist-list", ListView)
         lv.clear()
         for item in self._checklist:
-            check = "[x]" if item.checked else "[ ]"
-            if item.checked:
-                label_text = (
-                    f"{check} [dim strike]{markup_escape(item.label)}[/dim strike]"
-                )
-            else:
-                label_text = f"{check} {markup_escape(item.label)}"
+            check = "[X]" if item.checked else "[ ]"
+            label_text = f"{check} {markup_escape(item.label)}"
             lv.append(ListItem(Label(label_text)))
 
     def _normalize_field(self, widget_id: str) -> None:
