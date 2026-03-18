@@ -356,6 +356,8 @@ class TaskDetailScreen(
         self._checklist: list[ChecklistItem] = copy.deepcopy(task.checklist)
         # True when the user has pressed Enter to enter checklist item-navigation mode
         self._checklist_active: bool = False
+        # Undo history for checklist mutations within this detail screen
+        self._checklist_history: list[list[ChecklistItem]] = []
 
     @staticmethod
     def _interval_to_str(interval: int, unit: str) -> str:
@@ -471,28 +473,54 @@ class TaskDetailScreen(
         check = "[X]" if item.checked else "[ ]"
         return RichText(f"{check} {item.label}")
 
-    def _render_checklist(self, restore_index: int | None = None) -> None:
-        """Refresh the checklist ListView.
+    def _checklist_push_undo(self) -> None:
+        self._checklist_history.append(copy.deepcopy(self._checklist))
 
-        When the item count is unchanged (toggle, reorder), labels are updated
-        in place so the ListView's current index and highlight are preserved.
-        When the count changes (add, delete), a full rebuild is done and
-        *restore_index* is applied via call_after_refresh.
+    def _render_checklist(
+        self, restore_index: int | None = None, force_rebuild: bool = False
+    ) -> None:
+        """Refresh the checklist ListView with minimal DOM churn.
+
+        Same count (toggle/reorder): update labels in place — highlight stays.
+        One item deleted: update N-1 labels in place, remove the last DOM node
+          — highlight is set synchronously on the already-mounted items.
+        One item added: append a single new DOM node at the end.
+        Any other delta or *force_rebuild*: full clear + rebuild (uses
+          call_after_refresh for the index because DOM changes are async).
         """
         lv = self.query_one("#detail-checklist-list", ListView)
         existing = list(lv.query(ListItem))
+        delta = len(self._checklist) - len(existing)
 
-        if len(existing) == len(self._checklist):
-            # Same count: update labels in place — preserves highlight/index.
+        if not force_rebuild and delta == 0:
+            # In-place update — no DOM nodes added or removed.
             for list_item, checklist_item in zip(existing, self._checklist):
                 list_item.query_one(Label).update(
                     self._checklist_label_text(checklist_item)
                 )
             if restore_index is not None and self._checklist:
-                target = min(max(restore_index, 0), len(self._checklist) - 1)
-                lv.index = target
+                lv.index = min(max(restore_index, 0), len(self._checklist) - 1)
+
+        elif not force_rebuild and delta == -1:
+            # One deleted: update survivors in place, drop the last DOM node.
+            for list_item, checklist_item in zip(existing, self._checklist):
+                list_item.query_one(Label).update(
+                    self._checklist_label_text(checklist_item)
+                )
+            existing[-1].remove()
+            if restore_index is not None and self._checklist:
+                lv.index = min(max(restore_index, 0), len(self._checklist) - 1)
+
+        elif not force_rebuild and delta == 1:
+            # One added: just append the new node.
+            lv.append(
+                ListItem(
+                    Label(self._checklist_label_text(self._checklist[-1]), markup=False)
+                )
+            )
+
         else:
-            # Count changed: full rebuild required.
+            # Full rebuild (undo or multi-item change).
             lv.clear()
             for item in self._checklist:
                 lv.append(
@@ -611,24 +639,33 @@ class TaskDetailScreen(
                 event.stop()
                 event.prevent_default()
                 return
+            if event.key == "u":
+                if self._checklist_history:
+                    self._checklist = self._checklist_history.pop()
+                    self._render_checklist(
+                        restore_index=focused.index or 0, force_rebuild=True
+                    )
+                event.stop()
+                event.prevent_default()
+                return
             if event.key in ("x", "space"):
-                idx = focused.index
-                if idx is not None and 0 <= idx < len(self._checklist):
-                    item = self._checklist[idx]
-                    self._checklist[idx] = ChecklistItem(
+                cur: int | None = focused.index
+                if cur is not None and 0 <= cur < len(self._checklist):
+                    self._checklist_push_undo()
+                    item = self._checklist[cur]
+                    self._checklist[cur] = ChecklistItem(
                         id=item.id, label=item.label, checked=not item.checked
                     )
-                    self._render_checklist(restore_index=idx)
+                    self._render_checklist(restore_index=cur)
                 event.stop()
                 event.prevent_default()
                 return
             if event.key == "d":
-                idx = focused.index
-                if idx is not None and 0 <= idx < len(self._checklist):
-                    self._checklist.pop(idx)
-                    # Go to the item above if possible, otherwise stay at idx (which
-                    # now points to the next item), clamped to the new list length.
-                    restore = max(0, idx - 1) if idx > 0 else 0
+                cur = focused.index
+                if cur is not None and 0 <= cur < len(self._checklist):
+                    self._checklist_push_undo()
+                    self._checklist.pop(cur)
+                    restore = max(0, cur - 1) if cur > 0 else 0
                     self._render_checklist(restore_index=restore)
                 event.stop()
                 event.prevent_default()
@@ -642,24 +679,26 @@ class TaskDetailScreen(
                 event.prevent_default()
                 return
             if event.key == "J":
-                idx = focused.index
-                if idx is not None and idx < len(self._checklist) - 1:
-                    self._checklist[idx], self._checklist[idx + 1] = (
-                        self._checklist[idx + 1],
-                        self._checklist[idx],
+                cur = focused.index
+                if cur is not None and cur < len(self._checklist) - 1:
+                    self._checklist_push_undo()
+                    self._checklist[cur], self._checklist[cur + 1] = (
+                        self._checklist[cur + 1],
+                        self._checklist[cur],
                     )
-                    self._render_checklist(restore_index=idx + 1)
+                    self._render_checklist(restore_index=cur + 1)
                 event.stop()
                 event.prevent_default()
                 return
             if event.key == "K":
-                idx = focused.index
-                if idx is not None and idx > 0:
-                    self._checklist[idx], self._checklist[idx - 1] = (
-                        self._checklist[idx - 1],
-                        self._checklist[idx],
+                cur = focused.index
+                if cur is not None and cur > 0:
+                    self._checklist_push_undo()
+                    self._checklist[cur], self._checklist[cur - 1] = (
+                        self._checklist[cur - 1],
+                        self._checklist[cur],
                     )
-                    self._render_checklist(restore_index=idx - 1)
+                    self._render_checklist(restore_index=cur - 1)
                 event.stop()
                 event.prevent_default()
                 return
