@@ -16,6 +16,8 @@ from gtd_tui.gtd.operations import (
     insert_waiting_on_task_after,
     insert_waiting_on_task_before,
     logbook_tasks,
+    move_block_down,
+    move_block_up,
     move_task_down,
     move_task_up,
     move_to_today,
@@ -1365,3 +1367,62 @@ def test_add_task_to_folder_sets_created_at():
 
     tasks = add_task_to_folder([], "myfolder", "Widget")
     assert tasks[0].created_at is not None
+
+
+# ---------------------------------------------------------------------------
+# move_block_down / move_block_up
+# ---------------------------------------------------------------------------
+
+
+def _make_today_tasks(*titles: str) -> list:
+    """Create today tasks with titles in display order (first title = top)."""
+    tasks: list = []
+    for title in reversed(titles):
+        tasks = add_task(tasks, title)
+    return tasks
+
+
+def _titles(tasks: list) -> list[str]:
+    return [t.title for t in sorted(tasks, key=lambda t: t.position)]
+
+
+def test_move_block_down_moves_block_as_unit():
+    tasks = _make_today_tasks("A", "B", "C", "D", "E")
+    ids = {t.id for t in tasks if t.title in ("B", "C", "D")}
+    tasks = move_block_down(tasks, ids)
+    assert _titles(tasks) == ["A", "E", "B", "C", "D"]
+
+
+def test_move_block_up_moves_block_as_unit():
+    tasks = _make_today_tasks("A", "B", "C", "D", "E")
+    ids = {t.id for t in tasks if t.title in ("B", "C", "D")}
+    tasks = move_block_up(tasks, ids)
+    assert _titles(tasks) == ["B", "C", "D", "A", "E"]
+
+
+def test_move_block_down_noop_at_boundary():
+    tasks = _make_today_tasks("A", "B", "C")
+    ids = {t.id for t in tasks if t.title in ("B", "C")}
+    tasks = move_block_down(tasks, ids)
+    assert _titles(tasks) == ["A", "B", "C"]
+
+
+def test_move_block_up_noop_at_boundary():
+    tasks = _make_today_tasks("A", "B", "C")
+    ids = {t.id for t in tasks if t.title in ("A", "B")}
+    tasks = move_block_up(tasks, ids)
+    assert _titles(tasks) == ["A", "B", "C"]
+
+
+def test_move_block_down_single_task():
+    tasks = _make_today_tasks("A", "B", "C")
+    ids = {t.id for t in tasks if t.title == "A"}
+    tasks = move_block_down(tasks, ids)
+    assert _titles(tasks) == ["B", "A", "C"]
+
+
+def test_move_block_up_single_task():
+    tasks = _make_today_tasks("A", "B", "C")
+    ids = {t.id for t in tasks if t.title == "C"}
+    tasks = move_block_up(tasks, ids)
+    assert _titles(tasks) == ["A", "C", "B"]

@@ -415,6 +415,68 @@ async def test_K_moves_selected_block_up(tmp_path: Path) -> None:
         assert pilot.app._visual_mode is True
 
 
+async def test_J_preserves_block_order_three_tasks(tmp_path: Path) -> None:
+    async with _make_app(tmp_path, "A", "B", "C", "D", "E").run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("j")  # cursor to index 1 (B)
+        await pilot.pause()
+        await pilot.press("v", "j", "j")  # anchor=1, extend to 3: select B+C+D
+        await pilot.pause()
+        await pilot.press("J")  # move block down
+        await pilot.pause()
+        active = sorted(
+            [t for t in pilot.app._all_tasks if t.folder_id == "today"],
+            key=lambda t: t.position,
+        )
+        assert [t.title for t in active] == ["A", "E", "B", "C", "D"]
+
+
+async def test_K_preserves_block_order_three_tasks(tmp_path: Path) -> None:
+    async with _make_app(tmp_path, "A", "B", "C", "D", "E").run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("j", "j")  # cursor to index 2 (C)
+        await pilot.pause()
+        await pilot.press("v", "j", "j")  # anchor=2, extend to 4: select C+D+E
+        await pilot.pause()
+        await pilot.press("K")  # move block up
+        await pilot.pause()
+        active = sorted(
+            [t for t in pilot.app._all_tasks if t.folder_id == "today"],
+            key=lambda t: t.position,
+        )
+        assert [t.title for t in active] == ["A", "C", "D", "E", "B"]
+
+
+async def test_J_noop_when_block_at_bottom(tmp_path: Path) -> None:
+    async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("j")  # cursor to index 1 (B)
+        await pilot.pause()
+        await pilot.press("v", "j")  # select B + C (C is last)
+        await pilot.pause()
+        await pilot.press("J")  # should be no-op
+        await pilot.pause()
+        active = sorted(
+            [t for t in pilot.app._all_tasks if t.folder_id == "today"],
+            key=lambda t: t.position,
+        )
+        assert [t.title for t in active] == ["A", "B", "C"]
+
+
+async def test_K_noop_when_block_at_top(tmp_path: Path) -> None:
+    async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("v", "j")  # select A + B (A is first)
+        await pilot.pause()
+        await pilot.press("K")  # should be no-op
+        await pilot.pause()
+        active = sorted(
+            [t for t in pilot.app._all_tasks if t.folder_id == "today"],
+            key=lambda t: t.position,
+        )
+        assert [t.title for t in active] == ["A", "B", "C"]
+
+
 async def test_J_block_move_is_single_undo_step(tmp_path: Path) -> None:
     async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
         await pilot.pause()

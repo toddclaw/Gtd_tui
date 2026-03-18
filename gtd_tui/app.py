@@ -41,6 +41,8 @@ from gtd_tui.gtd.operations import (
     insert_waiting_on_task_before,
     logbook_tasks,
     make_repeat_rule,
+    move_block_down,
+    move_block_up,
     move_folder_down,
     move_folder_tasks_to_today,
     move_folder_up,
@@ -2614,8 +2616,7 @@ class GtdApp(App[None]):
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
-        for task in sorted(tasks, key=lambda t: t.position, reverse=True):
-            self._all_tasks = move_task_down(self._all_tasks, task.id)
+        self._all_tasks = move_block_down(self._all_tasks, selected_ids)
         self._save()
         self._refresh_list()
         self.call_after_refresh(
@@ -2635,8 +2636,7 @@ class GtdApp(App[None]):
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
-        for task in sorted(tasks, key=lambda t: t.position):
-            self._all_tasks = move_task_up(self._all_tasks, task.id)
+        self._all_tasks = move_block_up(self._all_tasks, selected_ids)
         self._save()
         self._refresh_list()
         self.call_after_refresh(
