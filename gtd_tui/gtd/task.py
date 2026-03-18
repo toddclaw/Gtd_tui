@@ -7,6 +7,13 @@ from typing import Literal, Optional
 
 
 @dataclass
+class ChecklistItem:
+    label: str
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    checked: bool = False
+
+
+@dataclass
 class RepeatRule:
     """Calendar-fixed repeat schedule attached to a task.
 
@@ -49,6 +56,7 @@ class Task:
     repeat_rule: Optional[RepeatRule] = None
     recur_rule: Optional[RecurRule] = None
     created_at: Optional[datetime] = None
+    checklist: list[ChecklistItem] = field(default_factory=list)
 
     is_deleted: bool = False
 

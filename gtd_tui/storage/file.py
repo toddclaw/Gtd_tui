@@ -10,7 +10,7 @@ from typing import Any
 from platformdirs import user_data_dir
 
 from gtd_tui.gtd.folder import Folder
-from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
+from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
 from gtd_tui.storage.crypto import (
     DecryptionError,
     decrypt_data,
@@ -45,6 +45,16 @@ def _recur_rule_from_dict(data: dict[str, Any]) -> RecurRule:
     return RecurRule(interval=data["interval"], unit=data["unit"])
 
 
+def _checklist_item_to_dict(item: ChecklistItem) -> dict[str, Any]:
+    return {"id": item.id, "label": item.label, "checked": item.checked}
+
+
+def _checklist_item_from_dict(data: dict[str, Any]) -> ChecklistItem:
+    return ChecklistItem(
+        id=data["id"], label=data["label"], checked=data.get("checked", False)
+    )
+
+
 def _task_to_dict(task: Task) -> dict[str, Any]:
     return {
         "id": task.id,
@@ -65,6 +75,7 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         ),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "is_deleted": task.is_deleted,
+        "checklist": [_checklist_item_to_dict(i) for i in task.checklist],
     }
 
 
@@ -101,6 +112,7 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
             else None
         ),
         is_deleted=data.get("is_deleted", False),
+        checklist=[_checklist_item_from_dict(i) for i in data.get("checklist", [])],
     )
 
 

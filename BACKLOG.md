@@ -609,7 +609,7 @@ Waiting On tasks represent work delegated to or blocked on another person or ent
 
 ---
 
-### BACKLOG-29 — Checklist sub-steps within a task
+### BACKLOG-29 — Checklist sub-steps within a task ✅ DONE
 
 **Story points:** 5 — New `ChecklistItem` model, storage, detail-view rendering, and completion tracking.
 
@@ -624,13 +624,13 @@ things like "Pack for trip: passport ☐, charger ☐, headphones ☐".
 - A partial completion indicator is shown in the task list: `Pack for trip [1/3]`
 
 **Acceptance criteria:**
-- [ ] `ChecklistItem` dataclass: `id`, `label: str`, `checked: bool`
-- [ ] `Task.checklist: list[ChecklistItem]` field (default `[]`); old files load without error
-- [ ] Task detail view shows checklist section below notes
-- [ ] `o` / `O` in the checklist section add a new item; `x` / Space toggles the focused item
-- [ ] Completed items are visually struck-through or marked
-- [ ] Task list row shows `[N/M]` completion ratio when checklist is non-empty
-- [ ] Storage round-trip works; tests cover add/toggle/reorder/delete of checklist items
+- [x] `ChecklistItem` dataclass: `id`, `label: str`, `checked: bool`
+- [x] `Task.checklist: list[ChecklistItem]` field (default `[]`); old files load without error
+- [x] Task detail view shows checklist section below notes
+- [x] `o` / `O` in the checklist section add a new item; `x` / Space toggles the focused item
+- [x] Completed items are visually struck-through or marked
+- [x] Task list row shows `[N/M]` completion ratio when checklist is non-empty
+- [x] Storage round-trip works; tests cover add/toggle/reorder/delete of checklist items
 
 ---
 
