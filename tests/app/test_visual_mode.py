@@ -264,6 +264,20 @@ async def test_bulk_w_moves_selected_to_waiting_on(tmp_path: Path) -> None:
         assert pilot.app._visual_mode is False
 
 
+async def test_bulk_w_preserves_order(tmp_path: Path) -> None:
+    async with _make_app(tmp_path, "A", "B", "C", "D").run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("v", "j", "j")  # select A, B, C
+        await pilot.pause()
+        await pilot.press("w")
+        await pilot.pause()
+        wo = sorted(
+            [t for t in pilot.app._all_tasks if t.folder_id == "waiting_on"],
+            key=lambda t: t.position,
+        )
+        assert [t.title for t in wo] == ["A", "B", "C"]
+
+
 async def test_bulk_t_moves_selected_to_today(tmp_path: Path) -> None:
     data_file = tmp_path / "data.json"
     tasks: list = []
@@ -337,6 +351,34 @@ async def test_bulk_m_moves_selected_to_chosen_folder(tmp_path: Path) -> None:
         assert len(in_work) == 2
         titles = {t.title for t in in_work}
         assert titles == {"A", "B"}
+
+
+async def test_bulk_m_preserves_order(tmp_path: Path) -> None:
+
+    data_file = tmp_path / "data.json"
+    tasks: list = []
+    folders: list = []
+    for title in reversed(("A", "B", "C", "D")):
+        tasks = add_task(tasks, title)
+    folder_id = "test-folder-order"
+    folders = create_folder(folders, "Work", folder_id=folder_id)
+    save_data(tasks, folders, data_file=data_file)
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("v", "j", "j")  # select A, B, C
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.press("j", "j", "j")  # navigate to Work
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        in_work = sorted(
+            [t for t in pilot.app._all_tasks if t.folder_id == folder_id],
+            key=lambda t: t.position,
+        )
+        assert [t.title for t in in_work] == ["A", "B", "C"]
 
 
 async def test_bulk_m_is_single_undo_step(tmp_path: Path) -> None:
