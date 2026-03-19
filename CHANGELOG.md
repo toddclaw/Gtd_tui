@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Export** (`--export FORMAT`): export tasks to stdout or `--output FILE` in four formats: `json` (lossless, recommended for backups), `txt` (one line per task), `csv` (columns: folder, title, scheduled_date, deadline, notes), `md` (markdown with folder headings). Deleted tasks are always omitted from all formats.
+- **Import** (`--import FILE`): non-destructive merge from a JSON export file — only tasks and folders whose IDs do not already exist in the data file are added; built-in folder IDs are never imported.
 - **VimInput `f`/`F`/`t`/`T` find-char motions**: `f<ch>` moves to the next occurrence of a character on the current line; `F<ch>` moves backward; `t<ch>` stops one position before; `T<ch>` stops one position after. Works in both single-line and multi-line mode (scoped to the current line).
 - **VimInput `;` / `,` repeat-find**: `;` repeats the last `f`/`F`/`t`/`T` in the same direction; `,` repeats in the opposite direction.
 - **VimInput `gg` / `G`**: `gg` jumps to the beginning of the text (first line, first char); `G` jumps to the last character. Works in both single-line and multi-line mode.

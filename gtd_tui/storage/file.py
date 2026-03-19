@@ -268,12 +268,22 @@ def save_tasks(
     save_data(tasks, existing_folders, data_file, password=password)
 
 
+# Public serialization helpers — used by portability.py for export/import.
+task_to_dict = _task_to_dict
+task_from_dict = _task_from_dict
+folder_to_dict = _folder_to_dict
+folder_from_dict = _folder_from_dict
+
 __all__ = [
     "UndoStack",
+    "folder_from_dict",
+    "folder_to_dict",
     "load_folders",
     "load_redo_stack",
     "load_tasks",
     "load_undo_stack",
     "save_data",
     "save_tasks",
+    "task_from_dict",
+    "task_to_dict",
 ]

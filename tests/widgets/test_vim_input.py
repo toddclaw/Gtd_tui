@@ -902,9 +902,9 @@ async def test_dot_repeat_A_appends_to_end_of_line() -> None:
         vi = _vi(pilot.app)
         # Start on first line, cursor at 'o' (index 4)
         vi._cursor = 4
-        await pilot.press("A")          # move to end of 'hello' (index 5), INSERT
-        await pilot.press("!")          # type '!'  → 'hello!\nworld'
-        await pilot.press("escape")     # leave INSERT
+        await pilot.press("A")  # move to end of 'hello' (index 5), INSERT
+        await pilot.press("!")  # type '!'  → 'hello!\nworld'
+        await pilot.press("escape")  # leave INSERT
         assert vi.value == "hello!\nworld"
         # Move cursor into second line: h=0,e=1,l=2,l=3,o=4,!=5,\n=6,w=7,o=8,r=9
         vi._cursor = 9
@@ -917,9 +917,9 @@ async def test_dot_repeat_s_deletes_then_inserts() -> None:
     async with _App(value="abcde", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 0
-        await pilot.press("s")          # delete 'a', enter INSERT
-        await pilot.press("=")          # type '='
-        await pilot.press("escape")     # leave INSERT  → value is '=bcde'
+        await pilot.press("s")  # delete 'a', enter INSERT
+        await pilot.press("=")  # type '='
+        await pilot.press("escape")  # leave INSERT  → value is '=bcde'
         assert vi.value == "=bcde"
         # cursor is now on 'b' (index 1)
         await pilot.press("full_stop")  # should delete 'b' and insert '=' → '==cde'
@@ -934,7 +934,7 @@ async def test_dot_repeat_d0_multiline_stays_on_line() -> None:
         vi = _vi(pilot.app)
         # Position cursor on 'r' in 'world' (offset 8)
         vi._cursor = 8  # h(0)e(1)l(2)l(3)o(4)\n(5)w(6)o(7)r(8)
-        await pilot.press("d", "0")     # d0: delete 'wo' (from line start to cursor)
+        await pilot.press("d", "0")  # d0: delete 'wo' (from line start to cursor)
         assert vi.value == "hello\nrld", repr(vi.value)
         assert "\n" in vi.value  # newline must survive
 
@@ -944,9 +944,9 @@ async def test_dot_repeat_a_appends_after_cursor() -> None:
     async with _App(value="abcd", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 0  # cursor on 'a'
-        await pilot.press("a")          # append: cursor moves to 1 (after 'a')
-        await pilot.press("X")          # type 'X'
-        await pilot.press("escape")     # → 'aXbcd'
+        await pilot.press("a")  # append: cursor moves to 1 (after 'a')
+        await pilot.press("X")  # type 'X'
+        await pilot.press("escape")  # → 'aXbcd'
         assert vi.value == "aXbcd"
         vi._cursor = 2  # cursor on 'b'
         await pilot.press("full_stop")  # repeat: should append 'X' after 'b' → 'aXbXcd'
@@ -963,7 +963,7 @@ async def test_f_moves_to_next_char() -> None:
     async with _App(value="hello world", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 0  # on 'h'
-        await pilot.press("f", "l")     # find 'l' forward → index 2
+        await pilot.press("f", "l")  # find 'l' forward → index 2
         assert vi._cursor == 2
 
 
@@ -981,7 +981,7 @@ async def test_t_stops_before_char() -> None:
     async with _App(value="hello", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 0  # on 'h'
-        await pilot.press("t", "l")     # first 'l' is at index 2; t stops at 1
+        await pilot.press("t", "l")  # first 'l' is at index 2; t stops at 1
         assert vi._cursor == 1
 
 
@@ -990,7 +990,7 @@ async def test_F_moves_to_previous_char() -> None:
     async with _App(value="hello", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 4  # on 'o'
-        await pilot.press("F", "l")     # last 'l' before cursor is at index 3
+        await pilot.press("F", "l")  # last 'l' before cursor is at index 3
         assert vi._cursor == 3
 
 
@@ -999,7 +999,9 @@ async def test_T_stops_after_char() -> None:
     async with _App(value="hello", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 4  # on 'o'
-        await pilot.press("T", "l")     # last 'l' before cursor is at index 3; T → 4-1=3+1=4... wait
+        await pilot.press(
+            "T", "l"
+        )  # last 'l' before cursor is at index 3; T → 4-1=3+1=4... wait
         # 'l' at index 3 is the rightmost 'l' before cursor 4; T stops one after it → 4
         # Actually T finds the char then moves cursor one AFTER it → idx+1 = 4
         # But col = 4 and we need to move, so T l from cursor 4 should find 'l' at index 3
@@ -1013,7 +1015,7 @@ async def test_T_stops_after_char_in_longer_text() -> None:
     async with _App(value="abcdefg", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 5  # on 'f'
-        await pilot.press("T", "b")     # 'b' is at index 1; T → land at 2
+        await pilot.press("T", "b")  # 'b' is at index 1; T → land at 2
         assert vi._cursor == 2
 
 
@@ -1022,7 +1024,7 @@ async def test_semicolon_repeats_f_forward() -> None:
     async with _App(value="hello world", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 0
-        await pilot.press("f", "l")     # first 'l' → index 2
+        await pilot.press("f", "l")  # first 'l' → index 2
         assert vi._cursor == 2
         await pilot.press("semicolon")  # repeat: next 'l' → index 3
         assert vi._cursor == 3
@@ -1033,9 +1035,9 @@ async def test_comma_reverses_f_find() -> None:
     async with _App(value="hello world", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 0
-        await pilot.press("f", "l")     # first 'l' → index 2
+        await pilot.press("f", "l")  # first 'l' → index 2
         await pilot.press("semicolon")  # next 'l' → index 3
-        await pilot.press("comma")      # reverse → back to 'l' at index 2
+        await pilot.press("comma")  # reverse → back to 'l' at index 2
         assert vi._cursor == 2
 
 
@@ -1055,7 +1057,7 @@ async def test_find_in_multiline_stays_on_line() -> None:
     ).run_test() as pilot:
         vi = _vi(pilot.app)
         vi._cursor = 0  # on first 'a' of row 0
-        await pilot.press("f", "b")     # 'b' is only on row 1 — no match on row 0
+        await pilot.press("f", "b")  # 'b' is only on row 1 — no match on row 0
         assert vi._cursor == 0  # cursor should not have moved
 
 

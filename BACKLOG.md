@@ -1063,7 +1063,7 @@ The global search (`/`) currently does case-insensitive substring matching. Add 
 
 ## Group: Power features (new)
 
-### BACKLOG-53 — Export to plain text / CSV / markdown
+### BACKLOG-53 — Export to plain text / CSV / markdown ✅ DONE
 
 **Story points:** 5
 
@@ -1071,11 +1071,13 @@ The global search (`/`) currently does case-insensitive substring matching. Add 
 Users may want to export their tasks for backup or external processing. Add simple export formats as CLI flags.
 
 **Acceptance criteria:**
-- [ ] `--export=txt` exports tasks as newline-delimited plaintext (one task per line)
-- [ ] `--export=csv` exports as CSV with columns: folder, title, date, deadline, notes
-- [ ] `--export=md` exports as markdown with folder headings and task lists
-- [ ] `--output=<path>` writes to a file instead of stdout
-- [ ] Unit tests verify export format correctness
+- [x] `--export=txt` exports tasks as newline-delimited plaintext (one task per line)
+- [x] `--export=csv` exports as CSV with columns: folder, title, date, deadline, notes
+- [x] `--export=md` exports as markdown with folder headings and task lists
+- [x] `--export=json` exports as lossless JSON (added — recommended for backup/import)
+- [x] `--output=<path>` writes to a file instead of stdout
+- [x] `--import=<path>` imports tasks/folders from a JSON export file (non-destructive merge)
+- [x] Unit tests verify export format correctness and import round-trip
 
 ---
 

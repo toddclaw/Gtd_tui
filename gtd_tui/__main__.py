@@ -22,6 +22,13 @@ from platformdirs import user_data_dir
 from gtd_tui.app import GtdApp
 from gtd_tui.gtd.dates import format_date
 from gtd_tui.gtd.operations import today_tasks, upcoming_tasks
+from gtd_tui.portability import (
+    export_csv,
+    export_json,
+    export_md,
+    export_txt,
+    import_json,
+)
 from gtd_tui.storage.crypto import DecryptionError, decrypt_data, is_encrypted
 from gtd_tui.storage.file import load_folders, load_tasks, save_data
 
@@ -109,6 +116,40 @@ def _cmd_decrypt(data_file: Path) -> None:
     print("File decrypted successfully.")
 
 
+def _cmd_export(
+    fmt: str, output: str | None, data_file: Path, password: str | None
+) -> None:
+    """Export data in the requested format and write to *output* (or stdout)."""
+    tasks = load_tasks(data_file, password=password)
+    folders = load_folders(data_file, password=password)
+
+    exporters = {
+        "json": export_json,
+        "txt": export_txt,
+        "csv": export_csv,
+        "md": export_md,
+    }
+    content = exporters[fmt](tasks, folders)
+
+    if output:
+        Path(output).write_text(content, encoding="utf-8")
+        print(f"Exported {fmt.upper()} to {output}")
+    else:
+        print(content, end="")
+
+
+def _cmd_import(import_file: str, data_file: Path, password: str | None) -> None:
+    """Import tasks and folders from a JSON export file (non-destructive merge)."""
+    path = Path(import_file)
+    if not path.exists():
+        print(f"Import file not found: {path}", file=sys.stderr)
+        sys.exit(1)
+    tasks_added, folders_added = import_json(path, data_file, password=password)
+    print(
+        f"Import complete: {tasks_added} task(s) added, {folders_added} folder(s) added."
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="gtd_tui", description="GTD TUI")
     parser.add_argument(
@@ -127,6 +168,23 @@ def main() -> None:
         action="store_true",
         help="Decrypt the data file back to plaintext and exit",
     )
+    parser.add_argument(
+        "--export",
+        metavar="FORMAT",
+        choices=["json", "txt", "csv", "md"],
+        help="Export tasks to stdout (or --output file). Formats: json, txt, csv, md",
+    )
+    parser.add_argument(
+        "--output",
+        metavar="FILE",
+        help="Write --export output to FILE instead of stdout",
+    )
+    parser.add_argument(
+        "--import",
+        metavar="FILE",
+        dest="import_file",
+        help="Import tasks from a JSON export file (non-destructive merge)",
+    )
     args = parser.parse_args()
 
     data_file = _DEFAULT_DATA_FILE
@@ -143,6 +201,14 @@ def main() -> None:
 
     if args.summary:
         _print_summary(password=password)
+        sys.exit(0)
+
+    if args.export:
+        _cmd_export(args.export, args.output, data_file, password)
+        sys.exit(0)
+
+    if args.import_file:
+        _cmd_import(args.import_file, data_file, password)
         sys.exit(0)
 
     GtdApp(password=password).run()
