@@ -13,6 +13,8 @@ Multi-line mode (multiline=True):
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pyperclip
 from textual import events
 from textual.app import RenderableType
@@ -78,6 +80,7 @@ class VimInput(Widget, can_focus=True):
         )
         self._last_insert: str = ""  # characters typed in the current INSERT session
         self._repeat_text: str = ""  # text saved from the last completed INSERT session
+        self._last_action: Callable[[], None] | None = None  # replay callable for "."
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
@@ -132,6 +135,17 @@ class VimInput(Widget, can_focus=True):
             # Leaving INSERT → persist the typed text as the repeat buffer.
             if self._last_insert:
                 self._repeat_text = self._last_insert
+                text_to_insert = self._last_insert
+
+                def _replay_insert(text: str = text_to_insert) -> None:
+                    self._push_undo()
+                    self._text = (
+                        self._text[: self._cursor] + text + self._text[self._cursor :]
+                    )
+                    self._cursor += len(text)
+                    self._clamp_cursor_for_command()
+
+                self._last_action = _replay_insert
             self._last_insert = ""
         elif mode == "insert":
             # Entering INSERT → start a fresh recording.
@@ -420,6 +434,9 @@ class VimInput(Widget, can_focus=True):
             event.prevent_default()
             self._cmd_line_down()
 
+        elif key == "question_mark":
+            return  # let it bubble to the parent (e.g. to open the calendar picker)
+
         elif event.is_printable and event.character:
             event.stop()
             event.prevent_default()
@@ -482,9 +499,10 @@ class VimInput(Widget, can_focus=True):
             # Unknown sequence — silently discard; do not consume the event.
             return
 
-        if key in ("escape", "tab", "shift+tab"):
-            # Do NOT stop these events: let them bubble so Esc reaches the parent
-            # and Tab/Shift-Tab reach Textual's focus-traversal handler.
+        if key in ("escape", "tab", "shift+tab", "question_mark"):
+            # Do NOT stop these events: let them bubble so Esc reaches the parent,
+            # Tab/Shift-Tab reach Textual's focus-traversal handler, and ? opens
+            # the calendar picker on date fields.
             return
 
         if key in ("j", "k") and not self._multiline:
@@ -607,6 +625,27 @@ class VimInput(Widget, can_focus=True):
                         self._cursor -= 1
                 else:
                     self._cursor = min(self._cursor, max(0, len(self._text) - 1))
+
+                def _replay_x() -> None:
+                    if (
+                        self._cursor < len(self._text)
+                        and self._text[self._cursor] != "\n"
+                    ):
+                        self._push_undo()
+                        self._text = (
+                            self._text[: self._cursor] + self._text[self._cursor + 1 :]
+                        )
+                        if self._multiline:
+                            r, c = self._cursor_row_col()
+                            ln = self._text.split("\n")[r]
+                            if ln and c >= len(ln):
+                                self._cursor -= 1
+                        else:
+                            self._cursor = min(
+                                self._cursor, max(0, len(self._text) - 1)
+                            )
+
+                self._last_action = _replay_x
         elif key == "c":
             self._pending = "c"
         elif key == "d":
@@ -633,7 +672,9 @@ class VimInput(Widget, can_focus=True):
             self._push_undo()
             self._cmd_paste(after=False)
         elif key == "period":
-            if self._repeat_text:
+            if self._last_action is not None:
+                self._last_action()
+            elif self._repeat_text:
                 self._push_undo()
                 self._text = (
                     self._text[: self._cursor]

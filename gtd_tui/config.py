@@ -19,8 +19,13 @@ except ImportError:  # pragma: no cover — should always be available
         return str(Path.home() / ".config" / app)
 
 
-def _default_config_path() -> Path:
+def default_config_path() -> Path:
+    """Return the XDG-standard path for the config file."""
     return Path(user_config_dir("gtd_tui")) / "config.toml"
+
+
+def _default_config_path() -> Path:  # internal alias kept for backward compat
+    return default_config_path()
 
 
 @dataclass

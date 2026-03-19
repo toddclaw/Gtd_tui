@@ -18,7 +18,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
-from gtd_tui.config import Config, load_config
+from gtd_tui.config import Config, default_config_path, load_config, save_default_config
 from gtd_tui.gtd.dates import (
     InvalidDateError,
     format_date_relative,
@@ -1325,6 +1325,12 @@ class GtdApp(App[None]):
         yield Label("NORMAL  |  Today", id="status")
 
     def on_mount(self) -> None:
+        cfg_path = default_config_path()
+        if not cfg_path.exists():
+            try:
+                save_default_config(cfg_path)
+            except OSError:
+                pass
         self._normalize_folder_positions()
         old_len = len(self._all_tasks)
         self._all_tasks = spawn_repeating_tasks(self._all_tasks)
