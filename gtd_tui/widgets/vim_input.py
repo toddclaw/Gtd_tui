@@ -13,6 +13,8 @@ Multi-line mode (multiline=True):
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pyperclip
 from textual import events
 from textual.app import RenderableType
@@ -76,6 +78,16 @@ class VimInput(Widget, can_focus=True):
         self._register: str = (
             ""  # unnamed yank register (fallback when clipboard unavailable)
         )
+        self._last_insert: str = ""  # characters typed in the current INSERT session
+        self._repeat_text: str = ""  # text saved from the last completed INSERT session
+        self._last_action: Callable[[], None] | None = None  # replay callable for "."
+        # Pre-insert action for dot-repeat: captures cursor positioning or text
+        # deletion that happened immediately before entering INSERT mode (e.g. A
+        # moves cursor to EOL; s deletes char under cursor).  Combined with the
+        # recorded INSERT text, this reconstructs the full operation on ".".
+        self._pre_insert_action: Callable[[], None] | None = None
+        # Last f/F/t/T find: (command, char).  Replayed by ; and ,.
+        self._last_find: tuple[str, str] | None = None
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
@@ -126,6 +138,32 @@ class VimInput(Widget, can_focus=True):
 
     def set_mode(self, mode: str) -> None:
         """Switch between 'insert' and 'command' sub-modes."""
+        if mode == "command" and self._vim_mode == "insert":
+            # Leaving INSERT → persist the typed text as the repeat buffer.
+            if self._last_insert:
+                self._repeat_text = self._last_insert
+                text_to_insert = self._last_insert
+                pre = self._pre_insert_action
+
+                def _replay_insert(
+                    text: str = text_to_insert,
+                    pre_action: Callable[[], None] | None = pre,
+                ) -> None:
+                    self._push_undo()
+                    if pre_action is not None:
+                        pre_action()
+                    self._text = (
+                        self._text[: self._cursor] + text + self._text[self._cursor :]
+                    )
+                    self._cursor += len(text)
+                    self._clamp_cursor_for_command()
+
+                self._last_action = _replay_insert
+            self._last_insert = ""
+            self._pre_insert_action = None
+        elif mode == "insert":
+            # Entering INSERT → start a fresh recording.
+            self._last_insert = ""
         self._vim_mode = mode
         self._pending = ""
         if mode == "command":
@@ -419,6 +457,7 @@ class VimInput(Widget, can_focus=True):
                 + self._text[self._cursor :]
             )
             self._cursor += 1
+            self._last_insert += event.character
 
     def _handle_command(self, event: events.Key) -> None:
         key = event.key
@@ -430,20 +469,54 @@ class VimInput(Widget, can_focus=True):
             if pending == "r":
                 event.stop()
                 event.prevent_default()
-                ch = key if len(key) == 1 else (" " if key == "space" else None)
+                # Prefer event.character (the actual glyph) so that keys like
+                # '=' or '.' — whose key names are "equal_sign" / "full_stop"
+                # (length > 1) — can be used as replacement characters.
+                ch = (
+                    event.character
+                    if event.character
+                    else (" " if key == "space" else (key if len(key) == 1 else None))
+                )
                 if ch is not None and self._cursor < len(self._text):
                     self._push_undo()
                     self._text = (
                         self._text[: self._cursor] + ch + self._text[self._cursor + 1 :]
                     )
+                    ch_str: str = ch  # ch is non-None here; capture for closure
+
+                    def _replay_r(c: str = ch_str) -> None:
+                        if self._cursor < len(self._text):
+                            self._push_undo()
+                            self._text = (
+                                self._text[: self._cursor]
+                                + c
+                                + self._text[self._cursor + 1 :]
+                            )
+
+                    self._last_action = _replay_r
             elif pending == "c":
                 event.stop()
                 event.prevent_default()
                 if key == "w":
                     self._push_undo()
+
+                    def _pre_cw() -> None:
+                        pos = self._cursor
+                        end = pos
+                        while end < len(self._text) and not self._text[end].isspace():
+                            end += 1
+                        self._text = self._text[:pos] + self._text[end:]
+                        self._cursor = pos
+
+                    self._pre_insert_action = _pre_cw
                     self._cmd_change_word()
                 elif key in ("dollar", "dollar_sign"):
                     self._push_undo()
+
+                    def _pre_c_dollar() -> None:
+                        self._cmd_delete_to_line_end()
+
+                    self._pre_insert_action = _pre_c_dollar
                     self._cmd_change_to_line_end()
             elif pending == "d":
                 event.stop()
@@ -452,28 +525,107 @@ class VimInput(Widget, can_focus=True):
                 if key == "d":
                     if self._multiline:
                         self._cmd_delete_line()
+
+                        def _replay_dd_multi() -> None:
+                            self._push_undo()
+                            self._cmd_delete_line()
+
+                        self._last_action = _replay_dd_multi
                     else:
                         self._text = ""
                         self._cursor = 0
+
+                        def _replay_dd_single() -> None:
+                            self._push_undo()
+                            self._text = ""
+                            self._cursor = 0
+
+                        self._last_action = _replay_dd_single
                 elif key in ("dollar", "dollar_sign"):
                     self._cmd_delete_to_line_end()
+
+                    def _replay_d_dollar() -> None:
+                        self._push_undo()
+                        self._cmd_delete_to_line_end()
+
+                    self._last_action = _replay_d_dollar
                 elif key == "0":
-                    self._text = self._text[self._cursor :]
-                    self._cursor = 0
+                    if self._multiline:
+                        row, _ = self._cursor_row_col()
+                        line_start = self._offset_from_row_col(row, 0)
+                        self._text = (
+                            self._text[:line_start] + self._text[self._cursor :]
+                        )
+                        self._cursor = line_start
+                        self._clamp_cursor_for_command()
+                    else:
+                        self._text = self._text[self._cursor :]
+                        self._cursor = 0
+
+                    def _replay_d0() -> None:
+                        self._push_undo()
+                        if self._multiline:
+                            r, _ = self._cursor_row_col()
+                            ls = self._offset_from_row_col(r, 0)
+                            self._text = self._text[:ls] + self._text[self._cursor :]
+                            self._cursor = ls
+                            self._clamp_cursor_for_command()
+                        else:
+                            self._text = self._text[self._cursor :]
+                            self._cursor = 0
+
+                    self._last_action = _replay_d0
                 elif key == "w":
                     self._cmd_delete_word(word_only=False)
+
+                    def _replay_dw() -> None:
+                        self._push_undo()
+                        self._cmd_delete_word(word_only=False)
+
+                    self._last_action = _replay_dw
                 elif key == "W":
                     self._cmd_delete_word(word_only=True)
+
+                    def _replay_dW() -> None:
+                        self._push_undo()
+                        self._cmd_delete_word(word_only=True)
+
+                    self._last_action = _replay_dW
                 elif key == "b":
                     self._cmd_delete_to_word_backward(word=True)
+
+                    def _replay_db() -> None:
+                        self._push_undo()
+                        self._cmd_delete_to_word_backward(word=True)
+
+                    self._last_action = _replay_db
                 elif key == "B":
                     self._cmd_delete_to_word_backward(word=False)
+
+                    def _replay_dB() -> None:
+                        self._push_undo()
+                        self._cmd_delete_to_word_backward(word=False)
+
+                    self._last_action = _replay_dB
+            elif pending in ("f", "F", "t", "T"):
+                event.stop()
+                event.prevent_default()
+                ch = event.character if event.character else None
+                if ch is not None:
+                    self._do_find_char(pending, ch)
+                    self._last_find = (pending, ch)
+            elif pending == "g":
+                event.stop()
+                event.prevent_default()
+                if key == "g":
+                    self._cmd_jump_to_first()
             # Unknown sequence — silently discard; do not consume the event.
             return
 
-        if key in ("escape", "tab", "shift+tab"):
-            # Do NOT stop these events: let them bubble so Esc reaches the parent
-            # and Tab/Shift-Tab reach Textual's focus-traversal handler.
+        if key in ("escape", "tab", "shift+tab", "question_mark"):
+            # Do NOT stop these events: let them bubble so Esc reaches the parent,
+            # Tab/Shift-Tab reach Textual's focus-traversal handler, and ? opens
+            # the calendar picker on date fields.
             return
 
         if key in ("j", "k") and not self._multiline:
@@ -496,11 +648,18 @@ class VimInput(Widget, can_focus=True):
 
         if key == "i":
             self._push_undo()
+            self._pre_insert_action = None  # insert at current position — no pre-op
             self.set_mode("insert")
         elif key == "a":
             self._push_undo()
             if self._cursor < len(self._text):
                 self._cursor += 1
+
+            def _pre_a() -> None:
+                if self._cursor < len(self._text):
+                    self._cursor += 1
+
+            self._pre_insert_action = _pre_a
             self.set_mode("insert")
         elif key == "A":
             self._push_undo()
@@ -508,22 +667,55 @@ class VimInput(Widget, can_focus=True):
                 row, _ = self._cursor_row_col()
                 line = self._text.split("\n")[row]
                 self._cursor = self._offset_from_row_col(row, len(line))
+
+                def _pre_A() -> None:
+                    r, _ = self._cursor_row_col()
+                    ln = self._text.split("\n")[r]
+                    self._cursor = self._offset_from_row_col(r, len(ln))
+
+                self._pre_insert_action = _pre_A
             else:
                 self._cursor = len(self._text)
+
+                def _pre_A_single() -> None:
+                    self._cursor = len(self._text)
+
+                self._pre_insert_action = _pre_A_single
             self.set_mode("insert")
         elif key == "o":
             self._push_undo()
             if self._multiline:
+
+                def _pre_o() -> None:
+                    r, _ = self._cursor_row_col()
+                    lines = self._text.split("\n")
+                    line_end = self._offset_from_row_col(r, len(lines[r]))
+                    self._text = self._text[:line_end] + "\n" + self._text[line_end:]
+                    self._cursor = line_end + 1
+
+                self._pre_insert_action = _pre_o
                 self._cmd_open_line_below()
             else:
                 self._cursor = len(self._text)
+                self._pre_insert_action = None
                 self.set_mode("insert")
         elif key == "O":
             self._push_undo()
             if self._multiline:
+
+                def _pre_O() -> None:
+                    r, _ = self._cursor_row_col()
+                    line_start = self._offset_from_row_col(r, 0)
+                    self._text = (
+                        self._text[:line_start] + "\n" + self._text[line_start:]
+                    )
+                    self._cursor = line_start
+
+                self._pre_insert_action = _pre_O
                 self._cmd_open_line_above()
             else:
                 self._cursor = 0
+                self._pre_insert_action = None
                 self.set_mode("insert")
         elif key == "u":
             self._cmd_undo()
@@ -576,10 +768,25 @@ class VimInput(Widget, can_focus=True):
         elif key == "tilde":
             self._push_undo()
             self._cmd_toggle_case()
+
+            def _replay_tilde() -> None:
+                self._push_undo()
+                self._cmd_toggle_case()
+
+            self._last_action = _replay_tilde
         elif key == "r":
             self._pending = "r"
         elif key == "s":
             self._push_undo()
+
+            def _pre_s() -> None:
+                if self._cursor < len(self._text) and self._text[self._cursor] != "\n":
+                    self._text = (
+                        self._text[: self._cursor] + self._text[self._cursor + 1 :]
+                    )
+                    self._clamp_cursor_for_command()
+
+            self._pre_insert_action = _pre_s
             self._cmd_substitute()
         elif key == "left_parenthesis":
             self._cmd_sentence_backward()
@@ -596,6 +803,27 @@ class VimInput(Widget, can_focus=True):
                         self._cursor -= 1
                 else:
                     self._cursor = min(self._cursor, max(0, len(self._text) - 1))
+
+                def _replay_x() -> None:
+                    if (
+                        self._cursor < len(self._text)
+                        and self._text[self._cursor] != "\n"
+                    ):
+                        self._push_undo()
+                        self._text = (
+                            self._text[: self._cursor] + self._text[self._cursor + 1 :]
+                        )
+                        if self._multiline:
+                            r, c = self._cursor_row_col()
+                            ln = self._text.split("\n")[r]
+                            if ln and c >= len(ln):
+                                self._cursor -= 1
+                        else:
+                            self._cursor = min(
+                                self._cursor, max(0, len(self._text) - 1)
+                            )
+
+                self._last_action = _replay_x
         elif key == "c":
             self._pending = "c"
         elif key == "d":
@@ -613,6 +841,20 @@ class VimInput(Widget, can_focus=True):
             else:
                 self._text = self._text[: self._cursor]
                 self._cursor = max(0, len(self._text) - 1)
+
+            def _replay_D() -> None:
+                self._push_undo()
+                if self._multiline:
+                    r, _ = self._cursor_row_col()
+                    ls = self._offset_from_row_col(r, 0)
+                    ln = self._text.split("\n")[r]
+                    self._text = self._text[: self._cursor] + self._text[ls + len(ln) :]
+                    self._clamp_cursor_for_command()
+                else:
+                    self._text = self._text[: self._cursor]
+                    self._cursor = max(0, len(self._text) - 1)
+
+            self._last_action = _replay_D
         elif key == "y":
             self._cmd_yank_line()
         elif key == "p":
@@ -621,8 +863,32 @@ class VimInput(Widget, can_focus=True):
         elif key == "P":
             self._push_undo()
             self._cmd_paste(after=False)
+        elif key in ("period", "full_stop"):
+            if self._last_action is not None:
+                self._last_action()
+            elif self._repeat_text:
+                self._push_undo()
+                self._text = (
+                    self._text[: self._cursor]
+                    + self._repeat_text
+                    + self._text[self._cursor :]
+                )
+                self._cursor += len(self._repeat_text)
+                self._clamp_cursor_for_command()
         elif key == "enter" and not self._multiline:
             self.post_message(self.Submitted(self, self._text))
+        elif key == "g":
+            self._pending = "g"
+        elif key == "G":
+            self._cmd_jump_to_last()
+        elif key in ("f", "F", "t", "T"):
+            self._pending = key
+        elif key == "semicolon":
+            self._cmd_repeat_find(reverse=False)
+        elif key == "comma":
+            self._cmd_repeat_find(reverse=True)
+        elif key in ("circumflex_accent", "caret", "asciicircum"):
+            self._cmd_first_nonblank()
 
     # ------------------------------------------------------------------
     # Line motion helpers (multi-line)
@@ -921,4 +1187,89 @@ class VimInput(Widget, can_focus=True):
                     return
             pos -= 1
         self._cursor = 0
+        self._clamp_cursor_for_command()
+
+    # ------------------------------------------------------------------
+    # Find-char helpers (f / F / t / T / ; / ,)
+    # ------------------------------------------------------------------
+
+    def _do_find_char(self, cmd: str, ch: str) -> bool:
+        """Execute a find-char motion.  Returns True if the target was found.
+
+        cmd in ("f", "t") searches forward on the current line.
+        cmd in ("F", "T") searches backward.
+        "f"/"F" lands on the character; "t"/"T" lands one position before/after it.
+        """
+        row, col = self._cursor_row_col()
+        lines = self._text.split("\n")
+        line = lines[row]
+        line_start = self._offset_from_row_col(row, 0)
+
+        if cmd in ("f", "t"):
+            idx = line.find(ch, col + 1)
+            if idx == -1:
+                return False
+            if cmd == "t":
+                idx -= 1
+                if idx <= col:
+                    return False
+        else:  # "F" or "T"
+            idx = line.rfind(ch, 0, col)
+            if idx == -1:
+                return False
+            if cmd == "T":
+                idx += 1
+                if idx >= col:
+                    return False
+
+        self._cursor = line_start + idx
+        self._clamp_cursor_for_command()
+        return True
+
+    def _cmd_repeat_find(self, reverse: bool = False) -> None:
+        """; / ,: repeat the last f/F/t/T find in the same or opposite direction."""
+        if self._last_find is None:
+            return
+        cmd, ch = self._last_find
+        if reverse:
+            cmd = {"f": "F", "F": "f", "t": "T", "T": "t"}[cmd]
+        self._do_find_char(cmd, ch)
+        # _last_find retains the original command (not the reversed one).
+
+    # ------------------------------------------------------------------
+    # Jump helpers (gg / G / ^)
+    # ------------------------------------------------------------------
+
+    def _cmd_jump_to_first(self) -> None:
+        """gg: jump to the very beginning of the text."""
+        self._cursor = 0
+        self._clamp_cursor_for_command()
+
+    def _cmd_jump_to_last(self) -> None:
+        """G: jump to the last character of the text (last line in multi-line)."""
+        if not self._text:
+            return
+        if self._multiline:
+            lines = self._text.split("\n")
+            last_row = len(lines) - 1
+            last_line = lines[last_row]
+            last_col = max(0, len(last_line) - 1) if last_line else 0
+            self._cursor = self._offset_from_row_col(last_row, last_col)
+        else:
+            self._cursor = max(0, len(self._text) - 1)
+        self._clamp_cursor_for_command()
+
+    def _cmd_first_nonblank(self) -> None:
+        """^: move to the first non-blank character of the current line."""
+        if self._multiline:
+            row, _ = self._cursor_row_col()
+            line = self._text.split("\n")[row]
+            line_start = self._offset_from_row_col(row, 0)
+        else:
+            line = self._text
+            line_start = 0
+        col = 0
+        while col < len(line) and line[col] == " ":
+            col += 1
+        self._cursor = line_start + col
         self._clamp_cursor_for_command()

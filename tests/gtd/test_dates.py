@@ -2,7 +2,7 @@ from datetime import date
 
 import pytest
 
-from gtd_tui.gtd.dates import InvalidDateError, parse_date_input
+from gtd_tui.gtd.dates import InvalidDateError, format_date_relative, parse_date_input
 
 TODAY = date(2026, 3, 13)
 
@@ -146,3 +146,79 @@ def test_weekday_abbreviated():
 
 def test_next_weekday():
     assert parse_date_input("next monday", today=TODAY) == date(2026, 3, 16)
+
+
+# ------------------------------------------------------------------ #
+# format_date_relative (Feature 3)                                    #
+# ------------------------------------------------------------------ #
+
+# Use a fixed "today" so tests do not depend on the system clock.
+_REL_TODAY = date(2026, 3, 18)  # a Wednesday
+
+
+def test_format_date_relative_today() -> None:
+    assert format_date_relative(_REL_TODAY, today=_REL_TODAY) == "today"
+
+
+def test_format_date_relative_tomorrow() -> None:
+    assert (
+        format_date_relative(
+            _REL_TODAY + __import__("datetime").timedelta(days=1), today=_REL_TODAY
+        )
+        == "tomorrow"
+    )
+
+
+def test_format_date_relative_yesterday() -> None:
+    assert (
+        format_date_relative(
+            _REL_TODAY - __import__("datetime").timedelta(days=1), today=_REL_TODAY
+        )
+        == "yesterday"
+    )
+
+
+def test_format_date_relative_next_weekday_within_7_days() -> None:
+    # 3 days ahead (Saturday)
+    d = _REL_TODAY + __import__("datetime").timedelta(days=3)
+    assert format_date_relative(d, today=_REL_TODAY) == "Saturday"
+
+
+def test_format_date_relative_past_weekday_within_7_days() -> None:
+    # 3 days ago (Sunday)
+    d = _REL_TODAY - __import__("datetime").timedelta(days=3)
+    assert format_date_relative(d, today=_REL_TODAY) == "last Sunday"
+
+
+def test_format_date_relative_same_year_beyond_7_days() -> None:
+    # 10 days ahead, same year
+    d = date(2026, 3, 28)
+    result = format_date_relative(d, today=_REL_TODAY)
+    assert result == "Mar 28"
+
+
+def test_format_date_relative_different_year() -> None:
+    d = date(2027, 3, 16)
+    result = format_date_relative(d, today=_REL_TODAY)
+    assert result == "Mar 16 2027"
+
+
+def test_format_date_relative_same_year_past_beyond_7_days() -> None:
+    # 10 days in past, same year — falls to "Mar 8"
+    d = date(2026, 3, 8)
+    result = format_date_relative(d, today=_REL_TODAY)
+    assert result == "Mar 8"
+
+
+def test_format_date_relative_exactly_7_days_ahead() -> None:
+    # 7 days ahead — still a weekday name
+    d = _REL_TODAY + __import__("datetime").timedelta(days=7)
+    result = format_date_relative(d, today=_REL_TODAY)
+    assert result == d.strftime("%A")
+
+
+def test_format_date_relative_exactly_7_days_ago() -> None:
+    # 7 days ago — "last <weekday>"
+    d = _REL_TODAY - __import__("datetime").timedelta(days=7)
+    result = format_date_relative(d, today=_REL_TODAY)
+    assert result == f"last {d.strftime('%A')}"

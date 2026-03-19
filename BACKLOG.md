@@ -609,7 +609,7 @@ Waiting On tasks represent work delegated to or blocked on another person or ent
 
 ---
 
-### BACKLOG-29 — Checklist sub-steps within a task
+### BACKLOG-29 — Checklist sub-steps within a task ✅ DONE
 
 **Story points:** 5 — New `ChecklistItem` model, storage, detail-view rendering, and completion tracking.
 
@@ -624,13 +624,13 @@ things like "Pack for trip: passport ☐, charger ☐, headphones ☐".
 - A partial completion indicator is shown in the task list: `Pack for trip [1/3]`
 
 **Acceptance criteria:**
-- [ ] `ChecklistItem` dataclass: `id`, `label: str`, `checked: bool`
-- [ ] `Task.checklist: list[ChecklistItem]` field (default `[]`); old files load without error
-- [ ] Task detail view shows checklist section below notes
-- [ ] `o` / `O` in the checklist section add a new item; `x` / Space toggles the focused item
-- [ ] Completed items are visually struck-through or marked
-- [ ] Task list row shows `[N/M]` completion ratio when checklist is non-empty
-- [ ] Storage round-trip works; tests cover add/toggle/reorder/delete of checklist items
+- [x] `ChecklistItem` dataclass: `id`, `label: str`, `checked: bool`
+- [x] `Task.checklist: list[ChecklistItem]` field (default `[]`); old files load without error
+- [x] Task detail view shows checklist section below notes
+- [x] `o` / `O` in the checklist section add a new item; `x` / Space toggles the focused item
+- [x] Completed items are visually struck-through or marked
+- [x] Task list row shows `[N/M]` completion ratio when checklist is non-empty
+- [x] Storage round-trip works; tests cover add/toggle/reorder/delete of checklist items
 
 ---
 
@@ -910,3 +910,239 @@ file size manageable.
 - [x] Old `data.json` files without undo history load without error (empty undo stack)
 - [x] Encrypted databases store undo history encrypted alongside task data
 - [x] Unit tests cover save/load round-trip of the undo stack; integration test verifies cross-session undo
+
+---
+
+## Group: Vim completeness
+
+### BACKLOG-42 — VimInput: `f`/`F`/`t`/`T` find-char motions ✅ DONE
+
+**Story points:** 3
+
+**Description:**
+Vim's find-char motions let users jump to a specific character on the current line without counting words or pressing `h`/`l` repeatedly. `f<ch>` moves to the next occurrence of `ch`; `F<ch>` moves backward; `t<ch>` stops one position before the char; `T<ch>` stops one position after.
+
+**Acceptance criteria:**
+- [x] `f<ch>` in COMMAND mode moves cursor to next occurrence of `ch` on current line; no-op if not found
+- [x] `F<ch>` moves cursor to previous occurrence of `ch` on current line; no-op if not found
+- [x] `t<ch>` moves cursor to one position before the next `ch`; `T<ch>` one position after the previous `ch`
+- [x] `;` repeats the last `f`/`F`/`t`/`T` in the same direction; `,` repeats in the opposite direction
+- [x] All four motions are scoped to the current logical line in multi-line mode (do not cross newlines)
+- [x] Tests cover all four commands, `;`, `,`, no-match cases, and multi-line boundary
+
+---
+
+### BACKLOG-43 — VimInput: `gg` / `G` jump-to-first/last
+
+**Story points:** 2
+
+**Description:**
+Add `gg` (jump to start of text) and `G` (jump to end of text) to VimInput in all modes. These complement the existing `0`/`$` line-level jumps with document-level jumps.
+
+**Acceptance criteria:**
+- [x] `gg` in COMMAND mode moves cursor to the beginning of the text (offset 0)
+- [x] `G` in COMMAND mode moves cursor to the last character of the text (last line in multi-line)
+- [x] Both work in single-line and multi-line VimInput
+- [x] Tests cover both in single-line and multi-line mode
+
+---
+
+### BACKLOG-44 — VimInput: `^` first-non-blank motion
+
+**Story points:** 1
+
+**Description:**
+`^` moves the cursor to the first non-blank (non-space) character of the current line, matching vim's behaviour. This is distinct from `0` which goes to column 0 unconditionally.
+
+**Acceptance criteria:**
+- [x] `^` in COMMAND mode moves cursor to the first non-space character of the current line
+- [x] Works in both single-line and multi-line mode (scoped to current line)
+- [x] On a line with no leading spaces, behaves identically to `0`
+- [x] Tests cover leading spaces, no leading spaces, and multi-line variants
+
+---
+
+## Group: GTD feature gaps
+
+### BACKLOG-45 — "Anytime" folder (unscheduled active tasks)
+
+**Story points:** 3
+
+**Description:**
+The Things app distinguishes between **Anytime** (active, unscheduled tasks) and **Someday** (low-priority, parked). A native Anytime folder makes it clear which work is active but flexible in timing, separate from Someday.
+
+**Acceptance criteria:**
+- [ ] Built-in "Anytime" folder created on app initialization; old `data.json` files without it load with an empty Anytime folder
+- [ ] Anytime appears in the sidebar between Today and Upcoming
+- [ ] `o`/`O` create tasks in Anytime when the Anytime view is active
+- [ ] `m` (move) works correctly to move tasks in/out of Anytime
+- [ ] Sidebar numbering adjusts: `2`=Anytime, `3`=Upcoming, `4`=Waiting On, `5`=Someday
+- [ ] Tests confirm Anytime appears in sidebar order and tasks display correctly
+
+---
+
+### BACKLOG-46 — Flag/Star tasks
+
+**Story points:** 5
+
+**Description:**
+A star/flag marker lets users mark tasks as high-priority without creating a separate folder. Flags are a binary attribute; flagged tasks are visually distinct and optionally shown in a cross-folder "Flagged" view.
+
+**Acceptance criteria:**
+- [ ] `Task.is_flagged: bool = False` field; old JSON files load safely with `is_flagged = False`
+- [ ] `!` in NORMAL mode toggles flag on selected task; `!` in VISUAL mode toggles on all selected
+- [ ] Flagged tasks show a visual indicator in task list rows (e.g., `★` prefix)
+- [ ] Task detail view shows flag state and allows toggling
+- [ ] Storage round-trip tested; integration tests cover flag toggle in NORMAL and VISUAL modes
+
+---
+
+### BACKLOG-47 — Start date field
+
+**Story points:** 5
+
+**Description:**
+A `start_date` field controls when a task becomes actionable. Tasks with a future start date are hidden from Today, Upcoming, and search until the date arrives. Complements the existing `scheduled_date` (when to do it) and `deadline` (when it must be done).
+
+**Acceptance criteria:**
+- [ ] `Task.start_date: date | None = None`; old JSON files load safely
+- [ ] Task detail view has a Start Date field; accepts the same input formats as scheduled date
+- [ ] Tasks with a future start date do not appear in Today, Upcoming, or search results
+- [ ] Once start_date arrives (on app launch), the task surfaces in the appropriate smart view
+- [ ] Help text explains start date semantics
+
+---
+
+### BACKLOG-48 — Regex support in search
+
+**Story points:** 3
+
+**Description:**
+The global search (`/`) currently does case-insensitive substring matching. Add opt-in regex support: when the query starts with `/` (i.e. the user types `//pattern`), interpret it as a Python regex. Plain queries continue as substring search.
+
+**Acceptance criteria:**
+- [ ] Regex queries (prefixed with `/`) match titles and notes correctly (e.g. `buy (milk|bread)`)
+- [ ] Invalid regex patterns fall back gracefully to literal substring search (no crash)
+- [ ] Match highlighting in results works for regex matches
+- [ ] `search_tasks()` unit tests cover regex matching and the invalid-pattern fallback
+- [ ] Search prompt shows a hint that `//pattern` enables regex
+
+---
+
+### BACKLOG-49 — "Waiting for" person field on Waiting On tasks
+
+**Story points:** 3
+
+(This is BACKLOG-28 but renumbered here for completeness — see the original entry above under BACKLOG-28.)
+
+---
+
+### BACKLOG-50 — Tags / Contexts
+
+**Story points:** 8
+
+(This is BACKLOG-30 — see original entry above.)
+
+---
+
+### BACKLOG-51 — Projects
+
+**Story points:** 13
+
+(This is BACKLOG-31 — see original entry above.)
+
+---
+
+### BACKLOG-52 — Areas of responsibility
+
+**Story points:** 8
+
+(This is BACKLOG-32 — see original entry above.)
+
+---
+
+## Group: Power features (new)
+
+### BACKLOG-53 — Export to plain text / CSV / markdown ✅ DONE
+
+**Story points:** 5
+
+**Description:**
+Users may want to export their tasks for backup or external processing. Add simple export formats as CLI flags.
+
+**Acceptance criteria:**
+- [x] `--export=txt` exports tasks as newline-delimited plaintext (one task per line)
+- [x] `--export=csv` exports as CSV with columns: folder, title, date, deadline, notes
+- [x] `--export=md` exports as markdown with folder headings and task lists
+- [x] `--export=json` exports as lossless JSON (added — recommended for backup/import)
+- [x] `--output=<path>` writes to a file instead of stdout
+- [x] `--import=<path>` imports tasks/folders from a JSON export file (non-destructive merge)
+- [x] Unit tests verify export format correctness and import round-trip
+
+---
+
+### BACKLOG-54 — Snooze / Defer task
+
+**Story points:** 5
+
+**Description:**
+"Snooze" temporarily hides a task and re-surfaces it at a later time, without requiring a permanent reschedule.
+
+**Acceptance criteria:**
+- [ ] `Task.snoozed_until: datetime | None = None`; old JSON files load safely
+- [ ] Snoozed tasks are excluded from Today, Upcoming, and search results
+- [ ] `z` keybinding opens a snooze-duration picker (1 hour, 3 hours, tomorrow, 1 week, custom)
+- [ ] On app launch, expired snooze timers are resolved and tasks re-appear in smart views
+- [ ] Snoozed status indicated in task list rows (e.g., `[Snoozed until Thu]`)
+
+---
+
+### BACKLOG-55 — Bulk multi-field edit in VISUAL mode
+
+**Story points:** 5
+
+**Description:**
+Extend VISUAL mode bulk operations to batch-edit multiple fields (notes, deadline, estimate) on all selected tasks in a single dialog.
+
+**Acceptance criteria:**
+- [ ] `e` in VISUAL mode opens a bulk-edit modal
+- [ ] Modal allows selecting which fields to edit (only checked fields are updated)
+- [ ] Bulk edit is a single undo step
+- [ ] Unit tests verify field masking; integration tests confirm multi-task updates
+
+---
+
+### BACKLOG-56 — Time estimate field
+
+**Story points:** 5
+
+**Description:**
+A lightweight time estimate field (e.g., 5m, 30m, 2h) helps users plan and batch similar-effort work.
+
+**Acceptance criteria:**
+- [ ] `Task.estimated_duration: str | None = None`; old JSON files load safely
+- [ ] Task detail view has an estimated duration field (free text)
+- [ ] Common durations displayed in task list rows as a dim suffix (`(30m)`)
+- [ ] `e` in VISUAL mode (outside bulk-edit) opens an estimate picker for all selected tasks
+
+---
+
+### BACKLOG-57 — UI acceptance test suite
+
+**Story points:** 8
+
+**Description:**
+Implement a structured suite of UI acceptance tests using Textual's headless Pilot API that captures the most important user journeys end-to-end. Goal: catch regressions in keyboard flows, modal interactions, and view transitions automatically.
+
+**Key test scenarios:**
+- Task creation → detail view → edit title → Esc back to list
+- Schedule a task from Today → verify it disappears
+- Create a recurring task → complete → verify it re-appears with new date
+- Search → navigate results → open task
+- VISUAL mode: select range → bulk delete
+
+**Acceptance criteria:**
+- [ ] At least 10 new end-to-end Pilot tests covering the above scenarios
+- [ ] Tests use headless `run_test()` and do not rely on screen rendering details
+- [ ] All tests run in CI under 60 seconds
+- [ ] Test failures produce clear messages identifying which step failed

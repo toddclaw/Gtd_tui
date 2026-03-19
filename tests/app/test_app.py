@@ -429,14 +429,20 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
         await pilot.pause()
         assert isinstance(app.screen, TaskDetailScreen)
 
-        # Advance: title → date (Enter), date → deadline (Enter), deadline → notes (Enter), notes → repeat (Tab)
+        # Advance: title → date (Enter), date → deadline (Enter), deadline → notes (Enter),
+        # notes → checklist-list (Tab), checklist-list → checklist-new (Tab),
+        # checklist-new → repeat (Tab)
         await pilot.press("enter")  # title → date
         await pilot.pause()
         await pilot.press("enter")  # date → deadline (empty date, no change)
         await pilot.pause()
         await pilot.press("enter")  # deadline → notes (empty deadline, no change)
         await pilot.pause()
-        await pilot.press("tab")  # notes → repeat (multiline: Tab advances)
+        await pilot.press("tab")  # notes → checklist-list
+        await pilot.pause()
+        await pilot.press("tab")  # checklist-list → checklist-new
+        await pilot.pause()
+        await pilot.press("tab")  # checklist-new → repeat (multiline: Tab advances)
         await pilot.pause()
 
         # Repeat is now VimInput in COMMAND mode — enter insert mode first
@@ -773,7 +779,11 @@ async def test_recurring_task_shows_recurrence_marker(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("enter")  # deadline → notes
         await pilot.pause()
-        await pilot.press("tab")  # notes → repeat (multiline: Tab advances)
+        await pilot.press("tab")  # notes → checklist-list
+        await pilot.pause()
+        await pilot.press("tab")  # checklist-list → checklist-new
+        await pilot.pause()
+        await pilot.press("tab")  # checklist-new → repeat (multiline: Tab advances)
         await pilot.pause()
         await pilot.press("i")  # command → insert mode
         await pilot.press("7", " ", "d", "a", "y", "s")

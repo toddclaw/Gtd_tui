@@ -9,7 +9,7 @@ from typing import Literal
 from gtd_tui.gtd.area import Area
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
 from gtd_tui.gtd.project import Project
-from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
+from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
 
 _UnitLiteral = Literal["days", "weeks", "months", "years"]
 
@@ -322,6 +322,14 @@ def someday_tasks(tasks: list[Task]) -> list[Task]:
     )
 
 
+def reference_tasks(tasks: list[Task]) -> list[Task]:
+    """Return tasks in the Reference folder, sorted by position."""
+    return sorted(
+        [t for t in tasks if t.folder_id == "reference"],
+        key=lambda t: t.position,
+    )
+
+
 def move_task_up(tasks: list[Task], task_id: str) -> list[Task]:
     """Move a task one position up within its visible peers.
 
@@ -365,6 +373,62 @@ def move_task_down(tasks: list[Task], task_id: str) -> list[Task]:
         peers[idx + 1].position,
         peers[idx].position,
     )
+    return tasks
+
+
+def move_block_down(tasks: list[Task], task_ids: set[str]) -> list[Task]:
+    """Move a block of tasks down by one position as a unit.
+
+    Rotates the single task immediately below the block to just above the block,
+    keeping the block's internal order intact.  No-op if the block is already
+    at the last position or any task_id is not found.
+    """
+    block = [t for t in tasks if t.id in task_ids]
+    if not block:
+        return tasks
+    peers = _visible_peers(tasks, block[0])
+    block_peer_indices = sorted(i for i, t in enumerate(peers) if t.id in task_ids)
+    if not block_peer_indices:
+        return tasks
+    bottom_idx = block_peer_indices[-1]
+    if bottom_idx >= len(peers) - 1:
+        return tasks  # block is at the boundary
+    after_task = peers[bottom_idx + 1]
+    # Collect positions of [block tasks in order] + [after_task]
+    involved = block_peer_indices + [bottom_idx + 1]
+    positions = [peers[i].position for i in involved]
+    # Rotate left: after_task gets the top block position; block tasks shift down
+    after_task.position = positions[0]
+    for i, peer_idx in enumerate(block_peer_indices):
+        peers[peer_idx].position = positions[i + 1]
+    return tasks
+
+
+def move_block_up(tasks: list[Task], task_ids: set[str]) -> list[Task]:
+    """Move a block of tasks up by one position as a unit.
+
+    Rotates the single task immediately above the block to just below the block,
+    keeping the block's internal order intact.  No-op if the block is already
+    at the first position or any task_id is not found.
+    """
+    block = [t for t in tasks if t.id in task_ids]
+    if not block:
+        return tasks
+    peers = _visible_peers(tasks, block[0])
+    block_peer_indices = sorted(i for i, t in enumerate(peers) if t.id in task_ids)
+    if not block_peer_indices:
+        return tasks
+    top_idx = block_peer_indices[0]
+    if top_idx == 0:
+        return tasks  # block is at the boundary
+    before_task = peers[top_idx - 1]
+    # Collect positions of [before_task] + [block tasks in order]
+    involved = [top_idx - 1] + block_peer_indices
+    positions = [peers[i].position for i in involved]
+    # Rotate right: before_task gets the bottom block position; block tasks shift up
+    before_task.position = positions[-1]
+    for i, peer_idx in enumerate(block_peer_indices):
+        peers[peer_idx].position = positions[i]
     return tasks
 
 
@@ -1158,6 +1222,68 @@ def assign_project_to_area(
 ) -> list[Project]:
     """Assign (or unassign) a project to an area."""
     return [replace(p, area_id=area_id) if p.id == project_id else p for p in projects]
+
+
+# ---------------------------------------------------------------------------
+# Checklist operations
+# ---------------------------------------------------------------------------
+
+
+def add_checklist_item(tasks: list[Task], task_id: str, label: str) -> list[Task]:
+    """Append a new unchecked checklist item to the given task."""
+    return [
+        (
+            replace(t, checklist=[*t.checklist, ChecklistItem(label=label)])
+            if t.id == task_id
+            else t
+        )
+        for t in tasks
+    ]
+
+
+def toggle_checklist_item(tasks: list[Task], task_id: str, item_id: str) -> list[Task]:
+    """Toggle the checked state of a checklist item."""
+
+    def _toggle(t: Task) -> Task:
+        if t.id != task_id:
+            return t
+        new_checklist = [
+            replace(item, checked=not item.checked) if item.id == item_id else item
+            for item in t.checklist
+        ]
+        return replace(t, checklist=new_checklist)
+
+    return [_toggle(t) for t in tasks]
+
+
+def delete_checklist_item(tasks: list[Task], task_id: str, item_id: str) -> list[Task]:
+    """Remove a checklist item by id."""
+
+    def _delete(t: Task) -> Task:
+        if t.id != task_id:
+            return t
+        return replace(t, checklist=[i for i in t.checklist if i.id != item_id])
+
+    return [_delete(t) for t in tasks]
+
+
+def move_checklist_item(
+    tasks: list[Task], task_id: str, item_id: str, delta: int
+) -> list[Task]:
+    """Move a checklist item up (delta=-1) or down (delta=+1)."""
+
+    def _move(t: Task) -> Task:
+        if t.id != task_id:
+            return t
+        items = list(t.checklist)
+        idx = next((i for i, it in enumerate(items) if it.id == item_id), None)
+        if idx is None:
+            return t
+        new_idx = max(0, min(len(items) - 1, idx + delta))
+        items.insert(new_idx, items.pop(idx))
+        return replace(t, checklist=items)
+
+    return [_move(t) for t in tasks]
 
 
 # ---------------------------------------------------------------------------

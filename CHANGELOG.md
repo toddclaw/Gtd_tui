@@ -14,6 +14,48 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [1.6.0] — 2026-03-19
+
+### Added
+- **Export** (`--export FORMAT`): export tasks to stdout or `--output FILE` in four formats: `json` (lossless, recommended for backups), `txt` (one line per task), `csv` (columns: folder, title, scheduled_date, deadline, notes), `md` (markdown with folder headings). Deleted tasks are always omitted from all formats.
+- **Import** (`--import FILE`): non-destructive merge from a JSON export file — only tasks and folders whose IDs do not already exist in the data file are added; built-in folder IDs are never imported.
+- **VimInput `f`/`F`/`t`/`T` find-char motions**: `f<ch>` moves to the next occurrence of a character on the current line; `F<ch>` moves backward; `t<ch>` stops one position before; `T<ch>` stops one position after. Works in both single-line and multi-line mode (scoped to the current line).
+- **VimInput `;` / `,` repeat-find**: `;` repeats the last `f`/`F`/`t`/`T` in the same direction; `,` repeats in the opposite direction.
+- **VimInput `gg` / `G`**: `gg` jumps to the beginning of the text (first line, first char); `G` jumps to the last character. Works in both single-line and multi-line mode.
+- **VimInput `^`**: Moves cursor to the first non-blank (non-space) character of the current line. Multi-line aware.
+- **Config `[ui] default_view`**: New setting in `~/.config/gtd_tui/config.toml`; controls which view the app opens on launch (`"today"`, `"inbox"`, `"upcoming"`, `"waiting_on"`, `"someday"`, or a user-folder id). Default: `"today"`.
+- **ESC key latency fix**: `ESCDELAY` set to 25 ms (before any Textual import) — eliminates the 400–600 ms Esc lag experienced under tmux. Override with `ESCDELAY=<ms>` in your shell.
+
+### Fixed
+- **CI black formatting**: pinned `target-version = ["py311"]` in `pyproject.toml` so black produces identical output on Python 3.11 (CI) and newer local environments.
+
+---
+
+## [1.5.0] — 2026-03-18
+
+### Added
+- **Checklist sub-steps** within a task (BACKLOG-29): `ChecklistItem` dataclass with `id`, `label`, `checked`; `Task.checklist` field (backwards-compatible); operations: add, toggle, delete, reorder; task detail view section with `o`/`O` to add, `x`/Space to toggle, `d` to delete, `J`/`K` to reorder; struck-through rendering for completed items; `[N/M]` completion ratio in task list rows
+- **Reference folder**: new built-in folder in the sidebar for storing non-actionable reference material; `r` from any view moves selected task(s) to Reference
+- **Readable relative dates**: task list rows now show `today`, `tomorrow`, `yesterday`, weekday names (`Thursday`), or `Mar 16` instead of raw ISO dates
+- **Upcoming view section headers**: tasks are now grouped by `Tomorrow`, weekday name, `This Month`, and month name (e.g. `April`) so future tasks are easy to scan
+- **`w` key extended**: move-to-Waiting-On (`w`) now works from Inbox and all user-created folders, not just Today
+- **Calendar picker** for date fields: press `?` on the Date or Deadline field to open a calendar modal; navigate with `h`/`j`/`k`/`l`, confirm with Enter, cancel with Esc
+- **Config file auto-created** on first launch at `~/.config/gtd_tui/config.toml` with commented defaults
+- **Configurable inactivity timeout**: `[timeout]` section in config with `timeout_minutes` (default 30) and `timeout_enabled` (default true); countdown shown in status bar during the last 5 minutes; `--no-timeout` CLI flag
+
+### Added (VimInput — dot-repeat)
+- **Dot-repeat (`.`)** in COMMAND mode replays the last editing operation: `x`, `r<ch>`, `~`, `D`, `dw`/`dW`/`dd`/`d$`/`d0`/`db`/`dB`, and INSERT sessions (`i`/`a`/`A`/`s`/`cw`/`c$`/`o`/`O` + text + Esc)
+- Pre-insert actions are captured for `a` (append after char), `A` (append at EOL), `s` (delete char then insert), `cw`/`c$` so that `.` faithfully reproduces the full operation including cursor positioning and deletion
+
+### Fixed
+- `?` was being silently swallowed in INSERT mode on non-date fields — now types the character normally; COMMAND-mode bubble is preserved so `?` still opens the calendar on date fields
+- `r<ch>` now uses `event.character` instead of the key name length check, so replacing with `.`, `=`, `?`, and other symbols works correctly
+- `d0` in multiline mode no longer deletes the newline from the preceding line — it now correctly deletes from the current line's start to the cursor only
+- `s=Esc.` now replays the full substitute (delete char + insert text), not just the text insertion
+- `AFooEsc.` now moves to end-of-line before inserting, matching vim's `A` semantics
+
+---
+
 ## [1.3.0] — 2026-03-17
 
 ### Added

@@ -12,7 +12,7 @@ from platformdirs import user_data_dir
 from gtd_tui.gtd.area import Area
 from gtd_tui.gtd.folder import Folder
 from gtd_tui.gtd.project import Project
-from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
+from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
 from gtd_tui.storage.crypto import (
     DecryptionError,
     decrypt_data,
@@ -47,6 +47,16 @@ def _recur_rule_from_dict(data: dict[str, Any]) -> RecurRule:
     return RecurRule(interval=data["interval"], unit=data["unit"])
 
 
+def _checklist_item_to_dict(item: ChecklistItem) -> dict[str, Any]:
+    return {"id": item.id, "label": item.label, "checked": item.checked}
+
+
+def _checklist_item_from_dict(data: dict[str, Any]) -> ChecklistItem:
+    return ChecklistItem(
+        id=data["id"], label=data["label"], checked=data.get("checked", False)
+    )
+
+
 def _task_to_dict(task: Task) -> dict[str, Any]:
     return {
         "id": task.id,
@@ -69,6 +79,7 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         "is_deleted": task.is_deleted,
         "tags": task.tags,
         "project_id": task.project_id,
+        "checklist": [_checklist_item_to_dict(i) for i in task.checklist],
     }
 
 
@@ -107,6 +118,7 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
         is_deleted=data.get("is_deleted", False),
         tags=data.get("tags", []),
         project_id=data.get("project_id", None),
+        checklist=[_checklist_item_from_dict(i) for i in data.get("checklist", [])],
     )
 
 
@@ -354,8 +366,16 @@ def load_areas(
         return []
 
 
+# Public serialization helpers — used by portability.py for export/import.
+task_to_dict = _task_to_dict
+task_from_dict = _task_from_dict
+folder_to_dict = _folder_to_dict
+folder_from_dict = _folder_from_dict
+
 __all__ = [
     "UndoStack",
+    "folder_from_dict",
+    "folder_to_dict",
     "load_areas",
     "load_folders",
     "load_projects",
@@ -364,4 +384,6 @@ __all__ = [
     "load_undo_stack",
     "save_data",
     "save_tasks",
+    "task_from_dict",
+    "task_to_dict",
 ]

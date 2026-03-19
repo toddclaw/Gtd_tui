@@ -3,12 +3,14 @@ from __future__ import annotations
 import copy
 import os
 import signal
+import time
 import uuid
 from datetime import date
 from pathlib import Path
 
 import pyperclip
 from rich.markup import escape as markup_escape
+from rich.text import Text as RichText
 from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -16,9 +18,15 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
+from gtd_tui.config import Config, default_config_path, load_config, save_default_config
 from gtd_tui.gtd.area import Area
-from gtd_tui.gtd.dates import InvalidDateError, format_date, parse_date_input
-from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
+from gtd_tui.gtd.dates import (
+    InvalidDateError,
+    format_date,
+    format_date_relative,
+    parse_date_input,
+)
+from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, REFERENCE_FOLDER_ID, Folder
 from gtd_tui.gtd.operations import (
     InvalidRepeatError,
     add_area,
@@ -48,6 +56,8 @@ from gtd_tui.gtd.operations import (
     insert_waiting_on_task_before,
     logbook_tasks,
     make_repeat_rule,
+    move_block_down,
+    move_block_up,
     move_folder_down,
     move_folder_tasks_to_today,
     move_folder_up,
@@ -60,6 +70,7 @@ from gtd_tui.gtd.operations import (
     project_progress,
     project_tasks,
     purge_logbook_task,
+    reference_tasks,
     rename_folder,
     schedule_task,
     search_tasks,
@@ -77,7 +88,7 @@ from gtd_tui.gtd.operations import (
     weekly_review_tasks,
 )
 from gtd_tui.gtd.project import Project
-from gtd_tui.gtd.task import RecurRule, RepeatRule, Task
+from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
 from gtd_tui.storage.file import (
     UndoStack,
     load_areas,
@@ -284,14 +295,18 @@ class WeeklyReviewScreen(ModalScreen[None]):
             self.dismiss()
 
 
-class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str, str] | None]):
+class TaskDetailScreen(
+    ModalScreen[tuple[str, str, str, str, str, str, str, list[ChecklistItem]] | None]
+):
     """Detail and edit view for a single task.
 
     Opens directly in edit mode with inputs pre-filled.
     j/k in COMMAND mode navigate between fields; Enter on single-line fields
     advances to the next; Esc always saves and closes.
 
-    Dismissed value: (title, notes, date_text, deadline_text, repeat_text, recur_text, tags_raw)
+    Dismissed value:
+        (title, notes, date_text, deadline_text, repeat_text, recur_text, tags_raw,
+         checklist)
     or None if title was cleared.  date_text / deadline_text are ISO (YYYY-MM-DD) or
     any parse_date_input format; empty = clear.  repeat_text / recur_text are raw
     strings (e.g. '7 days', empty = clear).  tags_raw is a comma-separated string.
@@ -353,6 +368,27 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str, str] | No
         margin-bottom: 1;
     }
 
+    #detail-checklist-header {
+        color: $text-muted;
+        margin-top: 1;
+        margin-bottom: 0;
+    }
+
+    #detail-checklist-list {
+        height: auto;
+        max-height: 8;
+        margin-bottom: 0;
+        border: none;
+    }
+
+    #detail-checklist-list > ListItem.--highlight {
+        background: $accent 40%;
+    }
+
+    #detail-checklist-new {
+        margin-bottom: 1;
+    }
+
     #detail-tags-input {
         margin-bottom: 1;
     }
@@ -371,6 +407,11 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str, str] | No
     def __init__(self, task: Task) -> None:
         super().__init__()
         self._gtd_task = task
+        self._checklist: list[ChecklistItem] = copy.deepcopy(task.checklist)
+        # True when the user has pressed Enter to enter checklist item-navigation mode
+        self._checklist_active: bool = False
+        # Undo history for checklist mutations within this detail screen
+        self._checklist_history: list[list[ChecklistItem]] = []
 
     @staticmethod
     def _interval_to_str(interval: int, unit: str) -> str:
@@ -436,6 +477,18 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str, str] | No
                 id="detail-notes-input",
             )
             yield Label(
+                "Checklist  (o: add  x/Space: toggle  d: delete  J/K: reorder)",
+                classes="field-label",
+                id="detail-checklist-header",
+            )
+            yield ListView(id="detail-checklist-list")
+            yield VimInput(
+                value="",
+                placeholder="Add checklist item…",
+                start_mode="command",
+                id="detail-checklist-new",
+            )
+            yield Label(
                 "Repeat  (calendar-fixed — e.g. 7 days, 2 weeks — empty to clear)",
                 classes="field-label",
             )
@@ -467,16 +520,79 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str, str] | No
             )
             if self._gtd_task.created_at:
                 yield Label(
-                    f"Created: {format_date(self._gtd_task.created_at.date())}",
+                    f"Created: {self._gtd_task.created_at.strftime('%Y-%m-%d %H:%M:%S')}",
                     id="detail-created",
                 )
             yield Label(
-                "j/k: next/prev field  Tab: next field  Esc: save & close",
+                "j/k: next/prev field  Enter on checklist: edit items  Esc: save & close",
                 id="detail-status",
             )
 
     def on_mount(self) -> None:
         self.query_one("#detail-title-input", VimInput).focus()
+        self._render_checklist()
+
+    @staticmethod
+    def _checklist_label_text(item: "ChecklistItem") -> RichText:
+        check = "[X]" if item.checked else "[ ]"
+        return RichText(f"{check} {item.label}")
+
+    def _checklist_push_undo(self) -> None:
+        self._checklist_history.append(copy.deepcopy(self._checklist))
+
+    def _render_checklist(
+        self, restore_index: int | None = None, force_rebuild: bool = False
+    ) -> None:
+        """Refresh the checklist ListView with minimal DOM churn.
+
+        Same count (toggle/reorder): update labels in place — highlight stays.
+        One item deleted: update N-1 labels in place, remove the last DOM node
+          — highlight is set synchronously on the already-mounted items.
+        One item added: append a single new DOM node at the end.
+        Any other delta or *force_rebuild*: full clear + rebuild (uses
+          call_after_refresh for the index because DOM changes are async).
+        """
+        lv = self.query_one("#detail-checklist-list", ListView)
+        existing = list(lv.query(ListItem))
+        delta = len(self._checklist) - len(existing)
+
+        if not force_rebuild and delta == 0:
+            # In-place update — no DOM nodes added or removed.
+            for list_item, checklist_item in zip(existing, self._checklist):
+                list_item.query_one(Label).update(
+                    self._checklist_label_text(checklist_item)
+                )
+            if restore_index is not None and self._checklist:
+                lv.index = min(max(restore_index, 0), len(self._checklist) - 1)
+
+        elif not force_rebuild and delta == -1:
+            # One deleted: update survivors in place, drop the last DOM node.
+            for list_item, checklist_item in zip(existing, self._checklist):
+                list_item.query_one(Label).update(
+                    self._checklist_label_text(checklist_item)
+                )
+            existing[-1].remove()
+            if restore_index is not None and self._checklist:
+                lv.index = min(max(restore_index, 0), len(self._checklist) - 1)
+
+        elif not force_rebuild and delta == 1:
+            # One added: just append the new node.
+            lv.append(
+                ListItem(
+                    Label(self._checklist_label_text(self._checklist[-1]), markup=False)
+                )
+            )
+
+        else:
+            # Full rebuild (undo or multi-item change).
+            lv.clear()
+            for item in self._checklist:
+                lv.append(
+                    ListItem(Label(self._checklist_label_text(item), markup=False))
+                )
+            if restore_index is not None and self._checklist:
+                target = min(max(restore_index, 0), len(self._checklist) - 1)
+                self.call_after_refresh(lambda t=target: setattr(lv, "index", t))
 
     def _normalize_field(self, widget_id: str) -> None:
         """Rewrite a parseable field to its canonical form so the user can
@@ -521,7 +637,16 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str, str] | No
         recur = self.query_one("#detail-recur-input", VimInput).value.strip()
         tags_raw = self.query_one("#detail-tags-input", VimInput).value.strip()
         self.dismiss(
-            (title, notes, date_text, deadline_text, repeat, recur, tags_raw)
+            (
+                title,
+                notes,
+                date_text,
+                deadline_text,
+                repeat,
+                recur,
+                tags_raw,
+                self._checklist,
+            )
             if title
             else None
         )
@@ -539,17 +664,174 @@ class TaskDetailScreen(ModalScreen[tuple[str, str, str, str, str, str, str] | No
         elif event.vim_input.id == "detail-recur-input":
             self._normalize_field("detail-recur-input")
             self.action_save_and_close()
+        elif event.vim_input.id == "detail-checklist-new":
+            label = event.vim_input.value.strip()
+            if label:
+                self._checklist.append(ChecklistItem(label=label))
+                self._render_checklist()
+            event.vim_input.value = ""
+            event.vim_input.set_mode("insert")  # stay ready for the next item
 
     def on_key(self, event: events.Key) -> None:
         focused = self.focused
+
+        # Esc on the add-item input: exit to checklist list (don't save & close).
+        # VimInput absorbs Esc in INSERT mode (switches to COMMAND); when it's
+        # already in COMMAND mode the key bubbles here — redirect focus instead.
+        if (
+            event.key == "escape"
+            and isinstance(focused, VimInput)
+            and focused.id == "detail-checklist-new"
+        ):
+            lv = self.query_one("#detail-checklist-list", ListView)
+            lv.focus()
+            if self._checklist:
+                last = len(self._checklist) - 1
+                self.call_after_refresh(lambda t=last: setattr(lv, "index", t))
+                self._checklist_active = True
+            event.stop()
+            event.prevent_default()
+            return
+
+        # Checklist item-navigation mode (activated by Enter on the list).
+        if (
+            self._checklist_active
+            and isinstance(focused, ListView)
+            and focused.id == "detail-checklist-list"
+        ):
+            if event.key in ("escape", "enter"):
+                self._checklist_active = False
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "j":
+                focused.action_cursor_down()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "k":
+                focused.action_cursor_up()
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "u":
+                if self._checklist_history:
+                    self._checklist = self._checklist_history.pop()
+                    self._render_checklist(
+                        restore_index=focused.index or 0, force_rebuild=True
+                    )
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key in ("x", "space"):
+                cur: int | None = focused.index
+                if cur is not None and 0 <= cur < len(self._checklist):
+                    self._checklist_push_undo()
+                    item = self._checklist[cur]
+                    self._checklist[cur] = ChecklistItem(
+                        id=item.id, label=item.label, checked=not item.checked
+                    )
+                    self._render_checklist(restore_index=cur)
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "d":
+                cur = focused.index
+                if cur is not None and 0 <= cur < len(self._checklist):
+                    self._checklist_push_undo()
+                    self._checklist.pop(cur)
+                    restore = max(0, cur - 1) if cur > 0 else 0
+                    self._render_checklist(restore_index=restore)
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key in ("o", "O"):
+                new_inp = self.query_one("#detail-checklist-new", VimInput)
+                new_inp.focus()
+                new_inp.set_mode("insert")
+                self._checklist_active = False
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "J":
+                cur = focused.index
+                if cur is not None and cur < len(self._checklist) - 1:
+                    self._checklist_push_undo()
+                    self._checklist[cur], self._checklist[cur + 1] = (
+                        self._checklist[cur + 1],
+                        self._checklist[cur],
+                    )
+                    self._render_checklist(restore_index=cur + 1)
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "K":
+                cur = focused.index
+                if cur is not None and cur > 0:
+                    self._checklist_push_undo()
+                    self._checklist[cur], self._checklist[cur - 1] = (
+                        self._checklist[cur - 1],
+                        self._checklist[cur],
+                    )
+                    self._render_checklist(restore_index=cur - 1)
+                event.stop()
+                event.prevent_default()
+                return
+            # All other keys are consumed to prevent unintended field navigation.
+            event.stop()
+            event.prevent_default()
+            return
+
+        # Enter on the checklist list (not yet active): enter item-navigation mode.
+        if (
+            not self._checklist_active
+            and isinstance(focused, ListView)
+            and focused.id == "detail-checklist-list"
+            and event.key == "enter"
+            and self._checklist
+        ):
+            self._checklist_active = True
+            if focused.index is None:
+                focused.index = 0
+            event.stop()
+            event.prevent_default()
+            return
+
+        # ? on a date field: open the calendar picker
+        if (
+            event.key == "question_mark"
+            and isinstance(focused, VimInput)
+            and focused.id in ("detail-date-input", "detail-deadline-input")
+        ):
+            event.stop()
+            event.prevent_default()
+            field_id = focused.id
+
+            def _on_calendar_close(result: "date | None") -> None:
+                if result is None:
+                    return
+                inp = self.query_one(f"#{field_id}", VimInput)
+                inp.value = result.isoformat()
+                inp.set_mode("command")
+
+            # Parse the current value as an initial date if possible.
+            raw = focused.value.strip()
+            try:
+                initial = parse_date_input(raw) if raw else None
+            except InvalidDateError:
+                initial = None
+            self.app.push_screen(CalendarScreen(initial=initial), _on_calendar_close)
+            return
+
+        # j/k field navigation (checklist list treated as a single field).
         if event.key == "j":
-            if focused and isinstance(focused, VimInput):
+            if isinstance(focused, VimInput):
                 self._normalize_field(focused.id or "")
             self.focus_next()
             event.stop()
             event.prevent_default()
         elif event.key == "k":
-            if focused and isinstance(focused, VimInput):
+            if isinstance(focused, VimInput):
                 self._normalize_field(focused.id or "")
             self.focus_previous()
             event.stop()
@@ -833,6 +1115,161 @@ class AreaPickerScreen(ModalScreen[str | None]):
         self.query_one("#area-picker-list", ListView).action_cursor_up()
 
 
+class CalendarScreen(ModalScreen["date | None"]):
+    """Modal calendar for date selection.
+
+    Navigation:
+        h / l         previous / next day
+        j / k         next / previous week
+        H / L         previous / next month
+        Enter         confirm selected date
+        q / Escape    cancel (returns None)
+
+    The result is a ``date`` object or ``None`` when cancelled.
+    """
+
+    CSS = """
+    CalendarScreen {
+        align: center middle;
+    }
+
+    #cal-panel {
+        width: 36;
+        height: 14;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #cal-header {
+        text-style: bold;
+        color: $primary;
+        text-align: center;
+    }
+
+    #cal-grid {
+        height: 1fr;
+    }
+
+    #cal-status {
+        height: 1;
+        color: $text-muted;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", show=False, priority=True),
+        Binding("q", "cancel", show=False, priority=True),
+        Binding("enter", "confirm", show=False, priority=True),
+    ]
+
+    def __init__(self, initial: "date | None" = None) -> None:
+        super().__init__()
+        import calendar as _cal
+
+        self._today: date = date.today()
+        self._selected: date = initial if initial is not None else self._today
+        self._month_year: tuple[int, int] = (
+            self._selected.year,
+            self._selected.month,
+        )
+        self._calendar = _cal.Calendar(firstweekday=0)  # Monday first
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="cal-panel"):
+            yield Label("", id="cal-header")
+            yield Static("", id="cal-grid")
+            yield Label(
+                "h/l: day  j/k: week  H/L: month  Enter: select  q: cancel",
+                id="cal-status",
+            )
+
+    def on_mount(self) -> None:
+        self._render_calendar()
+
+    def _render_calendar(self) -> None:
+        import calendar as _cal
+
+        year, month = self._month_year
+        header = self.query_one("#cal-header", Label)
+        header.update(f"{_cal.month_name[month]} {year}")
+
+        weeks = self._calendar.monthdayscalendar(year, month)
+        day_headers = "Mo Tu We Th Fr Sa Su"
+        lines = [day_headers]
+        for week in weeks:
+            row_parts = []
+            for day in week:
+                if day == 0:
+                    row_parts.append("  ")
+                elif date(year, month, day) == self._today:
+                    row_parts.append(f"[bold]{day:2d}[/bold]")
+                elif date(year, month, day) == self._selected:
+                    row_parts.append(f"[reverse]{day:2d}[/reverse]")
+                else:
+                    row_parts.append(f"{day:2d}")
+            lines.append(" ".join(row_parts))
+        self.query_one("#cal-grid", Static).update("\n".join(lines))
+
+    def _clamp_to_month(self, d: date) -> date:
+        """Clamp a date to the valid range of the current displayed month."""
+        import calendar as _cal
+
+        year, month = self._month_year
+        last_day = _cal.monthrange(year, month)[1]
+        if d.year != year or d.month != month:
+            # After navigation, the selected date may be outside the displayed month
+            return d
+        return date(year, month, min(d.day, last_day))
+
+    def on_key(self, event: events.Key) -> None:
+        import calendar as _cal
+        from datetime import timedelta
+
+        year, month = self._month_year
+        sel = self._selected
+        handled = True
+
+        if event.key == "h":
+            sel = sel - timedelta(days=1)
+        elif event.key == "l":
+            sel = sel + timedelta(days=1)
+        elif event.key == "j":
+            sel = sel + timedelta(weeks=1)
+        elif event.key == "k":
+            sel = sel - timedelta(weeks=1)
+        elif event.key == "H":
+            # Previous month
+            if month == 1:
+                year, month = year - 1, 12
+            else:
+                month -= 1
+            last_day = _cal.monthrange(year, month)[1]
+            sel = date(year, month, min(sel.day, last_day))
+        elif event.key == "L":
+            # Next month
+            if month == 12:
+                year, month = year + 1, 1
+            else:
+                month += 1
+            last_day = _cal.monthrange(year, month)[1]
+            sel = date(year, month, min(sel.day, last_day))
+        else:
+            handled = False
+
+        if handled:
+            event.prevent_default()
+            self._selected = sel
+            self._month_year = (sel.year, sel.month)
+            self._render_calendar()
+
+    def action_confirm(self) -> None:
+        self.dismiss(self._selected)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class GtdApp(App[None]):
     ESCAPE_TO_MINIMIZE = False  # prevent Textual's minimize-on-Esc delay
 
@@ -914,6 +1351,11 @@ class GtdApp(App[None]):
         color: $primary;
         text-style: bold;
     }
+
+    #task-list > ListItem.section-header {
+        background: $boost;
+        color: $text-muted;
+    }
     """
 
     def __init__(
@@ -927,13 +1369,15 @@ class GtdApp(App[None]):
         self._all_projects: list[Project] = load_projects(data_file, password=password)
         self._all_areas: list[Area] = load_areas(data_file, password=password)
         self._collapsed_areas: set[str] = set()
+        self._config: Config = load_config()
+        self._last_activity: float = time.monotonic()
         self._mode: str = "NORMAL"
         self._input_stage: str = (
             ""  # "title", "notes", "date", "command", "folder_name", "folder_rename", "project_name"
         )
         self._pending_title: str = ""
         self._pending_task_id: str = ""
-        self._current_view: str = "today"
+        self._current_view: str = self._config.default_view
         # Parallel to ListView children: Task for rows, None for separators/placeholders
         self._list_entries: list[Task | None] = []
         self._undo_stack: UndoStack = load_undo_stack(data_file, password=password)
@@ -1033,7 +1477,7 @@ class GtdApp(App[None]):
             ids.append("__projects_header__")
             ids += [f"project:{p.id}" for p in uncategorized_projects]
 
-        ids += ["someday", "logbook"]
+        ids += ["someday", REFERENCE_FOLDER_ID, "logbook"]
         tag_list = all_tags(self._all_tasks)
         if tag_list:
             ids.append("__tags_header__")
@@ -1051,6 +1495,8 @@ class GtdApp(App[None]):
             return "Waiting On"
         if view_id == "someday":
             return "Someday"
+        if view_id == REFERENCE_FOLDER_ID:
+            return "Reference"
         if view_id == "logbook":
             return "Logbook"
         if view_id.startswith("area:"):
@@ -1080,6 +1526,12 @@ class GtdApp(App[None]):
         yield Label("NORMAL  |  Today", id="status")
 
     def on_mount(self) -> None:
+        cfg_path = default_config_path()
+        if not cfg_path.exists():
+            try:
+                save_default_config(cfg_path)
+            except OSError:
+                pass
         self._normalize_folder_positions()
         old_len = len(self._all_tasks)
         self._all_tasks = spawn_repeating_tasks(self._all_tasks)
@@ -1088,6 +1540,20 @@ class GtdApp(App[None]):
         self._rebuild_sidebar()
         self._refresh_list()
         self.query_one("#task-list", ListView).focus()
+        self.set_interval(60, self._check_timeout)
+
+    def _check_timeout(self) -> None:
+        """Called every 60 seconds; exits the app when idle too long."""
+        if not self._config.timeout_enabled:
+            return
+        idle = time.monotonic() - self._last_activity
+        limit = self._config.timeout_minutes * 60
+        if idle >= limit:
+            self.exit()
+        elif idle >= (self._config.timeout_minutes - 5) * 60:
+            # Show remaining time in status bar during the last 5 minutes.
+            remaining = max(0, int((limit - idle) / 60))
+            self._update_status(f"(auto-quit in {remaining}m)")
 
     def _normalize_folder_positions(self) -> None:
         """Ensure every folder's tasks have unique, sequential positions.
@@ -1150,6 +1616,12 @@ class GtdApp(App[None]):
             elif view_id == "someday":
                 sidebar.append(
                     ListItem(Label(f"Someday{_n(len(someday_tasks(self._all_tasks)))}"))
+                )
+            elif view_id == REFERENCE_FOLDER_ID:
+                sidebar.append(
+                    ListItem(
+                        Label(f"Reference{_n(len(reference_tasks(self._all_tasks)))}")
+                    )
                 )
             elif view_id == "logbook":
                 sidebar.append(
@@ -1259,7 +1731,11 @@ class GtdApp(App[None]):
             tag_suffix = "  " + "  ".join(
                 f"[cyan]{markup_escape(tag)}[/cyan]" for tag in task.tags
             )
-        return f"{markup_escape(task.title)}{marker}{tag_suffix}{dl_suffix}"
+        checklist_suffix = ""
+        if task.checklist:
+            done = sum(1 for i in task.checklist if i.checked)
+            checklist_suffix = f"  [dim][{done}/{len(task.checklist)}][/dim]"
+        return f"{markup_escape(task.title)}{marker}{tag_suffix}{checklist_suffix}{dl_suffix}"
 
     def _refresh_list(self, select_task_id: str | None = None) -> None:
         list_view = self.query_one("#task-list", ListView)
@@ -1279,6 +1755,8 @@ class GtdApp(App[None]):
             self._render_waiting_on_view(list_view)
         elif self._current_view == "someday":
             self._render_someday_view(list_view)
+        elif self._current_view == REFERENCE_FOLDER_ID:
+            self._render_reference_view(list_view)
         elif self._current_view == "logbook":
             self._render_logbook_view(list_view)
         elif self._current_view.startswith("tag:"):
@@ -1336,21 +1814,54 @@ class GtdApp(App[None]):
             list_view.append(ListItem(Label("── Also Due ──")))
             for task in other:
                 self._list_entries.append(task)
-                if task.folder_id == "waiting_on":
-                    label = f"[W] {self._task_label(task)}"
-                else:
-                    folder_label = self._view_label(task.folder_id)
-                    label = f"[{folder_label}] {self._task_label(task)}"
+                folder_label = self._view_label(task.folder_id)
+                # Use \[ to prevent Rich from parsing [FolderName] as a style tag.
+                label = f"\\[{markup_escape(folder_label)}] {self._task_label(task)}"
                 list_view.append(ListItem(Label(label)))
 
     def _render_upcoming_view(self, list_view: ListView) -> None:
         tasks = upcoming_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Upcoming ({len(tasks)})")
+        today = date.today()
+
+        def _effective_date(t: Task) -> date | None:
+            if t.scheduled_date is not None:
+                return t.scheduled_date
+            if t.repeat_rule is not None:
+                return t.repeat_rule.next_due
+            return None
+
+        def _section_key(d: date) -> str:
+            delta = (d - today).days
+            if delta == 1:
+                return "Tomorrow"
+            if 2 <= delta <= 7:
+                return d.strftime("%A")
+            if delta <= 31 and d.month == today.month and d.year == today.year:
+                return "This Month"
+            if d.year == today.year:
+                return d.strftime("%B")
+            return d.strftime("%B %Y")
+
+        last_section: str | None = None
         for task in tasks:
-            date_str = format_date(task.scheduled_date) if task.scheduled_date else ""
+            eff_date = _effective_date(task)
+            if eff_date is not None:
+                section = _section_key(eff_date)
+                if section != last_section:
+                    last_section = section
+                    self._list_entries.append(None)
+                    list_view.append(
+                        ListItem(Label(f"── {section} ──"), classes="section-header")
+                    )
+            date_str = (
+                format_date_relative(eff_date, today=today)
+                if eff_date is not None
+                else ""
+            )
             folder_hint = ""
             if task.folder_id != "today":
-                folder_hint = f"  [{self._view_label(task.folder_id)}]"
+                folder_hint = f"  \\[{markup_escape(self._view_label(task.folder_id))}]"
             self._list_entries.append(task)
             list_view.append(
                 ListItem(Label(f"{self._task_label(task)}  {date_str}{folder_hint}"))
@@ -1381,7 +1892,9 @@ class GtdApp(App[None]):
 
         def _wo_label(task: Task) -> str:
             date_str = (
-                f"  [{format_date(task.scheduled_date)}]" if task.scheduled_date else ""
+                f"  [{format_date_relative(task.scheduled_date)}]"
+                if task.scheduled_date
+                else ""
             )
             return f"{self._task_label(task)}{date_str}"
 
@@ -1397,6 +1910,11 @@ class GtdApp(App[None]):
         self.query_one("#header", Label).update(f"Someday ({len(tasks)})")
         self._render_simple_list(list_view, tasks, self._task_label)
 
+    def _render_reference_view(self, list_view: ListView) -> None:
+        tasks = reference_tasks(self._all_tasks)
+        self.query_one("#header", Label).update(f"Reference ({len(tasks)})")
+        self._render_simple_list(list_view, tasks, self._task_label)
+
     def _render_logbook_view(self, list_view: ListView) -> None:
         tasks = logbook_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Logbook ({len(tasks)})")
@@ -1407,7 +1925,7 @@ class GtdApp(App[None]):
                 else "unknown"
             )
             created = (
-                f"  created {format_date(task.created_at.date())}"
+                f"  created {task.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
                 if task.created_at
                 else ""
             )
@@ -1576,6 +2094,8 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
 
     def on_key(self, event: events.Key) -> None:
+        # Track activity for the inactivity timeout.
+        self._last_activity = time.monotonic()
         # Don't intercept keys when a modal overlay is active — let the modal handle them.
         if len(self.screen_stack) > 1:
             return
@@ -1844,7 +2364,14 @@ class GtdApp(App[None]):
         elif event.key == "ctrl+r":
             event.prevent_default()
             self._redo()
-        elif event.key == "w" and self._current_view == "today":
+        elif event.key == "w" and (
+            self._current_view == "today"
+            or self._current_view == "inbox"
+            or (
+                self._current_view not in BUILTIN_FOLDER_IDS
+                and self._current_view != REFERENCE_FOLDER_ID
+            )
+        ):
             event.prevent_default()
             self._move_selected_to_waiting_on()
         elif event.key == "t":
@@ -1959,6 +2486,8 @@ class GtdApp(App[None]):
             vim.set_placeholder("Inbox task title...")
         elif self._current_view.startswith("project:"):
             vim.set_placeholder("Sub-task title...")
+        elif self._current_view == REFERENCE_FOLDER_ID:
+            vim.set_placeholder("Reference item title...")
         else:
             vim.set_placeholder("Task title...")
         vim.clear()
@@ -2132,7 +2661,7 @@ class GtdApp(App[None]):
                     self._all_tasks, self._pending_title, notes=notes, task_id=new_id
                 )
         elif (
-            self._current_view in ("inbox", "someday")
+            self._current_view in ("inbox", "someday", REFERENCE_FOLDER_ID)
             or self._current_view not in BUILTIN_FOLDER_IDS
         ):
             if self._pending_anchor_id:
@@ -2291,7 +2820,7 @@ class GtdApp(App[None]):
         )
         if value.strip().lower() == "someday":
             self._push_undo()
-            for tid in task_ids:
+            for tid in reversed(task_ids):
                 self._all_tasks = unschedule_task(self._all_tasks, tid)
                 self._all_tasks = move_task_to_folder(self._all_tasks, tid, "someday")
             self._rebuild_sidebar()
@@ -2351,7 +2880,7 @@ class GtdApp(App[None]):
             if self._pending_task_ids
             else [self._pending_task_id]
         )
-        for tid in task_ids:
+        for tid in reversed(task_ids):
             self._all_tasks = move_task_to_folder(
                 self._all_tasks, tid, target_folder_id
             )
@@ -2384,7 +2913,9 @@ class GtdApp(App[None]):
         old_deadline = task.deadline
 
         def _on_detail_close(
-            result: tuple[str, str, str, str, str, str, str] | None,
+            result: (
+                tuple[str, str, str, str, str, str, str, list[ChecklistItem]] | None
+            ),
         ) -> None:
             if result is None:
                 return
@@ -2396,6 +2927,7 @@ class GtdApp(App[None]):
                 repeat_text,
                 recur_text,
                 tags_raw,
+                new_checklist,
             ) = result
 
             # Parse date field.
@@ -2477,6 +3009,7 @@ class GtdApp(App[None]):
             repeat_changed = new_repeat != old_repeat
             recur_changed = new_recur != old_recur
             tags_changed = new_tags != old_tags
+            checklist_changed = new_checklist != task.checklist
             if not (
                 title_changed
                 or date_changed
@@ -2484,6 +3017,7 @@ class GtdApp(App[None]):
                 or repeat_changed
                 or recur_changed
                 or tags_changed
+                or checklist_changed
             ):
                 return
 
@@ -2515,6 +3049,13 @@ class GtdApp(App[None]):
                 self._all_tasks = set_recur_rule(self._all_tasks, task_id, new_recur)
             if tags_changed:
                 self._all_tasks = set_tags(self._all_tasks, task_id, new_tags)
+            if checklist_changed:
+                from dataclasses import replace as dc_replace
+
+                self._all_tasks = [
+                    dc_replace(t, checklist=new_checklist) if t.id == task_id else t
+                    for t in self._all_tasks
+                ]
             self._rebuild_sidebar()
             self._save()
             self._refresh_list(select_task_id=task_id)
@@ -2760,7 +3301,7 @@ class GtdApp(App[None]):
             self._exit_visual_mode()
             return
         self._push_undo()
-        for task in tasks:
+        for task in reversed(tasks):
             self._all_tasks = move_to_waiting_on(self._all_tasks, task.id)
         self._exit_visual_mode()
         self._save()
@@ -2773,7 +3314,7 @@ class GtdApp(App[None]):
             self._exit_visual_mode()
             return
         self._push_undo()
-        for task in tasks:
+        for task in reversed(tasks):
             self._all_tasks = move_to_today(self._all_tasks, task.id)
         self._exit_visual_mode()
         self._save()
@@ -2809,8 +3350,7 @@ class GtdApp(App[None]):
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
-        for task in sorted(tasks, key=lambda t: t.position, reverse=True):
-            self._all_tasks = move_task_down(self._all_tasks, task.id)
+        self._all_tasks = move_block_down(self._all_tasks, selected_ids)
         self._save()
         self._refresh_list()
         self.call_after_refresh(
@@ -2830,8 +3370,7 @@ class GtdApp(App[None]):
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
-        for task in sorted(tasks, key=lambda t: t.position):
-            self._all_tasks = move_task_up(self._all_tasks, task.id)
+        self._all_tasks = move_block_up(self._all_tasks, selected_ids)
         self._save()
         self._refresh_list()
         self.call_after_refresh(
