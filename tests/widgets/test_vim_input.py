@@ -844,3 +844,39 @@ async def test_dot_repeat_inserts_at_current_cursor() -> None:
         vi._cursor = 0
         await pilot.press("period")
         assert vi.value.startswith("xy")
+
+
+async def test_dot_repeat_x_deletes_again() -> None:
+    """'x' in COMMAND mode followed by '.' deletes the next character too."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        # cursor starts at last char (index 4 = 'o')
+        assert vi._cursor == 4
+        await pilot.press("x")
+        assert vi.value == "hell"  # 'o' deleted
+        assert vi._last_action is not None
+        await pilot.press("period")
+        assert vi.value == "hel"  # 'l' deleted by dot-repeat
+
+
+async def test_dot_repeat_x_sets_last_action() -> None:
+    """Pressing 'x' in COMMAND mode sets _last_action callable."""
+    async with _App(value="abc", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        assert vi._last_action is None
+        await pilot.press("x")
+        assert vi._last_action is not None
+
+
+async def test_dot_repeat_x_overwrites_insert_action() -> None:
+    """'x' after an INSERT session updates _last_action to the delete op."""
+    async with _App(value="abc", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        await pilot.press("i")
+        await pilot.press("z")
+        await pilot.press("escape")
+        insert_action = vi._last_action
+        assert insert_action is not None
+        # Now press x — _last_action should switch to the delete replay
+        await pilot.press("x")
+        assert vi._last_action is not insert_action
