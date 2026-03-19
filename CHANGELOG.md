@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **VimInput `f`/`F`/`t`/`T` find-char motions**: `f<ch>` moves to the next occurrence of a character on the current line; `F<ch>` moves backward; `t<ch>` stops one position before; `T<ch>` stops one position after. Works in both single-line and multi-line mode (scoped to the current line).
+- **VimInput `;` / `,` repeat-find**: `;` repeats the last `f`/`F`/`t`/`T` in the same direction; `,` repeats in the opposite direction.
+- **VimInput `gg` / `G`**: `gg` jumps to the beginning of the text (first line, first char); `G` jumps to the last character. Works in both single-line and multi-line mode.
+- **VimInput `^`**: Moves cursor to the first non-blank (non-space) character of the current line. Multi-line aware.
+- **Config `[ui] default_view`**: New setting in `~/.config/gtd_tui/config.toml`; controls which view the app opens on launch (`"today"`, `"inbox"`, `"upcoming"`, `"waiting_on"`, `"someday"`, or a user-folder id). Default: `"today"`.
+- **ESC key latency fix**: `ESCDELAY` set to 25 ms (before any Textual import) — eliminates the 400–600 ms Esc lag experienced under tmux. Override with `ESCDELAY=<ms>` in your shell.
+
 ---
 
 ## [1.5.0] — 2026-03-18

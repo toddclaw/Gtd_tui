@@ -102,3 +102,27 @@ def test_save_default_config_creates_parent_dirs(tmp_path: Path) -> None:
     out = tmp_path / "nested" / "dir" / "config.toml"
     save_default_config(out)
     assert out.exists()
+
+
+# ---------------------------------------------------------------------------
+# default_view config setting
+# ---------------------------------------------------------------------------
+
+
+def test_config_default_view_default() -> None:
+    cfg = Config()
+    assert cfg.default_view == "today"
+
+
+def test_load_config_reads_default_view(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text('[ui]\ndefault_view = "inbox"\n')
+    cfg = load_config(cfg_file)
+    assert cfg.default_view == "inbox"
+
+
+def test_load_config_missing_default_view_uses_default(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("[timeout]\ntimeout_minutes = 10\n")
+    cfg = load_config(cfg_file)
+    assert cfg.default_view == "today"

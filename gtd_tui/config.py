@@ -35,10 +35,13 @@ class Config:
     Attributes:
         timeout_minutes: Minutes of inactivity before auto-quit.
         timeout_enabled: Whether the auto-quit timeout is active.
+        default_view: Sidebar view shown on launch ("today", "inbox", "upcoming",
+            "someday", "waiting_on", or a user-folder id).
     """
 
     timeout_minutes: int = 30
     timeout_enabled: bool = True
+    default_view: str = "today"
 
 
 def load_config(path: Path | None = None) -> Config:
@@ -56,6 +59,7 @@ def load_config(path: Path | None = None) -> Config:
         return Config()
 
     timeout_section = data.get("timeout", {})
+    ui_section = data.get("ui", {})
     return Config(
         timeout_minutes=int(
             timeout_section.get("timeout_minutes", Config.timeout_minutes)
@@ -63,6 +67,7 @@ def load_config(path: Path | None = None) -> Config:
         timeout_enabled=bool(
             timeout_section.get("timeout_enabled", Config.timeout_enabled)
         ),
+        default_view=str(ui_section.get("default_view", Config.default_view)),
     )
 
 
@@ -82,5 +87,11 @@ timeout_minutes = 30
 
 # Set to false to disable the inactivity timeout entirely.
 timeout_enabled = true
+
+[ui]
+# View shown when the app launches.
+# Options: "today", "inbox", "upcoming", "waiting_on", "someday"
+# (or the id of a user-created folder)
+# default_view = "today"
 """
     path.write_text(content)
