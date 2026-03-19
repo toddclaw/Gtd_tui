@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.6.0] — 2026-03-19
+
 ### Added
 - **Export** (`--export FORMAT`): export tasks to stdout or `--output FILE` in four formats: `json` (lossless, recommended for backups), `txt` (one line per task), `csv` (columns: folder, title, scheduled_date, deadline, notes), `md` (markdown with folder headings). Deleted tasks are always omitted from all formats.
 - **Import** (`--import FILE`): non-destructive merge from a JSON export file — only tasks and folders whose IDs do not already exist in the data file are added; built-in folder IDs are never imported.
@@ -16,6 +20,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **VimInput `^`**: Moves cursor to the first non-blank (non-space) character of the current line. Multi-line aware.
 - **Config `[ui] default_view`**: New setting in `~/.config/gtd_tui/config.toml`; controls which view the app opens on launch (`"today"`, `"inbox"`, `"upcoming"`, `"waiting_on"`, `"someday"`, or a user-folder id). Default: `"today"`.
 - **ESC key latency fix**: `ESCDELAY` set to 25 ms (before any Textual import) — eliminates the 400–600 ms Esc lag experienced under tmux. Override with `ESCDELAY=<ms>` in your shell.
+
+### Fixed
+- **CI black formatting**: pinned `target-version = ["py311"]` in `pyproject.toml` so black produces identical output on Python 3.11 (CI) and newer local environments.
 
 ---
 
