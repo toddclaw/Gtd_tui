@@ -81,6 +81,11 @@ class VimInput(Widget, can_focus=True):
         self._last_insert: str = ""  # characters typed in the current INSERT session
         self._repeat_text: str = ""  # text saved from the last completed INSERT session
         self._last_action: Callable[[], None] | None = None  # replay callable for "."
+        # Pre-insert action for dot-repeat: captures cursor positioning or text
+        # deletion that happened immediately before entering INSERT mode (e.g. A
+        # moves cursor to EOL; s deletes char under cursor).  Combined with the
+        # recorded INSERT text, this reconstructs the full operation on ".".
+        self._pre_insert_action: Callable[[], None] | None = None
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
@@ -136,9 +141,15 @@ class VimInput(Widget, can_focus=True):
             if self._last_insert:
                 self._repeat_text = self._last_insert
                 text_to_insert = self._last_insert
+                pre = self._pre_insert_action
 
-                def _replay_insert(text: str = text_to_insert) -> None:
+                def _replay_insert(
+                    text: str = text_to_insert,
+                    pre_action: Callable[[], None] | None = pre,
+                ) -> None:
                     self._push_undo()
+                    if pre_action is not None:
+                        pre_action()
                     self._text = (
                         self._text[: self._cursor] + text + self._text[self._cursor :]
                     )
@@ -147,6 +158,7 @@ class VimInput(Widget, can_focus=True):
 
                 self._last_action = _replay_insert
             self._last_insert = ""
+            self._pre_insert_action = None
         elif mode == "insert":
             # Entering INSERT → start a fresh recording.
             self._last_insert = ""
@@ -481,9 +493,24 @@ class VimInput(Widget, can_focus=True):
                 event.prevent_default()
                 if key == "w":
                     self._push_undo()
+
+                    def _pre_cw() -> None:
+                        pos = self._cursor
+                        end = pos
+                        while end < len(self._text) and not self._text[end].isspace():
+                            end += 1
+                        self._text = self._text[:pos] + self._text[end:]
+                        self._cursor = pos
+
+                    self._pre_insert_action = _pre_cw
                     self._cmd_change_word()
                 elif key in ("dollar", "dollar_sign"):
                     self._push_undo()
+
+                    def _pre_c_dollar() -> None:
+                        self._cmd_delete_to_line_end()
+
+                    self._pre_insert_action = _pre_c_dollar
                     self._cmd_change_to_line_end()
             elif pending == "d":
                 event.stop()
@@ -517,13 +544,27 @@ class VimInput(Widget, can_focus=True):
 
                     self._last_action = _replay_d_dollar
                 elif key == "0":
-                    self._text = self._text[self._cursor :]
-                    self._cursor = 0
+                    if self._multiline:
+                        row, _ = self._cursor_row_col()
+                        line_start = self._offset_from_row_col(row, 0)
+                        self._text = self._text[:line_start] + self._text[self._cursor :]
+                        self._cursor = line_start
+                        self._clamp_cursor_for_command()
+                    else:
+                        self._text = self._text[self._cursor :]
+                        self._cursor = 0
 
                     def _replay_d0() -> None:
                         self._push_undo()
-                        self._text = self._text[self._cursor :]
-                        self._cursor = 0
+                        if self._multiline:
+                            r, _ = self._cursor_row_col()
+                            ls = self._offset_from_row_col(r, 0)
+                            self._text = self._text[:ls] + self._text[self._cursor :]
+                            self._cursor = ls
+                            self._clamp_cursor_for_command()
+                        else:
+                            self._text = self._text[self._cursor :]
+                            self._cursor = 0
 
                     self._last_action = _replay_d0
                 elif key == "w":
@@ -587,11 +628,18 @@ class VimInput(Widget, can_focus=True):
 
         if key == "i":
             self._push_undo()
+            self._pre_insert_action = None  # insert at current position — no pre-op
             self.set_mode("insert")
         elif key == "a":
             self._push_undo()
             if self._cursor < len(self._text):
                 self._cursor += 1
+
+            def _pre_a() -> None:
+                if self._cursor < len(self._text):
+                    self._cursor += 1
+
+            self._pre_insert_action = _pre_a
             self.set_mode("insert")
         elif key == "A":
             self._push_undo()
@@ -599,22 +647,53 @@ class VimInput(Widget, can_focus=True):
                 row, _ = self._cursor_row_col()
                 line = self._text.split("\n")[row]
                 self._cursor = self._offset_from_row_col(row, len(line))
+
+                def _pre_A() -> None:
+                    r, _ = self._cursor_row_col()
+                    ln = self._text.split("\n")[r]
+                    self._cursor = self._offset_from_row_col(r, len(ln))
+
+                self._pre_insert_action = _pre_A
             else:
                 self._cursor = len(self._text)
+
+                def _pre_A_single() -> None:
+                    self._cursor = len(self._text)
+
+                self._pre_insert_action = _pre_A_single
             self.set_mode("insert")
         elif key == "o":
             self._push_undo()
             if self._multiline:
+
+                def _pre_o() -> None:
+                    r, _ = self._cursor_row_col()
+                    lines = self._text.split("\n")
+                    line_end = self._offset_from_row_col(r, len(lines[r]))
+                    self._text = self._text[:line_end] + "\n" + self._text[line_end:]
+                    self._cursor = line_end + 1
+
+                self._pre_insert_action = _pre_o
                 self._cmd_open_line_below()
             else:
                 self._cursor = len(self._text)
+                self._pre_insert_action = None
                 self.set_mode("insert")
         elif key == "O":
             self._push_undo()
             if self._multiline:
+
+                def _pre_O() -> None:
+                    r, _ = self._cursor_row_col()
+                    line_start = self._offset_from_row_col(r, 0)
+                    self._text = self._text[:line_start] + "\n" + self._text[line_start:]
+                    self._cursor = line_start
+
+                self._pre_insert_action = _pre_O
                 self._cmd_open_line_above()
             else:
                 self._cursor = 0
+                self._pre_insert_action = None
                 self.set_mode("insert")
         elif key == "u":
             self._cmd_undo()
@@ -677,6 +756,15 @@ class VimInput(Widget, can_focus=True):
             self._pending = "r"
         elif key == "s":
             self._push_undo()
+
+            def _pre_s() -> None:
+                if self._cursor < len(self._text) and self._text[self._cursor] != "\n":
+                    self._text = (
+                        self._text[: self._cursor] + self._text[self._cursor + 1 :]
+                    )
+                    self._clamp_cursor_for_command()
+
+            self._pre_insert_action = _pre_s
             self._cmd_substitute()
         elif key == "left_parenthesis":
             self._cmd_sentence_backward()
