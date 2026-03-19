@@ -16,16 +16,23 @@ from gtd_tui.widgets.vim_input import VimInput
 
 
 class _App(App[None]):
-    def __init__(self, value: str = "", start_mode: str = "insert") -> None:
+    def __init__(
+        self,
+        value: str = "",
+        start_mode: str = "insert",
+        multiline: bool = False,
+    ) -> None:
         super().__init__()
         self._vim_value = value
         self._vim_start_mode = start_mode
+        self._vim_multiline = multiline
 
     def compose(self) -> ComposeResult:
         yield VimInput(
             value=self._vim_value,
             placeholder="type here",
             start_mode=self._vim_start_mode,
+            multiline=self._vim_multiline,
             id="vi",
         )
 
@@ -784,3 +791,163 @@ async def test_y_p_roundtrip_singleline() -> None:
         assert vi._register == "word"
         await pilot.press("p")  # paste after last char
         assert vi.value == "wordword"
+
+
+# ---------------------------------------------------------------------------
+# Dot-repeat (Feature 9)
+# ---------------------------------------------------------------------------
+
+
+async def test_dot_repeat_inserts_last_insert_text() -> None:
+    """'.' in COMMAND mode re-inserts the text typed in the last INSERT session."""
+    async with _App(value="", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        # Enter INSERT, type "hello", return to COMMAND
+        await pilot.press("i")
+        await pilot.press("h", "e", "l", "l", "o")
+        await pilot.press("escape")
+        # The repeat text should have been saved
+        assert vi._repeat_text == "hello"
+        # Move cursor to end and press '.'
+        vi._cursor = len(vi.value)
+        await pilot.press("full_stop")
+        assert vi.value == "hellohello"
+
+
+async def test_dot_repeat_empty_when_nothing_typed() -> None:
+    """No INSERT session → '.' is a no-op."""
+    async with _App(value="abc", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        original = vi.value
+        await pilot.press("full_stop")
+        assert vi.value == original
+
+
+async def test_dot_repeat_cleared_on_new_insert_entry() -> None:
+    """Entering INSERT mode clears _last_insert so the new session starts fresh."""
+    async with _App(value="", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        # First INSERT session
+        await pilot.press("i")
+        await pilot.press("a")
+        await pilot.press("escape")
+        assert vi._repeat_text == "a"
+        # Second INSERT session — _last_insert must be empty when we enter INSERT
+        await pilot.press("i")
+        assert vi._last_insert == ""
+        await pilot.press("b")
+        await pilot.press("escape")
+        assert vi._repeat_text == "b"
+
+
+async def test_dot_repeat_inserts_at_current_cursor() -> None:
+    """'.' inserts the repeat text at the current cursor position."""
+    async with _App(value="", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        await pilot.press("i")
+        await pilot.press("x", "y")
+        await pilot.press("escape")
+        # cursor is at 1 (last char in COMMAND mode), move to 0
+        vi._cursor = 0
+        await pilot.press("full_stop")
+        assert vi.value.startswith("xy")
+
+
+async def test_dot_repeat_x_deletes_again() -> None:
+    """'x' in COMMAND mode followed by '.' deletes the next character too."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        # cursor starts at last char (index 4 = 'o')
+        assert vi._cursor == 4
+        await pilot.press("x")
+        assert vi.value == "hell"  # 'o' deleted
+        assert vi._last_action is not None
+        await pilot.press("full_stop")
+        assert vi.value == "hel"  # 'l' deleted by dot-repeat
+
+
+async def test_dot_repeat_x_sets_last_action() -> None:
+    """Pressing 'x' in COMMAND mode sets _last_action callable."""
+    async with _App(value="abc", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        assert vi._last_action is None
+        await pilot.press("x")
+        assert vi._last_action is not None
+
+
+async def test_dot_repeat_x_overwrites_insert_action() -> None:
+    """'x' after an INSERT session updates _last_action to the delete op."""
+    async with _App(value="abc", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        await pilot.press("i")
+        await pilot.press("z")
+        await pilot.press("escape")
+        insert_action = vi._last_action
+        assert insert_action is not None
+        # Now press x — _last_action should switch to the delete replay
+        await pilot.press("x")
+        assert vi._last_action is not insert_action
+
+
+# ---------------------------------------------------------------------------
+# Pre-insert action (dot-repeat for A / s / a)
+# ---------------------------------------------------------------------------
+
+
+async def test_dot_repeat_A_appends_to_end_of_line() -> None:
+    """AFooEsc. in multiline repeats by moving to EOL and appending."""
+    async with _App(
+        value="hello\nworld", start_mode="command", multiline=True
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        # Start on first line, cursor at 'o' (index 4)
+        vi._cursor = 4
+        await pilot.press("A")          # move to end of 'hello' (index 5), INSERT
+        await pilot.press("!")          # type '!'  → 'hello!\nworld'
+        await pilot.press("escape")     # leave INSERT
+        assert vi.value == "hello!\nworld"
+        # Move cursor into second line: h=0,e=1,l=2,l=3,o=4,!=5,\n=6,w=7,o=8,r=9
+        vi._cursor = 9
+        await pilot.press("full_stop")  # repeat A!: move to EOL of 'world', append '!'
+        assert vi.value == "hello!\nworld!"
+
+
+async def test_dot_repeat_s_deletes_then_inserts() -> None:
+    """s=Esc. replaces char under cursor again (delete + insert), not just insert."""
+    async with _App(value="abcde", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("s")          # delete 'a', enter INSERT
+        await pilot.press("=")          # type '='
+        await pilot.press("escape")     # leave INSERT  → value is '=bcde'
+        assert vi.value == "=bcde"
+        # cursor is now on 'b' (index 1)
+        await pilot.press("full_stop")  # should delete 'b' and insert '=' → '==cde'
+        assert vi.value == "==cde"
+
+
+async def test_dot_repeat_d0_multiline_stays_on_line() -> None:
+    """d0 on the second line must not delete the newline from the first line."""
+    async with _App(
+        value="hello\nworld", start_mode="command", multiline=True
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        # Position cursor on 'r' in 'world' (offset 8)
+        vi._cursor = 8  # h(0)e(1)l(2)l(3)o(4)\n(5)w(6)o(7)r(8)
+        await pilot.press("d", "0")     # d0: delete 'wo' (from line start to cursor)
+        assert vi.value == "hello\nrld", repr(vi.value)
+        assert "\n" in vi.value  # newline must survive
+
+
+async def test_dot_repeat_a_appends_after_cursor() -> None:
+    """aFooEsc. appends 'Foo' after the current char (not at the original cursor)."""
+    async with _App(value="abcd", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0  # cursor on 'a'
+        await pilot.press("a")          # append: cursor moves to 1 (after 'a')
+        await pilot.press("X")          # type 'X'
+        await pilot.press("escape")     # → 'aXbcd'
+        assert vi.value == "aXbcd"
+        vi._cursor = 2  # cursor on 'b'
+        await pilot.press("full_stop")  # repeat: should append 'X' after 'b' → 'aXbXcd'
+        assert vi.value == "aXbXcd"
