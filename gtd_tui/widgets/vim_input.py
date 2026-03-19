@@ -446,9 +446,6 @@ class VimInput(Widget, can_focus=True):
             event.prevent_default()
             self._cmd_line_down()
 
-        elif key == "question_mark":
-            return  # let it bubble to the parent (e.g. to open the calendar picker)
-
         elif event.is_printable and event.character:
             event.stop()
             event.prevent_default()
@@ -470,7 +467,14 @@ class VimInput(Widget, can_focus=True):
             if pending == "r":
                 event.stop()
                 event.prevent_default()
-                ch = key if len(key) == 1 else (" " if key == "space" else None)
+                # Prefer event.character (the actual glyph) so that keys like
+                # '=' or '.' — whose key names are "equal_sign" / "full_stop"
+                # (length > 1) — can be used as replacement characters.
+                ch = (
+                    event.character
+                    if event.character
+                    else (" " if key == "space" else (key if len(key) == 1 else None))
+                )
                 if ch is not None and self._cursor < len(self._text):
                     self._push_undo()
                     self._text = (
