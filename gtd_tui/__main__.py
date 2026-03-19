@@ -1,5 +1,17 @@
 from __future__ import annotations
 
+import os
+
+# Set the escape-key sequence timeout *before* any textual import.
+# Textual waits ESCDELAY milliseconds after an ESC byte to decide whether it is
+# the start of a multi-byte terminal escape sequence (e.g. arrow keys) or a
+# standalone Escape.  The default is 100 ms; under tmux the combined latency is
+# often 400–600 ms, making Esc feel sluggish for vim users.
+# 25 ms is the traditional ncurses default and is imperceptible to humans while
+# still allowing the terminal to complete a multi-byte sequence.
+# Users can override with ESCDELAY=<ms> in their environment.
+os.environ.setdefault("ESCDELAY", "25")
+
 import argparse
 import getpass
 import sys

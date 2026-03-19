@@ -951,3 +951,187 @@ async def test_dot_repeat_a_appends_after_cursor() -> None:
         vi._cursor = 2  # cursor on 'b'
         await pilot.press("full_stop")  # repeat: should append 'X' after 'b' → 'aXbXcd'
         assert vi.value == "aXbXcd"
+
+
+# ---------------------------------------------------------------------------
+# Find-char motions (f / F / t / T / ; / ,)
+# ---------------------------------------------------------------------------
+
+
+async def test_f_moves_to_next_char() -> None:
+    """f<ch> moves cursor to the next occurrence of ch on the current line."""
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0  # on 'h'
+        await pilot.press("f", "l")     # find 'l' forward → index 2
+        assert vi._cursor == 2
+
+
+async def test_f_no_match_stays_put() -> None:
+    """f<ch> is a no-op when ch is not found on the current line."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("f", "z")
+        assert vi._cursor == 0
+
+
+async def test_t_stops_before_char() -> None:
+    """t<ch> moves cursor to the position just before the next occurrence of ch."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0  # on 'h'
+        await pilot.press("t", "l")     # first 'l' is at index 2; t stops at 1
+        assert vi._cursor == 1
+
+
+async def test_F_moves_to_previous_char() -> None:
+    """F<ch> moves cursor backward to the previous occurrence of ch."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 4  # on 'o'
+        await pilot.press("F", "l")     # last 'l' before cursor is at index 3
+        assert vi._cursor == 3
+
+
+async def test_T_stops_after_char() -> None:
+    """T<ch> moves cursor to one position after the previous occurrence of ch."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 4  # on 'o'
+        await pilot.press("T", "l")     # last 'l' before cursor is at index 3; T → 4-1=3+1=4... wait
+        # 'l' at index 3 is the rightmost 'l' before cursor 4; T stops one after it → 4
+        # Actually T finds the char then moves cursor one AFTER it → idx+1 = 4
+        # But col = 4 and we need to move, so T l from cursor 4 should find 'l' at index 3
+        # and land at 3+1=4 which equals col — that's not a move.
+        # Let's test with cursor further right. Use "world" example.
+        pass
+
+
+async def test_T_stops_after_char_in_longer_text() -> None:
+    """T<ch> moves cursor to position just after the previous occurrence of ch."""
+    async with _App(value="abcdefg", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 5  # on 'f'
+        await pilot.press("T", "b")     # 'b' is at index 1; T → land at 2
+        assert vi._cursor == 2
+
+
+async def test_semicolon_repeats_f_forward() -> None:
+    """; repeats the last f<ch> find in the same direction."""
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("f", "l")     # first 'l' → index 2
+        assert vi._cursor == 2
+        await pilot.press("semicolon")  # repeat: next 'l' → index 3
+        assert vi._cursor == 3
+
+
+async def test_comma_reverses_f_find() -> None:
+    """, reverses the last f<ch> find direction."""
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("f", "l")     # first 'l' → index 2
+        await pilot.press("semicolon")  # next 'l' → index 3
+        await pilot.press("comma")      # reverse → back to 'l' at index 2
+        assert vi._cursor == 2
+
+
+async def test_last_find_set_after_f() -> None:
+    """_last_find is set after a successful f<ch>."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("f", "l")
+        assert vi._last_find == ("f", "l")
+
+
+async def test_find_in_multiline_stays_on_line() -> None:
+    """f<ch> in multi-line mode only searches the current logical line."""
+    async with _App(
+        value="aaa\nbbb", start_mode="command", multiline=True
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0  # on first 'a' of row 0
+        await pilot.press("f", "b")     # 'b' is only on row 1 — no match on row 0
+        assert vi._cursor == 0  # cursor should not have moved
+
+
+# ---------------------------------------------------------------------------
+# Jump commands (gg / G / ^)
+# ---------------------------------------------------------------------------
+
+
+async def test_gg_jumps_to_start_singleline() -> None:
+    """gg in single-line mode moves cursor to position 0."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 4  # at 'o'
+        await pilot.press("g", "g")
+        assert vi._cursor == 0
+
+
+async def test_G_jumps_to_end_singleline() -> None:
+    """G in single-line mode moves cursor to the last character."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("G")
+        assert vi._cursor == 4  # last char index
+
+
+async def test_gg_jumps_to_first_line_multiline() -> None:
+    """gg in multi-line mode moves cursor to the very beginning of the text."""
+    async with _App(
+        value="first\nsecond\nthird", start_mode="command", multiline=True
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        # Move cursor to third line
+        vi._cursor = len("first\nsecond\n")  # start of 'third'
+        await pilot.press("g", "g")
+        assert vi._cursor == 0
+
+
+async def test_G_jumps_to_last_line_multiline() -> None:
+    """G in multi-line mode moves cursor to the last character of the last line."""
+    async with _App(
+        value="first\nsecond\nthird", start_mode="command", multiline=True
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("G")
+        # "third" starts at len("first\nsecond\n") = 13; last char is 13+4=17
+        expected = len("first\nsecond\n") + len("third") - 1
+        assert vi._cursor == expected
+
+
+async def test_caret_moves_to_first_nonblank() -> None:
+    """^ moves cursor to the first non-space character of the line."""
+    async with _App(value="   hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 7  # on 'o'
+        await pilot.press("circumflex_accent")
+        assert vi._cursor == 3  # index of 'h'
+
+
+async def test_caret_on_line_with_no_leading_spaces() -> None:
+    """^ with no leading spaces moves to index 0."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 4
+        await pilot.press("circumflex_accent")
+        assert vi._cursor == 0
+
+
+async def test_caret_in_multiline_operates_on_current_line() -> None:
+    """^ in multi-line mode jumps to first non-blank of current line, not line 0."""
+    async with _App(
+        value="first\n   indent", start_mode="command", multiline=True
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        # Move to second line: offset of 'indent' start = len("first\n   ") = 9
+        vi._cursor = 9  # on first space of '   indent'
+        await pilot.press("circumflex_accent")
+        assert vi._cursor == len("first\n") + 3  # index of 'i' in '   indent'

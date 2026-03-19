@@ -86,6 +86,8 @@ class VimInput(Widget, can_focus=True):
         # moves cursor to EOL; s deletes char under cursor).  Combined with the
         # recorded INSERT text, this reconstructs the full operation on ".".
         self._pre_insert_action: Callable[[], None] | None = None
+        # Last f/F/t/T find: (command, char).  Replayed by ; and ,.
+        self._last_find: tuple[str, str] | None = None
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
@@ -603,6 +605,18 @@ class VimInput(Widget, can_focus=True):
                         self._cmd_delete_to_word_backward(word=False)
 
                     self._last_action = _replay_dB
+            elif pending in ("f", "F", "t", "T"):
+                event.stop()
+                event.prevent_default()
+                ch = event.character if event.character else None
+                if ch is not None:
+                    self._do_find_char(pending, ch)
+                    self._last_find = (pending, ch)
+            elif pending == "g":
+                event.stop()
+                event.prevent_default()
+                if key == "g":
+                    self._cmd_jump_to_first()
             # Unknown sequence — silently discard; do not consume the event.
             return
 
@@ -859,6 +873,18 @@ class VimInput(Widget, can_focus=True):
                 self._clamp_cursor_for_command()
         elif key == "enter" and not self._multiline:
             self.post_message(self.Submitted(self, self._text))
+        elif key == "g":
+            self._pending = "g"
+        elif key == "G":
+            self._cmd_jump_to_last()
+        elif key in ("f", "F", "t", "T"):
+            self._pending = key
+        elif key == "semicolon":
+            self._cmd_repeat_find(reverse=False)
+        elif key == "comma":
+            self._cmd_repeat_find(reverse=True)
+        elif key in ("circumflex_accent", "caret", "asciicircum"):
+            self._cmd_first_nonblank()
 
     # ------------------------------------------------------------------
     # Line motion helpers (multi-line)
@@ -1157,4 +1183,89 @@ class VimInput(Widget, can_focus=True):
                     return
             pos -= 1
         self._cursor = 0
+        self._clamp_cursor_for_command()
+
+    # ------------------------------------------------------------------
+    # Find-char helpers (f / F / t / T / ; / ,)
+    # ------------------------------------------------------------------
+
+    def _do_find_char(self, cmd: str, ch: str) -> bool:
+        """Execute a find-char motion.  Returns True if the target was found.
+
+        cmd in ("f", "t") searches forward on the current line.
+        cmd in ("F", "T") searches backward.
+        "f"/"F" lands on the character; "t"/"T" lands one position before/after it.
+        """
+        row, col = self._cursor_row_col()
+        lines = self._text.split("\n")
+        line = lines[row]
+        line_start = self._offset_from_row_col(row, 0)
+
+        if cmd in ("f", "t"):
+            idx = line.find(ch, col + 1)
+            if idx == -1:
+                return False
+            if cmd == "t":
+                idx -= 1
+                if idx <= col:
+                    return False
+        else:  # "F" or "T"
+            idx = line.rfind(ch, 0, col)
+            if idx == -1:
+                return False
+            if cmd == "T":
+                idx += 1
+                if idx >= col:
+                    return False
+
+        self._cursor = line_start + idx
+        self._clamp_cursor_for_command()
+        return True
+
+    def _cmd_repeat_find(self, reverse: bool = False) -> None:
+        """; / ,: repeat the last f/F/t/T find in the same or opposite direction."""
+        if self._last_find is None:
+            return
+        cmd, ch = self._last_find
+        if reverse:
+            cmd = {"f": "F", "F": "f", "t": "T", "T": "t"}[cmd]
+        self._do_find_char(cmd, ch)
+        # _last_find retains the original command (not the reversed one).
+
+    # ------------------------------------------------------------------
+    # Jump helpers (gg / G / ^)
+    # ------------------------------------------------------------------
+
+    def _cmd_jump_to_first(self) -> None:
+        """gg: jump to the very beginning of the text."""
+        self._cursor = 0
+        self._clamp_cursor_for_command()
+
+    def _cmd_jump_to_last(self) -> None:
+        """G: jump to the last character of the text (last line in multi-line)."""
+        if not self._text:
+            return
+        if self._multiline:
+            lines = self._text.split("\n")
+            last_row = len(lines) - 1
+            last_line = lines[last_row]
+            last_col = max(0, len(last_line) - 1) if last_line else 0
+            self._cursor = self._offset_from_row_col(last_row, last_col)
+        else:
+            self._cursor = max(0, len(self._text) - 1)
+        self._clamp_cursor_for_command()
+
+    def _cmd_first_nonblank(self) -> None:
+        """^: move to the first non-blank character of the current line."""
+        if self._multiline:
+            row, _ = self._cursor_row_col()
+            line = self._text.split("\n")[row]
+            line_start = self._offset_from_row_col(row, 0)
+        else:
+            line = self._text
+            line_start = 0
+        col = 0
+        while col < len(line) and line[col] == " ":
+            col += 1
+        self._cursor = line_start + col
         self._clamp_cursor_for_command()

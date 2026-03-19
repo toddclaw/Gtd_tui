@@ -1224,7 +1224,7 @@ class GtdApp(App[None]):
         )
         self._pending_title: str = ""
         self._pending_task_id: str = ""
-        self._current_view: str = "today"
+        self._current_view: str = self._config.default_view
         # Parallel to ListView children: Task for rows, None for separators/placeholders
         self._list_entries: list[Task | None] = []
         self._undo_stack: UndoStack = load_undo_stack(data_file, password=password)
