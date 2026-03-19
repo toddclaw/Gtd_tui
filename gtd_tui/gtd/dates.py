@@ -122,3 +122,33 @@ def format_date(d: date) -> str:
     if d.year != date.today().year:
         fmt += f" {d.year}"
     return fmt
+
+
+def format_date_relative(d: date, today: date | None = None) -> str:
+    """Format a date relative to today in a human-readable form.
+
+    Rules:
+        d == today           → "today"
+        d == today + 1       → "tomorrow"
+        d == today - 1       → "yesterday"
+        today+2 … today+7   → weekday name  e.g. "Thursday"
+        today-2 … today-7   → "last <weekday>"  e.g. "last Thursday"
+        same year otherwise  → "Mar 16"
+        different year       → "Mar 16 2027"
+    """
+    ref = today or date.today()
+    delta = (d - ref).days
+
+    if delta == 0:
+        return "today"
+    if delta == 1:
+        return "tomorrow"
+    if delta == -1:
+        return "yesterday"
+    if 2 <= delta <= 7:
+        return d.strftime("%A")
+    if -7 <= delta <= -2:
+        return f"last {d.strftime('%A')}"
+    if d.year == ref.year:
+        return d.strftime("%b %-d")
+    return d.strftime("%b %-d %Y")

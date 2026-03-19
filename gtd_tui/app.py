@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import os
 import signal
+import time
 import uuid
 from datetime import date
 from pathlib import Path
@@ -17,8 +18,13 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
-from gtd_tui.gtd.dates import InvalidDateError, format_date, parse_date_input
-from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
+from gtd_tui.config import Config, load_config
+from gtd_tui.gtd.dates import (
+    InvalidDateError,
+    format_date_relative,
+    parse_date_input,
+)
+from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, REFERENCE_FOLDER_ID, Folder
 from gtd_tui.gtd.operations import (
     InvalidRepeatError,
     add_task,
@@ -53,6 +59,7 @@ from gtd_tui.gtd.operations import (
     move_to_waiting_on,
     parse_repeat_input,
     purge_logbook_task,
+    reference_tasks,
     rename_folder,
     schedule_task,
     search_tasks,
@@ -458,7 +465,7 @@ class TaskDetailScreen(
             )
             if self._gtd_task.created_at:
                 yield Label(
-                    f"Created: {format_date(self._gtd_task.created_at.date())}",
+                    f"Created: {self._gtd_task.created_at.strftime('%Y-%m-%d %H:%M:%S')}",
                     id="detail-created",
                 )
             yield Label(
@@ -724,6 +731,32 @@ class TaskDetailScreen(
             event.prevent_default()
             return
 
+        # ? on a date field: open the calendar picker
+        if (
+            event.key == "question_mark"
+            and isinstance(focused, VimInput)
+            and focused.id in ("detail-date-input", "detail-deadline-input")
+        ):
+            event.stop()
+            event.prevent_default()
+            field_id = focused.id
+
+            def _on_calendar_close(result: "date | None") -> None:
+                if result is None:
+                    return
+                inp = self.query_one(f"#{field_id}", VimInput)
+                inp.value = result.isoformat()
+                inp.set_mode("command")
+
+            # Parse the current value as an initial date if possible.
+            raw = focused.value.strip()
+            try:
+                initial = parse_date_input(raw) if raw else None
+            except InvalidDateError:
+                initial = None
+            self.app.push_screen(CalendarScreen(initial=initial), _on_calendar_close)
+            return
+
         # j/k field navigation (checklist list treated as a single field).
         if event.key == "j":
             if isinstance(focused, VimInput):
@@ -942,6 +975,161 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
         self.dismiss((task_id, self._last_query))
 
 
+class CalendarScreen(ModalScreen["date | None"]):
+    """Modal calendar for date selection.
+
+    Navigation:
+        h / l         previous / next day
+        j / k         next / previous week
+        H / L         previous / next month
+        Enter         confirm selected date
+        q / Escape    cancel (returns None)
+
+    The result is a ``date`` object or ``None`` when cancelled.
+    """
+
+    CSS = """
+    CalendarScreen {
+        align: center middle;
+    }
+
+    #cal-panel {
+        width: 36;
+        height: 14;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #cal-header {
+        text-style: bold;
+        color: $primary;
+        text-align: center;
+    }
+
+    #cal-grid {
+        height: 1fr;
+    }
+
+    #cal-status {
+        height: 1;
+        color: $text-muted;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "cancel", show=False, priority=True),
+        Binding("q", "cancel", show=False, priority=True),
+        Binding("enter", "confirm", show=False, priority=True),
+    ]
+
+    def __init__(self, initial: "date | None" = None) -> None:
+        super().__init__()
+        import calendar as _cal
+
+        self._today: date = date.today()
+        self._selected: date = initial if initial is not None else self._today
+        self._month_year: tuple[int, int] = (
+            self._selected.year,
+            self._selected.month,
+        )
+        self._calendar = _cal.Calendar(firstweekday=0)  # Monday first
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="cal-panel"):
+            yield Label("", id="cal-header")
+            yield Static("", id="cal-grid")
+            yield Label(
+                "h/l: day  j/k: week  H/L: month  Enter: select  q: cancel",
+                id="cal-status",
+            )
+
+    def on_mount(self) -> None:
+        self._render_calendar()
+
+    def _render_calendar(self) -> None:
+        import calendar as _cal
+
+        year, month = self._month_year
+        header = self.query_one("#cal-header", Label)
+        header.update(f"{_cal.month_name[month]} {year}")
+
+        weeks = self._calendar.monthdayscalendar(year, month)
+        day_headers = "Mo Tu We Th Fr Sa Su"
+        lines = [day_headers]
+        for week in weeks:
+            row_parts = []
+            for day in week:
+                if day == 0:
+                    row_parts.append("  ")
+                elif date(year, month, day) == self._today:
+                    row_parts.append(f"[bold]{day:2d}[/bold]")
+                elif date(year, month, day) == self._selected:
+                    row_parts.append(f"[reverse]{day:2d}[/reverse]")
+                else:
+                    row_parts.append(f"{day:2d}")
+            lines.append(" ".join(row_parts))
+        self.query_one("#cal-grid", Static).update("\n".join(lines))
+
+    def _clamp_to_month(self, d: date) -> date:
+        """Clamp a date to the valid range of the current displayed month."""
+        import calendar as _cal
+
+        year, month = self._month_year
+        last_day = _cal.monthrange(year, month)[1]
+        if d.year != year or d.month != month:
+            # After navigation, the selected date may be outside the displayed month
+            return d
+        return date(year, month, min(d.day, last_day))
+
+    def on_key(self, event: events.Key) -> None:
+        import calendar as _cal
+        from datetime import timedelta
+
+        year, month = self._month_year
+        sel = self._selected
+        handled = True
+
+        if event.key == "h":
+            sel = sel - timedelta(days=1)
+        elif event.key == "l":
+            sel = sel + timedelta(days=1)
+        elif event.key == "j":
+            sel = sel + timedelta(weeks=1)
+        elif event.key == "k":
+            sel = sel - timedelta(weeks=1)
+        elif event.key == "H":
+            # Previous month
+            if month == 1:
+                year, month = year - 1, 12
+            else:
+                month -= 1
+            last_day = _cal.monthrange(year, month)[1]
+            sel = date(year, month, min(sel.day, last_day))
+        elif event.key == "L":
+            # Next month
+            if month == 12:
+                year, month = year + 1, 1
+            else:
+                month += 1
+            last_day = _cal.monthrange(year, month)[1]
+            sel = date(year, month, min(sel.day, last_day))
+        else:
+            handled = False
+
+        if handled:
+            event.prevent_default()
+            self._selected = sel
+            self._month_year = (sel.year, sel.month)
+            self._render_calendar()
+
+    def action_confirm(self) -> None:
+        self.dismiss(self._selected)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class GtdApp(App[None]):
     ESCAPE_TO_MINIMIZE = False  # prevent Textual's minimize-on-Esc delay
 
@@ -1013,6 +1201,11 @@ class GtdApp(App[None]):
     #task-list > ListItem.visual-selected {
         background: $accent 30%;
     }
+
+    #task-list > ListItem.section-header {
+        background: $boost;
+        color: $text-muted;
+    }
     """
 
     def __init__(
@@ -1023,6 +1216,8 @@ class GtdApp(App[None]):
         self._password: str | None = password
         self._all_tasks: list[Task] = load_tasks(data_file, password=password)
         self._all_folders: list[Folder] = load_folders(data_file, password=password)
+        self._config: Config = load_config()
+        self._last_activity: float = time.monotonic()
         self._mode: str = "NORMAL"
         self._input_stage: str = (
             ""  # "title", "notes", "date", "command", "folder_name", "folder_rename"
@@ -1095,7 +1290,7 @@ class GtdApp(App[None]):
                 ids.append("__new_folder__")
                 ids += [f.id for f in user_folders[anchor_idx:]]
 
-        ids += ["someday", "logbook"]
+        ids += ["someday", REFERENCE_FOLDER_ID, "logbook"]
         return ids
 
     def _view_label(self, view_id: str) -> str:
@@ -1109,6 +1304,8 @@ class GtdApp(App[None]):
             return "Waiting On"
         if view_id == "someday":
             return "Someday"
+        if view_id == REFERENCE_FOLDER_ID:
+            return "Reference"
         if view_id == "logbook":
             return "Logbook"
         for folder in self._all_folders:
@@ -1136,6 +1333,20 @@ class GtdApp(App[None]):
         self._rebuild_sidebar()
         self._refresh_list()
         self.query_one("#task-list", ListView).focus()
+        self.set_interval(60, self._check_timeout)
+
+    def _check_timeout(self) -> None:
+        """Called every 60 seconds; exits the app when idle too long."""
+        if not self._config.timeout_enabled:
+            return
+        idle = time.monotonic() - self._last_activity
+        limit = self._config.timeout_minutes * 60
+        if idle >= limit:
+            self.exit()
+        elif idle >= (self._config.timeout_minutes - 5) * 60:
+            # Show remaining time in status bar during the last 5 minutes.
+            remaining = max(0, int((limit - idle) / 60))
+            self._update_status(f"(auto-quit in {remaining}m)")
 
     def _normalize_folder_positions(self) -> None:
         """Ensure every folder's tasks have unique, sequential positions.
@@ -1198,6 +1409,12 @@ class GtdApp(App[None]):
             elif view_id == "someday":
                 sidebar.append(
                     ListItem(Label(f"Someday{_n(len(someday_tasks(self._all_tasks)))}"))
+                )
+            elif view_id == REFERENCE_FOLDER_ID:
+                sidebar.append(
+                    ListItem(
+                        Label(f"Reference{_n(len(reference_tasks(self._all_tasks)))}")
+                    )
                 )
             elif view_id == "logbook":
                 sidebar.append(
@@ -1272,6 +1489,8 @@ class GtdApp(App[None]):
             self._render_waiting_on_view(list_view)
         elif self._current_view == "someday":
             self._render_someday_view(list_view)
+        elif self._current_view == REFERENCE_FOLDER_ID:
+            self._render_reference_view(list_view)
         elif self._current_view == "logbook":
             self._render_logbook_view(list_view)
         else:
@@ -1325,21 +1544,54 @@ class GtdApp(App[None]):
             list_view.append(ListItem(Label("── Also Due ──")))
             for task in other:
                 self._list_entries.append(task)
-                if task.folder_id == "waiting_on":
-                    label = f"[W] {self._task_label(task)}"
-                else:
-                    folder_label = self._view_label(task.folder_id)
-                    label = f"[{folder_label}] {self._task_label(task)}"
+                folder_label = self._view_label(task.folder_id)
+                # Use \[ to prevent Rich from parsing [FolderName] as a style tag.
+                label = f"\\[{markup_escape(folder_label)}] {self._task_label(task)}"
                 list_view.append(ListItem(Label(label)))
 
     def _render_upcoming_view(self, list_view: ListView) -> None:
         tasks = upcoming_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Upcoming ({len(tasks)})")
+        today = date.today()
+
+        def _effective_date(t: Task) -> date | None:
+            if t.scheduled_date is not None:
+                return t.scheduled_date
+            if t.repeat_rule is not None:
+                return t.repeat_rule.next_due
+            return None
+
+        def _section_key(d: date) -> str:
+            delta = (d - today).days
+            if delta == 1:
+                return "Tomorrow"
+            if 2 <= delta <= 7:
+                return d.strftime("%A")
+            if delta <= 31 and d.month == today.month and d.year == today.year:
+                return "This Month"
+            if d.year == today.year:
+                return d.strftime("%B")
+            return d.strftime("%B %Y")
+
+        last_section: str | None = None
         for task in tasks:
-            date_str = format_date(task.scheduled_date) if task.scheduled_date else ""
+            eff_date = _effective_date(task)
+            if eff_date is not None:
+                section = _section_key(eff_date)
+                if section != last_section:
+                    last_section = section
+                    self._list_entries.append(None)
+                    list_view.append(
+                        ListItem(Label(f"── {section} ──"), classes="section-header")
+                    )
+            date_str = (
+                format_date_relative(eff_date, today=today)
+                if eff_date is not None
+                else ""
+            )
             folder_hint = ""
             if task.folder_id != "today":
-                folder_hint = f"  [{self._view_label(task.folder_id)}]"
+                folder_hint = f"  \\[{markup_escape(self._view_label(task.folder_id))}]"
             self._list_entries.append(task)
             list_view.append(
                 ListItem(Label(f"{self._task_label(task)}  {date_str}{folder_hint}"))
@@ -1370,7 +1622,9 @@ class GtdApp(App[None]):
 
         def _wo_label(task: Task) -> str:
             date_str = (
-                f"  [{format_date(task.scheduled_date)}]" if task.scheduled_date else ""
+                f"  [{format_date_relative(task.scheduled_date)}]"
+                if task.scheduled_date
+                else ""
             )
             return f"{self._task_label(task)}{date_str}"
 
@@ -1386,6 +1640,11 @@ class GtdApp(App[None]):
         self.query_one("#header", Label).update(f"Someday ({len(tasks)})")
         self._render_simple_list(list_view, tasks, self._task_label)
 
+    def _render_reference_view(self, list_view: ListView) -> None:
+        tasks = reference_tasks(self._all_tasks)
+        self.query_one("#header", Label).update(f"Reference ({len(tasks)})")
+        self._render_simple_list(list_view, tasks, self._task_label)
+
     def _render_logbook_view(self, list_view: ListView) -> None:
         tasks = logbook_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Logbook ({len(tasks)})")
@@ -1396,7 +1655,7 @@ class GtdApp(App[None]):
                 else "unknown"
             )
             created = (
-                f"  created {format_date(task.created_at.date())}"
+                f"  created {task.created_at.strftime('%Y-%m-%d %H:%M:%S')}"
                 if task.created_at
                 else ""
             )
@@ -1544,6 +1803,8 @@ class GtdApp(App[None]):
     # ------------------------------------------------------------------ #
 
     def on_key(self, event: events.Key) -> None:
+        # Track activity for the inactivity timeout.
+        self._last_activity = time.monotonic()
         # Don't intercept keys when a modal overlay is active — let the modal handle them.
         if len(self.screen_stack) > 1:
             return
@@ -1777,7 +2038,14 @@ class GtdApp(App[None]):
         elif event.key == "ctrl+r":
             event.prevent_default()
             self._redo()
-        elif event.key == "w" and self._current_view == "today":
+        elif event.key == "w" and (
+            self._current_view == "today"
+            or self._current_view == "inbox"
+            or (
+                self._current_view not in BUILTIN_FOLDER_IDS
+                and self._current_view != REFERENCE_FOLDER_ID
+            )
+        ):
             event.prevent_default()
             self._move_selected_to_waiting_on()
         elif event.key == "t":
@@ -1885,6 +2153,8 @@ class GtdApp(App[None]):
             vim.set_placeholder("Someday task title...")
         elif self._current_view == "inbox":
             vim.set_placeholder("Inbox task title...")
+        elif self._current_view == REFERENCE_FOLDER_ID:
+            vim.set_placeholder("Reference item title...")
         else:
             vim.set_placeholder("Task title...")
         vim.clear()
@@ -1946,7 +2216,7 @@ class GtdApp(App[None]):
                     self._all_tasks, self._pending_title, notes=notes, task_id=new_id
                 )
         elif (
-            self._current_view in ("inbox", "someday")
+            self._current_view in ("inbox", "someday", REFERENCE_FOLDER_ID)
             or self._current_view not in BUILTIN_FOLDER_IDS
         ):
             if self._pending_anchor_id:

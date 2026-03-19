@@ -320,6 +320,14 @@ def someday_tasks(tasks: list[Task]) -> list[Task]:
     )
 
 
+def reference_tasks(tasks: list[Task]) -> list[Task]:
+    """Return tasks in the Reference folder, sorted by position."""
+    return sorted(
+        [t for t in tasks if t.folder_id == "reference"],
+        key=lambda t: t.position,
+    )
+
+
 def move_task_up(tasks: list[Task], task_id: str) -> list[Task]:
     """Move a task one position up within its visible peers.
 

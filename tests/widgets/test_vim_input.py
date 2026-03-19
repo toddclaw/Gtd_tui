@@ -784,3 +784,63 @@ async def test_y_p_roundtrip_singleline() -> None:
         assert vi._register == "word"
         await pilot.press("p")  # paste after last char
         assert vi.value == "wordword"
+
+
+# ---------------------------------------------------------------------------
+# Dot-repeat (Feature 9)
+# ---------------------------------------------------------------------------
+
+
+async def test_dot_repeat_inserts_last_insert_text() -> None:
+    """'.' in COMMAND mode re-inserts the text typed in the last INSERT session."""
+    async with _App(value="", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        # Enter INSERT, type "hello", return to COMMAND
+        await pilot.press("i")
+        await pilot.press("h", "e", "l", "l", "o")
+        await pilot.press("escape")
+        # The repeat text should have been saved
+        assert vi._repeat_text == "hello"
+        # Move cursor to end and press '.'
+        vi._cursor = len(vi.value)
+        await pilot.press("period")
+        assert vi.value == "hellohello"
+
+
+async def test_dot_repeat_empty_when_nothing_typed() -> None:
+    """No INSERT session → '.' is a no-op."""
+    async with _App(value="abc", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        original = vi.value
+        await pilot.press("period")
+        assert vi.value == original
+
+
+async def test_dot_repeat_cleared_on_new_insert_entry() -> None:
+    """Entering INSERT mode clears _last_insert so the new session starts fresh."""
+    async with _App(value="", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        # First INSERT session
+        await pilot.press("i")
+        await pilot.press("a")
+        await pilot.press("escape")
+        assert vi._repeat_text == "a"
+        # Second INSERT session — _last_insert must be empty when we enter INSERT
+        await pilot.press("i")
+        assert vi._last_insert == ""
+        await pilot.press("b")
+        await pilot.press("escape")
+        assert vi._repeat_text == "b"
+
+
+async def test_dot_repeat_inserts_at_current_cursor() -> None:
+    """'.' inserts the repeat text at the current cursor position."""
+    async with _App(value="", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        await pilot.press("i")
+        await pilot.press("x", "y")
+        await pilot.press("escape")
+        # cursor is at 1 (last char in COMMAND mode), move to 0
+        vi._cursor = 0
+        await pilot.press("period")
+        assert vi.value.startswith("xy")

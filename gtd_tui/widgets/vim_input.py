@@ -76,6 +76,8 @@ class VimInput(Widget, can_focus=True):
         self._register: str = (
             ""  # unnamed yank register (fallback when clipboard unavailable)
         )
+        self._last_insert: str = ""  # characters typed in the current INSERT session
+        self._repeat_text: str = ""  # text saved from the last completed INSERT session
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
@@ -126,6 +128,14 @@ class VimInput(Widget, can_focus=True):
 
     def set_mode(self, mode: str) -> None:
         """Switch between 'insert' and 'command' sub-modes."""
+        if mode == "command" and self._vim_mode == "insert":
+            # Leaving INSERT → persist the typed text as the repeat buffer.
+            if self._last_insert:
+                self._repeat_text = self._last_insert
+            self._last_insert = ""
+        elif mode == "insert":
+            # Entering INSERT → start a fresh recording.
+            self._last_insert = ""
         self._vim_mode = mode
         self._pending = ""
         if mode == "command":
@@ -419,6 +429,7 @@ class VimInput(Widget, can_focus=True):
                 + self._text[self._cursor :]
             )
             self._cursor += 1
+            self._last_insert += event.character
 
     def _handle_command(self, event: events.Key) -> None:
         key = event.key
@@ -621,6 +632,16 @@ class VimInput(Widget, can_focus=True):
         elif key == "P":
             self._push_undo()
             self._cmd_paste(after=False)
+        elif key == "period":
+            if self._repeat_text:
+                self._push_undo()
+                self._text = (
+                    self._text[: self._cursor]
+                    + self._repeat_text
+                    + self._text[self._cursor :]
+                )
+                self._cursor += len(self._repeat_text)
+                self._clamp_cursor_for_command()
         elif key == "enter" and not self._multiline:
             self.post_message(self.Submitted(self, self._text))
 
