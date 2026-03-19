@@ -803,7 +803,7 @@ async def test_dot_repeat_inserts_last_insert_text() -> None:
         assert vi._repeat_text == "hello"
         # Move cursor to end and press '.'
         vi._cursor = len(vi.value)
-        await pilot.press("period")
+        await pilot.press("full_stop")
         assert vi.value == "hellohello"
 
 
@@ -812,7 +812,7 @@ async def test_dot_repeat_empty_when_nothing_typed() -> None:
     async with _App(value="abc", start_mode="command").run_test() as pilot:
         vi = _vi(pilot.app)
         original = vi.value
-        await pilot.press("period")
+        await pilot.press("full_stop")
         assert vi.value == original
 
 
@@ -842,7 +842,7 @@ async def test_dot_repeat_inserts_at_current_cursor() -> None:
         await pilot.press("escape")
         # cursor is at 1 (last char in COMMAND mode), move to 0
         vi._cursor = 0
-        await pilot.press("period")
+        await pilot.press("full_stop")
         assert vi.value.startswith("xy")
 
 
@@ -855,7 +855,7 @@ async def test_dot_repeat_x_deletes_again() -> None:
         await pilot.press("x")
         assert vi.value == "hell"  # 'o' deleted
         assert vi._last_action is not None
-        await pilot.press("period")
+        await pilot.press("full_stop")
         assert vi.value == "hel"  # 'l' deleted by dot-repeat
 
 

@@ -464,6 +464,18 @@ class VimInput(Widget, can_focus=True):
                     self._text = (
                         self._text[: self._cursor] + ch + self._text[self._cursor + 1 :]
                     )
+                    ch_str: str = ch  # ch is non-None here; capture for closure
+
+                    def _replay_r(c: str = ch_str) -> None:
+                        if self._cursor < len(self._text):
+                            self._push_undo()
+                            self._text = (
+                                self._text[: self._cursor]
+                                + c
+                                + self._text[self._cursor + 1 :]
+                            )
+
+                    self._last_action = _replay_r
             elif pending == "c":
                 event.stop()
                 event.prevent_default()
@@ -480,22 +492,72 @@ class VimInput(Widget, can_focus=True):
                 if key == "d":
                     if self._multiline:
                         self._cmd_delete_line()
+
+                        def _replay_dd_multi() -> None:
+                            self._push_undo()
+                            self._cmd_delete_line()
+
+                        self._last_action = _replay_dd_multi
                     else:
                         self._text = ""
                         self._cursor = 0
+
+                        def _replay_dd_single() -> None:
+                            self._push_undo()
+                            self._text = ""
+                            self._cursor = 0
+
+                        self._last_action = _replay_dd_single
                 elif key in ("dollar", "dollar_sign"):
                     self._cmd_delete_to_line_end()
+
+                    def _replay_d_dollar() -> None:
+                        self._push_undo()
+                        self._cmd_delete_to_line_end()
+
+                    self._last_action = _replay_d_dollar
                 elif key == "0":
                     self._text = self._text[self._cursor :]
                     self._cursor = 0
+
+                    def _replay_d0() -> None:
+                        self._push_undo()
+                        self._text = self._text[self._cursor :]
+                        self._cursor = 0
+
+                    self._last_action = _replay_d0
                 elif key == "w":
                     self._cmd_delete_word(word_only=False)
+
+                    def _replay_dw() -> None:
+                        self._push_undo()
+                        self._cmd_delete_word(word_only=False)
+
+                    self._last_action = _replay_dw
                 elif key == "W":
                     self._cmd_delete_word(word_only=True)
+
+                    def _replay_dW() -> None:
+                        self._push_undo()
+                        self._cmd_delete_word(word_only=True)
+
+                    self._last_action = _replay_dW
                 elif key == "b":
                     self._cmd_delete_to_word_backward(word=True)
+
+                    def _replay_db() -> None:
+                        self._push_undo()
+                        self._cmd_delete_to_word_backward(word=True)
+
+                    self._last_action = _replay_db
                 elif key == "B":
                     self._cmd_delete_to_word_backward(word=False)
+
+                    def _replay_dB() -> None:
+                        self._push_undo()
+                        self._cmd_delete_to_word_backward(word=False)
+
+                    self._last_action = _replay_dB
             # Unknown sequence — silently discard; do not consume the event.
             return
 
@@ -605,6 +667,12 @@ class VimInput(Widget, can_focus=True):
         elif key == "tilde":
             self._push_undo()
             self._cmd_toggle_case()
+
+            def _replay_tilde() -> None:
+                self._push_undo()
+                self._cmd_toggle_case()
+
+            self._last_action = _replay_tilde
         elif key == "r":
             self._pending = "r"
         elif key == "s":
@@ -663,6 +731,20 @@ class VimInput(Widget, can_focus=True):
             else:
                 self._text = self._text[: self._cursor]
                 self._cursor = max(0, len(self._text) - 1)
+
+            def _replay_D() -> None:
+                self._push_undo()
+                if self._multiline:
+                    r, _ = self._cursor_row_col()
+                    ls = self._offset_from_row_col(r, 0)
+                    ln = self._text.split("\n")[r]
+                    self._text = self._text[: self._cursor] + self._text[ls + len(ln) :]
+                    self._clamp_cursor_for_command()
+                else:
+                    self._text = self._text[: self._cursor]
+                    self._cursor = max(0, len(self._text) - 1)
+
+            self._last_action = _replay_D
         elif key == "y":
             self._cmd_yank_line()
         elif key == "p":
@@ -671,7 +753,7 @@ class VimInput(Widget, can_focus=True):
         elif key == "P":
             self._push_undo()
             self._cmd_paste(after=False)
-        elif key == "period":
+        elif key in ("period", "full_stop"):
             if self._last_action is not None:
                 self._last_action()
             elif self._repeat_text:
