@@ -156,12 +156,12 @@ async def test_esc_task_detail_field_insert_to_command_latency(
         elapsed_ms = (time.monotonic() - t0) * 1000
 
         assert title_vi._vim_mode == "command", "Esc must return to COMMAND mode"
-        assert "vim-insert-mode" not in title_vi.classes, (
-            "vim-insert-mode class must be removed after Esc"
-        )
-        assert elapsed_ms < 200, (
-            f"Esc in task detail took {elapsed_ms:.1f} ms — expected < 200 ms."
-        )
+        assert (
+            "vim-insert-mode" not in title_vi.classes
+        ), "vim-insert-mode class must be removed after Esc"
+        assert (
+            elapsed_ms < 200
+        ), f"Esc in task detail took {elapsed_ms:.1f} ms — expected < 200 ms."
 
 
 # ---------------------------------------------------------------------------
@@ -187,9 +187,9 @@ async def test_full_task_creation_keyboard_journey(tmp_path: Path) -> None:
 
         # Type the task title
         await pilot.press("P", "l", "a", "n", " ", "s", "p", "r", "i", "n", "t")
-        await pilot.press("enter")   # confirm title → advance to notes
+        await pilot.press("enter")  # confirm title → advance to notes
         await pilot.pause()
-        await pilot.press("enter")   # skip notes → save
+        await pilot.press("enter")  # skip notes → save
         await pilot.pause()
 
         assert app._mode == "NORMAL"
@@ -242,7 +242,7 @@ async def test_scheduled_task_disappears_from_today_view(tmp_path: Path) -> None
         # Open detail, skip to date field, set +7d, save
         await pilot.press("enter")
         await pilot.pause()
-        await pilot.press("enter")   # title → date
+        await pilot.press("enter")  # title → date
         await pilot.pause()
         await pilot.press("i")
         await pilot.press("+", "7", "d")
@@ -304,7 +304,7 @@ async def test_completing_recurring_task_creates_new_instance(
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        await pilot.press("x")   # complete the recurring task
+        await pilot.press("x")  # complete the recurring task
         await pilot.pause()
 
         # Original must be in logbook
@@ -313,7 +313,8 @@ async def test_completing_recurring_task_creates_new_instance(
 
         # A new instance must have been spawned
         active = [
-            t for t in app._all_tasks
+            t
+            for t in app._all_tasks
             if t.folder_id != "logbook" and t.title == "Daily standup"
         ]
         assert len(active) == 1, "Exactly one new instance should be spawned"
@@ -395,17 +396,19 @@ async def test_undo_restores_deleted_task(tmp_path: Path) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        await pilot.press("d")   # delete → logbook with is_deleted=True
+        await pilot.press("d")  # delete → logbook with is_deleted=True
         await pilot.pause()
 
         deleted = [t for t in app._all_tasks if t.is_deleted]
         assert len(deleted) == 1
 
-        await pilot.press("u")   # undo
+        await pilot.press("u")  # undo
         await pilot.pause()
 
         # Task must be back in the active folder, no longer deleted
-        active = [t for t in app._all_tasks if not t.is_deleted and t.folder_id != "logbook"]
+        active = [
+            t for t in app._all_tasks if not t.is_deleted and t.folder_id != "logbook"
+        ]
         assert any(t.title == "Fix critical bug" for t in active)
         assert not any(t.is_deleted for t in app._all_tasks)
 
@@ -429,7 +432,9 @@ async def test_inbox_capture_task_stays_in_inbox(tmp_path: Path) -> None:
         # Create a new task
         await pilot.press("o")
         await pilot.pause()
-        await pilot.press("Q", "u", "i", "c", "k", " ", "c", "a", "p", "t", "u", "r", "e")
+        await pilot.press(
+            "Q", "u", "i", "c", "k", " ", "c", "a", "p", "t", "u", "r", "e"
+        )
         await pilot.press("enter")
         await pilot.pause()
         await pilot.press("enter")
@@ -462,16 +467,18 @@ async def test_notes_edit_persists_after_esc_save(tmp_path: Path) -> None:
         assert isinstance(app.screen, TaskDetailScreen)
 
         # Navigate: title → date → deadline → notes
-        await pilot.press("enter")   # title COMMAND → date
+        await pilot.press("enter")  # title COMMAND → date
         await pilot.pause()
-        await pilot.press("enter")   # date → deadline
+        await pilot.press("enter")  # date → deadline
         await pilot.pause()
-        await pilot.press("enter")   # deadline → notes
+        await pilot.press("enter")  # deadline → notes
         await pilot.pause()
 
         # Notes VimInput is in COMMAND mode; enter INSERT and type
         await pilot.press("i")
-        await pilot.press("T", "D", "D", ":", " ", "a", "d", "d", " ", "m", "o", "r", "e")
+        await pilot.press(
+            "T", "D", "D", ":", " ", "a", "d", "d", " ", "m", "o", "r", "e"
+        )
         await pilot.press("escape")  # INSERT → COMMAND
         await pilot.pause()
         await pilot.press("escape")  # COMMAND bubbles → save + close
@@ -480,7 +487,8 @@ async def test_notes_edit_persists_after_esc_save(tmp_path: Path) -> None:
         assert not isinstance(app.screen, TaskDetailScreen)
 
         task = next(
-            t for t in app._all_tasks
+            t
+            for t in app._all_tasks
             if t.title == "Write tests" and t.folder_id != "logbook"
         )
         assert "TDD: add more" in task.notes
@@ -532,12 +540,12 @@ async def test_double_esc_from_detail_field_closes_and_saves(
         await pilot.pause()
         elapsed_ms = (time.monotonic() - t0) * 1000
 
-        assert not isinstance(app.screen, TaskDetailScreen), (
-            "Second Esc must close the detail screen"
-        )
-        assert elapsed_ms < 500, (
-            f"EscEsc sequence took {elapsed_ms:.1f} ms — expected < 500 ms."
-        )
+        assert not isinstance(
+            app.screen, TaskDetailScreen
+        ), "Second Esc must close the detail screen"
+        assert (
+            elapsed_ms < 500
+        ), f"EscEsc sequence took {elapsed_ms:.1f} ms — expected < 500 ms."
 
 
 # ---------------------------------------------------------------------------
@@ -584,21 +592,23 @@ async def test_visual_bulk_delete_full_journey(tmp_path: Path) -> None:
     async with app.run_test() as pilot:
         await pilot.pause()
 
-        await pilot.press("v")   # enter VISUAL at index 0
+        await pilot.press("v")  # enter VISUAL at index 0
         await pilot.pause()
         assert app._visual_mode is True
 
-        await pilot.press("j")   # extend selection to index 1
+        await pilot.press("j")  # extend selection to index 1
         await pilot.pause()
 
-        await pilot.press("d")   # bulk delete
+        await pilot.press("d")  # bulk delete
         await pilot.pause()
 
         assert app._visual_mode is False  # must exit VISUAL
 
         deleted = [t for t in app._all_tasks if t.is_deleted]
         assert len(deleted) == 2  # Alpha and Beta deleted
-        active = [t for t in app._all_tasks if not t.is_deleted and t.folder_id != "logbook"]
+        active = [
+            t for t in app._all_tasks if not t.is_deleted and t.folder_id != "logbook"
+        ]
         assert len(active) == 1
         assert active[0].title == "Gamma"
 
@@ -622,7 +632,7 @@ async def test_visual_bulk_complete_full_journey(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("j")
         await pilot.pause()
-        await pilot.press("x")   # bulk complete
+        await pilot.press("x")  # bulk complete
         await pilot.pause()
 
         completed = [t for t in app._all_tasks if t.is_complete]

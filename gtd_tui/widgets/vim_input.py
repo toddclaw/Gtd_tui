@@ -553,7 +553,9 @@ class VimInput(Widget, can_focus=True):
                     if self._multiline:
                         row, _ = self._cursor_row_col()
                         line_start = self._offset_from_row_col(row, 0)
-                        self._text = self._text[:line_start] + self._text[self._cursor :]
+                        self._text = (
+                            self._text[:line_start] + self._text[self._cursor :]
+                        )
                         self._cursor = line_start
                         self._clamp_cursor_for_command()
                     else:
@@ -704,7 +706,9 @@ class VimInput(Widget, can_focus=True):
                 def _pre_O() -> None:
                     r, _ = self._cursor_row_col()
                     line_start = self._offset_from_row_col(r, 0)
-                    self._text = self._text[:line_start] + "\n" + self._text[line_start:]
+                    self._text = (
+                        self._text[:line_start] + "\n" + self._text[line_start:]
+                    )
                     self._cursor = line_start
 
                 self._pre_insert_action = _pre_O
