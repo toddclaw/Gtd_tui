@@ -339,11 +339,11 @@ async def test_bulk_m_moves_selected_to_chosen_folder(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("v", "j")  # select A + B
         await pilot.pause()
-        await pilot.press("m")  # open folder picker (bulk)
+        await pilot.press("m")  # open action picker (bulk)
         await pilot.pause()
-        # Sidebar is focused. Navigate to "Work" folder.
-        # Built-ins: Today(0), Upcoming(1), Waiting On(2), Work(3), Someday(4), Logbook(5)
-        await pilot.press("j", "j", "j")  # move to index 3 (Work)
+        # Picker starts at Inbox. Navigate to "Work" user folder:
+        # Inbox → Today → Waiting On → Someday → Reference → Work = 5 j's
+        await pilot.press("j", "j", "j", "j", "j")
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
@@ -370,7 +370,9 @@ async def test_bulk_m_preserves_order(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("m")
         await pilot.pause()
-        await pilot.press("j", "j", "j")  # navigate to Work
+        await pilot.press(
+            "j", "j", "j", "j", "j"
+        )  # Inbox→Today→WaitingOn→Someday→Reference→Work
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()

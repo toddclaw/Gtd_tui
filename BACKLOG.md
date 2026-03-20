@@ -1174,3 +1174,213 @@ Eight improvements implemented together: vim motions, config options, UX polish.
 - [x] tmux ESCDELAY one-time tip at startup
 - [x] Configurable sidebar counts (`[sidebar_counts]` config section)
 - [x] `dd` populates the yank register (enables `p`/`P` after delete)
+
+---
+
+### BACKLOG-59 — Border text banner ✅ DONE
+
+**Story points:** 3
+
+**Description:**
+When a coloured screen border is active (`border_style != "none"`), show a configurable text label centred in both the top and bottom horizontal border strips. The text background matches the primary border colour (yellow for `yellow_grey`, red for `red_grey`).
+
+**Acceptance criteria:**
+- [ ] `Config.border_text: str = ""` — empty string means no banner
+- [ ] `save_default_config()` includes `border_text = ""` in the `[ui]` section
+- [ ] When non-empty, the text appears centred in both top and bottom `ColorBorderStrip` widgets, padded with a single space on each side
+- [ ] The text background colour is the first colour of the border pair (e.g. yellow for yellow_grey)
+- [ ] The left/right sides continue the alternating block pattern
+- [ ] `load_config()` reads `border_text` from `[ui]`
+- [ ] Test: horizontal strip renders with centred text
+
+---
+
+### BACKLOG-60 — Auto-populate missing config defaults ✅ DONE
+
+**Story points:** 2
+
+**Description:**
+When the app starts and reads an existing config file that is missing some keys (because new config options were added in a later version), automatically append those missing keys with their default values to the config file. Non-destructive: never modifies existing content.
+
+**Acceptance criteria:**
+- [ ] `_ensure_config_defaults(path, raw_dict)` is called after successfully loading a config file
+- [ ] Any missing key in `[timeout]`, `[ui]`, or `[sidebar_counts]` is appended with its default value
+- [ ] If an entire section is missing, the section header is appended before the keys
+- [ ] The original file content is never modified (only appended to)
+- [ ] After the call, re-reading the file produces a complete config
+- [ ] Tests verify: missing section gets appended, missing key in existing section gets appended, file with all keys is unchanged
+
+---
+
+### BACKLOG-61 — Default cursor at top-left in text fields ✅ DONE
+
+**Story points:** 2
+
+**Description:**
+When a task detail screen opens, the cursor in all VimInput fields should start at position 0 (top-left), not at the end of the text. Currently, long titles and multi-line notes place the cursor at the right or middle, making it hard to see the full content on open.
+
+**Acceptance criteria:**
+- [ ] `VimInput` gains a `start_at_beginning: bool = False` constructor parameter
+- [ ] When `True`, `_cursor = 0`, `_view_row = 0`, `_view_offset = 0` at init
+- [ ] `detail-title-input`, `detail-notes-input`, and all other read-mode VimInput fields in `TaskDetailScreen` use `start_at_beginning=True`
+- [ ] Tests: VimInput with `start_at_beginning=True` starts with cursor at 0
+
+---
+
+### BACKLOG-62 — Divider tasks ✅ DONE
+
+**Story points:** 3
+
+**Description:**
+If a task's title is exactly `-` or `=`, render it as a full-width horizontal divider line in the task list (filled with `-` or `=` characters). This lets users visually separate groups of tasks without creating a folder.
+
+**Acceptance criteria:**
+- [ ] `is_divider_task(task) -> bool` returns `True` when `task.title.strip() in ("-", "=")`
+- [ ] Divider tasks render as a dim full-width line of dashes or equals signs in the task list
+- [ ] Action keys that modify task state (x, d, s, m, w, t, J, K) are no-ops on divider tasks in normal mode
+- [ ] Divider tasks are excluded from VISUAL mode selection (treated like separators)
+- [ ] Creating a divider is done normally with `o` / typing `-` or `=`
+- [ ] Tests: is_divider_task, rendering, action guards
+
+---
+
+### BACKLOG-63 — Duplicate task with y then p/P ✅ DONE
+
+**Story points:** 3
+
+**Description:**
+In the task list, `y` yanks the selected task to both the clipboard (existing behaviour) and an internal task register. `p` pastes a duplicate of the yanked task immediately below the current position; `P` pastes above. The duplicate gets a new UUID and the current timestamp as `created_at`, but copies all other fields (title, notes, tags, folder_id, project_id, scheduled_date).
+
+**Acceptance criteria:**
+- [ ] `y` in NORMAL mode copies to clipboard (unchanged) AND saves to `GtdApp._task_register: Task | None`
+- [ ] `p` inserts a duplicate below the currently selected task
+- [ ] `P` inserts a duplicate above the currently selected task
+- [ ] The new task has a fresh `id` and `created_at = datetime.now()`; all other fields are copied
+- [ ] Duplicate is inserted at the correct position in the folder's task list
+- [ ] Status bar shows `(task duplicated)` after paste
+- [ ] Tests: duplicate creates new task, position is correct, original is unchanged
+
+---
+
+### BACKLOG-64 — Quick task rename with r from task list ✅ DONE
+
+**Story points:** 2
+
+**Description:**
+From the task list (NORMAL mode), pressing `r` opens an inline rename input pre-filled with the selected task's current title. On submit, saves the new title. This avoids needing to open the full task detail screen for a simple title change.
+
+**Acceptance criteria:**
+- [ ] `r` in NORMAL mode (task list focused) enters INSERT mode with `#task-input` pre-filled with the task title
+- [ ] On submit, calls `edit_task()` with the new title and refreshes the list
+- [ ] Pressing Escape cancels without changes
+- [ ] Cannot be used on divider tasks
+- [ ] Status bar shows "Rename: type new title, Enter to save, Esc to cancel"
+- [ ] Tests: submit saves new title, Esc cancels, divider guard
+
+---
+
+### BACKLOG-65 — HML navigation in VISUAL block mode ✅ DONE
+
+**Story points:** 2
+
+**Description:**
+`H`, `M`, `L` already work in NORMAL mode to jump to the top/middle/bottom of the list. Add the same keys to VISUAL block mode so users can extend a selection to a distant row in one keystroke.
+
+**Acceptance criteria:**
+- [ ] In VISUAL mode, `H` moves the cursor to the top of the list and extends the selection
+- [ ] In VISUAL mode, `M` moves the cursor to the middle of the list and extends the selection
+- [ ] In VISUAL mode, `L` moves the cursor to the bottom of the list and extends the selection
+- [ ] Visual highlights and status bar update after each move
+- [ ] Tests: H/M/L in visual mode change cursor index and update highlights
+
+---
+
+### BACKLOG-66 — Help screen accessible from sidebar focus ✅ DONE
+
+**Story points:** 1
+
+**Description:**
+`?` opens the help screen only when the task list has focus. When the sidebar has focus, `?` does nothing. Add `?` handling to `_handle_sidebar_key` so help is accessible regardless of focus.
+
+**Acceptance criteria:**
+- [ ] Pressing `?` while the sidebar has focus opens HelpScreen
+- [ ] The existing `?` behaviour in the task list is unchanged
+- [ ] Tests: `?` from sidebar opens HelpScreen
+
+---
+
+### BACKLOG-67 — Move task to project with m; visual block move to project ✅ DONE
+
+**Story points:** 5
+
+**Description:**
+Extend the `m` key to open a unified action picker (modal overlay) that lists Folders, Projects, and Tags in separate sections. Selecting a folder moves the task (existing behaviour). Selecting a project assigns the task to that project (sets `task.project_id`). Selecting a tag adds the tag to the task. Works in both NORMAL and VISUAL block mode.
+
+**Acceptance criteria:**
+- [ ] `m` opens `_ActionPickerScreen` modal instead of switching focus to the sidebar
+- [ ] The picker shows three sections: Folders, Projects, Tags
+- [ ] Selecting a folder: moves task(s) to that folder (existing logic)
+- [ ] Selecting a project: assigns task(s) to that project via `assign_task_to_project()`; task stays in current folder
+- [ ] Selecting a tag: adds the tag to task(s) via a new `add_tag_to_task()` helper; does not replace existing tags
+- [ ] VISUAL mode `m` opens the same picker for all selected tasks
+- [ ] Esc cancels with no changes
+- [ ] Tests: folder move, project assign, tag add, visual block, cancel
+
+---
+
+### BACKLOG-68 — Add tag to task with m (merged into BACKLOG-67) ✅ DONE
+
+**Story points:** 0
+
+**Description:**
+See BACKLOG-67 — tag addition via `m` is implemented as part of the unified action picker.
+
+**Acceptance criteria:**
+- [ ] See BACKLOG-67
+
+---
+
+### BACKLOG-69 — Vim count prefix for commands ✅ DONE
+
+**Story points:** 8
+
+**Description:**
+Support a numeric count prefix for vim motions in both the task list and VimInput. Examples: `5j` moves down 5 rows, `2dd` deletes 2 tasks, `20i-Esc` inserts 20 dashes, `5w` moves 5 words forward.
+
+**Acceptance criteria:**
+- [ ] VimInput: digits 1–9 (and `0` when buffer non-empty) accumulate in `_count_buffer`; cleared when a non-digit key is pressed
+- [ ] VimInput count applies to: `h`, `l`, `j`, `k`, `w`, `b`, `e`, `W`, `B`, `E`, `x`, `X`, `0` (only as motion, when buffer empty), motion commands
+- [ ] VimInput `Ni` (N then i): count captured before `i`; on ESC the inserted text is replicated N times total
+- [ ] Task list: `_count_buf` in GtdApp accumulates digits in NORMAL mode; applied to `j`, `k`, `G` (jump to row N), `d` (delete N tasks)
+- [ ] Count is shown in the status bar while being accumulated
+- [ ] ESC clears the count buffer
+- [ ] Tests cover: 5j motion, 2dd delete, count + motion in VimInput, NiXXXEsc repeat
+
+---
+
+### BACKLOG-70 — Bug: multiline notes not indented in CLI summary ✅ DONE
+
+**Story points:** 1
+
+**Description:**
+The `--summary` CLI flag prints task notes, but notes with embedded newlines are printed without indentation on the continuation lines, making them misaligned with the leading `  - title` line.
+
+**Acceptance criteria:**
+- [ ] Each line of a multiline note is indented with four spaces (`    `)
+- [ ] Single-line notes are unchanged
+- [ ] Tests: `_print_summary` with a task whose notes contain `\n` produces correctly indented output
+
+---
+
+### BACKLOG-71 — Review :help text and README for completeness ✅ DONE
+
+**Story points:** 3
+
+**Description:**
+After the feature batch 59–71 is implemented, do a full pass over `HelpScreen._HELP_TEXT` and `README.md` to ensure every implemented keybinding and feature is documented.
+
+**Acceptance criteria:**
+- [ ] All new keybindings from this batch are listed in `HelpScreen._HELP_TEXT`
+- [ ] `README.md` reflects the current feature set
+- [ ] No stale keybindings remain in the help text
+- [ ] The config file reference in README shows all current config options

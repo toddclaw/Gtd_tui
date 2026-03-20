@@ -1169,7 +1169,7 @@ async def test_colon_h_abbreviation_opens_help_screen(tmp_path: Path) -> None:
 
 
 async def test_m_key_normal_mode_moves_task_to_folder(tmp_path: Path) -> None:
-    """Pressing m in NORMAL mode, navigating to a folder, then Enter moves the task."""
+    """Pressing m in NORMAL mode opens the action picker; selecting a folder moves the task."""
     data_file = tmp_path / "data.json"
     # Start with a task in Today (default)
     tasks = add_task([], "Move me")
@@ -1178,21 +1178,17 @@ async def test_m_key_normal_mode_moves_task_to_folder(tmp_path: Path) -> None:
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
-        # NORMAL mode, task selected: press m to start single-task move
+        # NORMAL mode, task selected: press m to open action picker
         await pilot.press("m")
         await pilot.pause()
-        assert app._move_mode is True
-        # Sidebar is now focused at the current view (today, index 1).
-        # Navigate j j j → index 4 = someday, then confirm.
+        # Picker starts at Inbox; j j j navigates Inbox→Today→WaitingOn→Someday
         await pilot.press("j", "j", "j")
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
         # Task should now be in someday
-        someday_tasks = [t for t in app._all_tasks if t.folder_id == "someday"]
-        assert any(t.title == "Move me" for t in someday_tasks)
-        assert app._current_view == "someday"
-        assert not app._move_mode
+        someday = [t for t in app._all_tasks if t.folder_id == "someday"]
+        assert any(t.title == "Move me" for t in someday)
 
 
 # ---------------------------------------------------------------------------

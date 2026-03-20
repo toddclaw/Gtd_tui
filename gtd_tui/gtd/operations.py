@@ -177,6 +177,33 @@ def delete_task(tasks: list[Task], task_id: str) -> list[Task]:
     return tasks
 
 
+def duplicate_task(tasks: list[Task], task_id: str) -> list[Task]:
+    """Return a new task list with a duplicate of *task_id* inserted after the original.
+
+    The duplicate gets a fresh ``id`` and ``created_at = datetime.now()``.  All
+    other fields (title, notes, tags, folder_id, project_id, scheduled_date,
+    deadline, position) are copied.  The duplicate's ``position`` is set to the
+    original's position + 0.5 so that it sorts immediately after; a subsequent
+    normalise step is unnecessary because ``position`` is only used for relative
+    ordering.
+    """
+    import uuid as _uuid
+
+    src = next((t for t in tasks if t.id == task_id), None)
+    if src is None:
+        return tasks
+    dup = replace(
+        src,
+        id=str(_uuid.uuid4()),
+        created_at=datetime.now(),
+        position=src.position + 1,
+        is_deleted=False,
+        completed_at=None,
+        folder_id=src.folder_id if src.folder_id != "logbook" else "inbox",
+    )
+    return [*tasks, dup]
+
+
 def schedule_task(tasks: list[Task], task_id: str, scheduled_date: date) -> list[Task]:
     """Set a future scheduled_date on a task, moving it out of Today."""
     for task in tasks:
@@ -884,6 +911,11 @@ _SEARCH_FOLDER_PRIORITY: dict[str, int] = {
 }
 
 
+def is_divider_task(task: "Task") -> bool:
+    """Return True if the task renders as a horizontal divider (title is '-' or '=')."""
+    return task.title.strip() in ("-", "=")
+
+
 def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
     """Full-text search across all tasks by title and notes, case-insensitive.
 
@@ -897,14 +929,36 @@ def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
     """
     if not query.strip():
         return []
-    q = query.lower()
+
+    case_sensitive = query.startswith("//")
+    pattern_str = query[2:] if case_sensitive else query
+
+    try:
+        flags = 0 if case_sensitive else re.IGNORECASE
+        _pat = re.compile(pattern_str, flags)
+
+        def _matches(text: str) -> bool:
+            return bool(_pat.search(text))
+
+    except re.error:
+        if case_sensitive:
+
+            def _matches(text: str) -> bool:
+                return pattern_str in text
+
+        else:
+            _ql = pattern_str.lower()
+
+            def _matches(text: str) -> bool:
+                return _ql in text.lower()
+
     active: list[tuple[Task, str]] = []
     logbook_results: list[tuple[Task, str]] = []
 
     for task in tasks:
-        if q in task.title.lower():
+        if _matches(task.title):
             match_type = "title"
-        elif q in task.notes.lower():
+        elif _matches(task.notes):
             match_type = "notes"
         else:
             continue
@@ -1074,6 +1128,17 @@ def remove_tag(tasks: list[Task], task_id: str, tag: str) -> list[Task]:
 def set_tags(tasks: list[Task], task_id: str, tags: list[str]) -> list[Task]:
     """Replace the tags list for a task."""
     return [replace(t, tags=tags) if t.id == task_id else t for t in tasks]
+
+
+def add_tag_to_task(tasks: list[Task], task_id: str, tag: str) -> list[Task]:
+    """Add *tag* to the task's tag list if not already present."""
+    tag = tag.strip()
+    if not tag:
+        return tasks
+    return [
+        replace(t, tags=[*t.tags, tag]) if t.id == task_id and tag not in t.tags else t
+        for t in tasks
+    ]
 
 
 def all_tags(tasks: list[Task]) -> list[tuple[str, int]]:

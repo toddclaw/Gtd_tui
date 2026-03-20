@@ -1276,3 +1276,138 @@ async def test_c_percent_deletes_bracket_span_and_enters_insert() -> None:
         await pilot.press("c", "percent")
         assert vi._text == ""
         assert vi._vim_mode == "insert"
+
+
+# ---------------------------------------------------------------------------
+# start_at_beginning parameter
+# ---------------------------------------------------------------------------
+
+
+class _AppWithBeginning(App[None]):
+    """Host app that creates a VimInput with start_at_beginning=True."""
+
+    def __init__(self, value: str = "", start_mode: str = "insert") -> None:
+        super().__init__()
+        self._vim_value = value
+        self._vim_start_mode = start_mode
+
+    def compose(self) -> ComposeResult:
+        yield VimInput(
+            value=self._vim_value,
+            placeholder="type here",
+            start_mode=self._vim_start_mode,
+            start_at_beginning=True,
+            id="vi",
+        )
+
+
+async def test_start_at_beginning_positions_cursor_at_zero_insert_mode() -> None:
+    """VimInput with start_at_beginning=True starts with cursor at 0 in insert mode."""
+    async with _AppWithBeginning(
+        value="hello world", start_mode="insert"
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        assert vi._cursor == 0
+        assert vi._view_row == 0
+        assert vi._view_offset == 0
+
+
+async def test_start_at_beginning_positions_cursor_at_zero_command_mode() -> None:
+    """VimInput with start_at_beginning=True starts with cursor at 0 in command mode."""
+    async with _AppWithBeginning(
+        value="hello world", start_mode="command"
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        assert vi._cursor == 0
+        assert vi._view_row == 0
+        assert vi._view_offset == 0
+
+
+async def test_start_at_beginning_overrides_default_command_cursor() -> None:
+    """start_at_beginning=True overrides the normal command-mode cursor (last char)."""
+    # Without start_at_beginning, command mode places cursor at last char index.
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi_normal = _vi(pilot.app)
+        assert vi_normal._cursor == 4  # default: last char index
+
+    # With start_at_beginning, cursor should be 0 regardless.
+    async with _AppWithBeginning(
+        value="hello", start_mode="command"
+    ).run_test() as pilot:
+        vi_begin = _vi(pilot.app)
+        assert vi_begin._cursor == 0
+
+
+async def test_start_at_beginning_allows_normal_typing_after() -> None:
+    """After start_at_beginning positions cursor at 0, typing works normally."""
+    async with _AppWithBeginning(
+        value="world", start_mode="insert"
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        assert vi._cursor == 0
+        # Typing should insert at cursor position 0
+        await pilot.press("h", "i", " ")
+        assert vi.value.startswith("hi world")
+
+
+# ---------------------------------------------------------------------------
+# Regression: count prefix for s and dd
+# ---------------------------------------------------------------------------
+
+
+async def test_count_s_deletes_char_and_enters_insert() -> None:
+    """s with a count deletes that many chars immediately and enters INSERT mode."""
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        # 3s: deletes 'h', 'e', 'l' and enters INSERT mode
+        await pilot.press("3", "s")
+        await pilot.pause()
+        assert vi._vim_mode == "insert"
+        assert vi._text == "lo world"
+
+
+async def test_count_s_repeat_dot_deletes_count_chars() -> None:
+    """After 3s<X><Esc>, pressing '.' should repeat the substitution deleting 3 chars."""
+    async with _App(value="abcdefgh", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        # 3s: deletes 'a','b','c' (3 chars), enters INSERT
+        await pilot.press("3", "s")
+        await pilot.pause()
+        assert vi._text == "defgh"  # 3 chars deleted
+        assert vi._vim_mode == "insert"
+        # Type replacement char, then Esc to commit
+        await pilot.press("X")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        # State: 'Xdefgh', cursor at 1 (single-line clamp: min(1,5)=1)
+        assert vi._text == "Xdefgh"
+        assert vi._vim_mode == "command"
+        # '.' replays from cursor=1: pre_s deletes 3 chars ('d','e','f') → 'Xgh',
+        # then inserts 'X' at cursor=1 → 'XXgh'
+        await pilot.press("period")
+        await pilot.pause()
+        # net: 3 deleted, 1 inserted → 4 chars total
+        assert vi._text == "XXgh"
+
+
+async def test_count_dd_deletes_multiple_lines() -> None:
+    """2dd should delete 2 lines in multiline mode."""
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        # Type 4 lines
+        for word in ["line1", "line2", "line3", "line4"]:
+            for ch in word:
+                await pilot.press(ch)
+            await pilot.press("enter")
+        # Remove trailing newline by pressing backspace once
+        await pilot.press("backspace")
+        await pilot.press("escape")  # enter command mode
+        # Move cursor to start
+        vi._cursor = 0
+        await pilot.press("2", "d", "d")
+        await pilot.pause()
+        # Should have deleted line1 and line2, leaving line3 and line4
+        assert vi._text == "line3\nline4"

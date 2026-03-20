@@ -32,6 +32,7 @@ from gtd_tui.gtd.operations import (
     InvalidRepeatError,
     add_area,
     add_project,
+    add_tag_to_task,
     add_task,
     add_task_to_folder,
     add_task_to_project,
@@ -39,6 +40,7 @@ from gtd_tui.gtd.operations import (
     all_tags,
     assign_folder_to_area,
     assign_project_to_area,
+    assign_task_to_project,
     check_auto_complete_project,
     clear_deadline,
     complete_task,
@@ -56,6 +58,7 @@ from gtd_tui.gtd.operations import (
     insert_task_before,
     insert_waiting_on_task_after,
     insert_waiting_on_task_before,
+    is_divider_task,
     logbook_tasks,
     make_repeat_rule,
     move_area_down,
@@ -158,7 +161,7 @@ class HelpScreen(ModalScreen[None]):
   Ctrl+u       Half-page up
   h / l        Focus sidebar / task list
   i            Jump to Inbox
-  0–9          Jump to nth sidebar item (0=Inbox, 1=Today, …)
+  0            Jump to sidebar item 0 (Inbox) — use h then j/k for other views
 
 [bold]Task Actions[/bold]
   Enter        Open task detail / edit
@@ -166,25 +169,31 @@ class HelpScreen(ModalScreen[None]):
   O            Add new task before selected
   x / Space    Complete selected task
   d            Delete selected task
+  r            Quick-rename selected task (inline, without opening detail)
   s            Schedule selected task (supports today, +3d, tomorrow, next monday, someday)
-  m            Move selected task to a folder
+  m            Move / assign / tag — opens picker (folder → move, project → assign, tag → add)
   J / K        Move selected task down / up
   w            Move task to Waiting On  (Today view)
   t            Move to Today (Waiting On / Inbox) or schedule for today (user folders)
-  y            Yank (copy) task title and notes to clipboard
+  y            Yank task to clipboard AND to internal register
+  p / P        Paste a duplicate of yanked task below / above current position
   u            Undo last action
   Ctrl+R       Redo last undone action
-  /            Global search
+  /            Global search  (plain → auto-detect regex; //pat → case-sensitive regex)
   n / N        Next / previous search match
   W            Weekly review (tasks completed in past 7 days)
+  ?            Open this help screen
+  5j / 3k      Count prefix: repeat any motion or J/K N times (e.g. 5j moves down 5)
+  Dividers     Create a task titled - or = to insert a visual divider line
 
 [bold]VISUAL Mode  (press v to enter)[/bold]
   v            Enter VISUAL mode — anchor selection at cursor
   j / k        Extend selection down / up
+  H / M / L    Jump to top / middle / bottom of list (extends selection)
   x / Space    Complete all selected tasks
   d            Delete all selected tasks
   s            Schedule all selected tasks
-  m            Move all selected tasks to a folder
+  m            Move / assign / tag all selected tasks (same picker as NORMAL mode)
   w            Move all selected tasks to Waiting On
   t            Move to Today (Waiting On / Inbox) or schedule for today (user folders)
   y            Yank all selected tasks to clipboard (title + notes, blank line between)
@@ -213,6 +222,7 @@ class HelpScreen(ModalScreen[None]):
   J / K        Reorder selected folder, project, or tag (area-scoped for folders/projects)
   m            Assign selected folder or project to an Area
   Enter        Collapse / expand Area (when on an Area header)
+  ?            Open help screen
 
 [bold]Projects (sidebar focused)[/bold]
   N            Create new project (works from anywhere in the sidebar)
@@ -464,6 +474,7 @@ class TaskDetailScreen(
             yield VimInput(
                 value=self._gtd_task.title,
                 start_mode="command",
+                start_at_beginning=True,
                 id="detail-title-input",
             )
             yield Label(
@@ -491,6 +502,7 @@ class TaskDetailScreen(
                 placeholder="(optional)",
                 start_mode="command",
                 multiline=True,
+                start_at_beginning=True,
                 id="detail-notes-input",
             )
             yield Label(
@@ -978,14 +990,33 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
             return text.replace("[", "\\[")
 
         def _highlight(text: str, query: str) -> str:
-            q_lower = query.lower()
-            idx = text.lower().find(q_lower)
-            if idx == -1:
+            """Highlight the match in text. Handles // prefix and regex patterns."""
+            import re as _re
+
+            case_sensitive = query.startswith("//")
+            pattern = query[2:] if case_sensitive else query
+            if not pattern:
                 return _escape(text)
-            before = _escape(text[:idx])
-            match = _escape(text[idx : idx + len(query)])
-            after = _escape(text[idx + len(query) :])
-            return f"{before}[bold yellow]{match}[/bold yellow]{after}"
+            try:
+                flags = 0 if case_sensitive else _re.IGNORECASE
+                m = _re.search(pattern, text, flags)
+                if m is None:
+                    return _escape(text)
+                before = _escape(text[: m.start()])
+                match_text = _escape(text[m.start() : m.end()])
+                after = _escape(text[m.end() :])
+                return f"{before}[bold yellow]{match_text}[/bold yellow]{after}"
+            except _re.error:
+                # Fallback: plain substring search
+                haystack = text if case_sensitive else text.lower()
+                needle = pattern if case_sensitive else pattern.lower()
+                idx = haystack.find(needle)
+                if idx == -1:
+                    return _escape(text)
+                before = _escape(text[:idx])
+                match_text = _escape(text[idx : idx + len(pattern)])
+                after = _escape(text[idx + len(pattern) :])
+                return f"{before}[bold yellow]{match_text}[/bold yellow]{after}"
 
         def _folder_tag(task: Task) -> str:
             folder_map = {
@@ -1350,23 +1381,48 @@ class ColorBorderStrip(Static, can_focus=False):
         style: str,
         block_size: int,
         orientation: str,
+        border_text: str = "",
     ) -> None:
         super().__init__(classes=orientation)
         self._border_style = style
         self._block_size = max(1, block_size)
         self._orientation = orientation
+        self._border_text = border_text
 
     def render(self) -> RichText:
         colors = _BORDER_COLORS.get(self._border_style, ("white", "bright_black"))
+        primary_color = colors[0]
         if self._orientation == "horizontal":
             length = self.size.width or 80
+            result = RichText()
+            text = self._border_text
+            if text:
+                padded = f" {text} "
+                text_len = len(padded)
+                left_len = (length - text_len) // 2
+                right_len = length - text_len - left_len
+                for i in range(left_len):
+                    result.append(
+                        _BLOCK_CHAR, style=colors[(i // self._block_size) % 2]
+                    )
+                result.append(padded, style=f"on {primary_color} bold")
+                right_start = left_len + text_len
+                for i in range(right_start, right_start + right_len):
+                    result.append(
+                        _BLOCK_CHAR, style=colors[(i // self._block_size) % 2]
+                    )
+            else:
+                for i in range(length):
+                    result.append(
+                        _BLOCK_CHAR, style=colors[(i // self._block_size) % 2]
+                    )
+            return result
         else:
             length = self.size.height or 24
-        result = RichText()
-        for i in range(length):
-            color = colors[(i // self._block_size) % 2]
-            result.append(_BLOCK_CHAR, style=color)
-        return result
+            result = RichText()
+            for i in range(length):
+                result.append(_BLOCK_CHAR, style=colors[(i // self._block_size) % 2])
+            return result
 
 
 _THEMES: dict[str, dict[str, str]] = {
@@ -1393,8 +1449,134 @@ _THEMES: dict[str, dict[str, str]] = {
 }
 
 
+class _ActionPickerScreen(ModalScreen["tuple[str, str] | None"]):
+    """Modal that lets the user pick a move target: folder, project, or tag.
+
+    Returns ``("folder", folder_id)``, ``("project", project_id)``,
+    ``("tag", tag_name)``, or ``None`` on cancel.
+    """
+
+    DEFAULT_CSS = """
+    _ActionPickerScreen {
+        align: center middle;
+    }
+    #picker-outer {
+        width: 50;
+        height: 28;
+        background: $surface;
+        border: solid $primary;
+        padding: 0 1;
+    }
+    #picker-header {
+        text-align: center;
+        color: $text-muted;
+        padding: 0 0 1 0;
+    }
+    #picker-list {
+        height: 1fr;
+    }
+    """
+
+    def __init__(
+        self,
+        entries: "list[tuple[str, tuple[str, str] | None]]",
+    ) -> None:
+        """*entries*: list of ``(label, payload)`` where ``payload=None`` is a header."""
+        super().__init__()
+        self._picker_entries = entries
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="picker-outer"):
+            yield Label("Move / Assign / Tag  (j/k Enter Esc)", id="picker-header")
+            yield ListView(id="picker-list")
+
+    def on_mount(self) -> None:
+        lv = self.query_one("#picker-list", ListView)
+        for label, payload in self._picker_entries:
+            if payload is None:
+                lv.append(
+                    ListItem(Label(f"[dim]{label}[/dim]"), classes="section-header")
+                )
+            else:
+                lv.append(ListItem(Label(label)))
+        # Move cursor to first selectable item.
+        for i, (_, payload) in enumerate(self._picker_entries):
+            if payload is not None:
+                lv.index = i
+                break
+
+    def on_key(self, event: events.Key) -> None:
+        lv = self.query_one("#picker-list", ListView)
+        n = len(self._picker_entries)
+        if event.key == "j":
+            event.prevent_default()
+            idx = (lv.index or 0) + 1
+            while idx < n and self._picker_entries[idx][1] is None:
+                idx += 1
+            if idx < n:
+                lv.index = idx
+        elif event.key == "k":
+            event.prevent_default()
+            idx = (lv.index or 0) - 1
+            while idx >= 0 and self._picker_entries[idx][1] is None:
+                idx -= 1
+            if idx >= 0:
+                lv.index = idx
+        elif event.key in ("enter", "l"):
+            event.prevent_default()
+            idx = lv.index or 0
+            if idx < n:
+                payload = self._picker_entries[idx][1]
+                if payload is not None:
+                    self.dismiss(payload)
+        elif event.key in ("escape", "q"):
+            event.prevent_default()
+            self.dismiss(None)
+
+
+def _build_action_picker_entries(
+    folders: "list",
+    projects: "list",
+    tags: "list[tuple[str, int]]",
+) -> "list[tuple[str, tuple[str, str] | None]]":
+    """Build the entry list for ``_ActionPickerScreen``."""
+    from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, REFERENCE_FOLDER_ID
+
+    entries: list[tuple[str, tuple[str, str] | None]] = []
+
+    entries.append(("── Folders ──", None))
+    builtin_folders = [
+        ("Inbox", "inbox"),
+        ("Today", "today"),
+        ("Waiting On", "waiting_on"),
+        ("Someday", "someday"),
+        ("Reference", REFERENCE_FOLDER_ID),
+    ]
+    for name, fid in builtin_folders:
+        entries.append((name, ("folder", fid)))
+    for folder in folders:
+        if folder.id not in BUILTIN_FOLDER_IDS:
+            entries.append((folder.name, ("folder", folder.id)))
+
+    if projects:
+        entries.append(("── Projects ──", None))
+        for project in projects:
+            entries.append((project.title, ("project", project.id)))
+
+    if tags:
+        entries.append(("── Tags (add) ──", None))
+        for tag_name, _ in tags:
+            entries.append((tag_name, ("tag", tag_name)))
+
+    return entries
+
+
 class GtdApp(App[None]):
     ESCAPE_TO_MINIMIZE = False  # prevent Textual's minimize-on-Esc delay
+
+    BINDINGS = [
+        Binding("escape", "cancel_insert_mode", priority=True, show=False),
+    ]
 
     CSS = """
     Screen {
@@ -1544,6 +1726,12 @@ class GtdApp(App[None]):
         self._rename_area_id: str = ""
         # Delete project confirmation: non-empty ID means waiting for d/k/Esc
         self._delete_confirm_project_id: str = ""
+        # Task register: holds a yanked Task for duplication via p/P
+        self._task_register: Task | None = None
+        # Task rename from list: holds the task id being renamed
+        self._rename_task_id: str = ""
+        # Count prefix buffer for task-list navigation (e.g. "5j")
+        self._count_buf: str = ""
         # Positional folder creation: anchor + position tracked during name entry
         self._folder_insert_position: str = "end"  # "after", "before", "end"
         self._folder_insert_anchor_id: str = ""
@@ -1696,16 +1884,17 @@ class GtdApp(App[None]):
     def compose(self) -> ComposeResult:
         border = self._config.border_style
         bsize = self._config.border_block_size
+        btext = self._config.border_text
         if border == "none":
             yield from self._compose_main_content()
         else:
-            yield ColorBorderStrip(border, bsize, "horizontal")
+            yield ColorBorderStrip(border, bsize, "horizontal", border_text=btext)
             with Horizontal(id="border-outer"):
                 yield ColorBorderStrip(border, bsize, "vertical")
                 with Vertical(id="app-inner"):
                     yield from self._compose_main_content()
                 yield ColorBorderStrip(border, bsize, "vertical")
-            yield ColorBorderStrip(border, bsize, "horizontal")
+            yield ColorBorderStrip(border, bsize, "horizontal", border_text=btext)
 
     def on_mount(self) -> None:
         cfg_path = default_config_path()
@@ -1919,6 +2108,9 @@ class GtdApp(App[None]):
     @staticmethod
     def _task_label(task: Task) -> str:
         """Build the display label for a task row, with recurrence and deadline markers."""
+        if is_divider_task(task):
+            char = "─" if task.title.strip() == "-" else "═"
+            return f"[dim]{char * 60}[/dim]"
         marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
         dl = deadline_status(task)
         if dl is None:
@@ -2490,6 +2682,12 @@ class GtdApp(App[None]):
             step = max(1, sidebar.size.height // 2)
             if sidebar.index:
                 sidebar.index = max(0, sidebar.index - step)
+        elif event.key == "question_mark":
+            event.prevent_default()
+            self.push_screen(HelpScreen())
+        elif event.key == "colon":
+            event.prevent_default()
+            self._start_command()
         elif event.key == "ctrl+c":
             event.prevent_default()
             # no-op in sidebar NORMAL mode; here for completeness
@@ -2513,23 +2711,40 @@ class GtdApp(App[None]):
             self._pending_key = "g"
             return
 
+        # count is always 1 in the task list — count prefix lives in VimInput only.
+        count = 1
+
+        if event.key == "escape":
+            event.prevent_default()
+            return
+
         if event.key == "enter":
             event.prevent_default()
             self._open_task_detail()
             return
         elif event.key == "j":
             event.prevent_default()
-            list_view.action_cursor_down()
-            self._skip_separator(direction=1)
+            for _ in range(count):
+                list_view.action_cursor_down()
+                self._skip_separator(direction=1)
         elif event.key == "k":
             event.prevent_default()
-            list_view.action_cursor_up()
-            self._skip_separator(direction=-1)
+            for _ in range(count):
+                list_view.action_cursor_up()
+                self._skip_separator(direction=-1)
         elif event.key == "G":
             event.prevent_default()
             n = len(self._list_entries)
             if n > 0:
-                list_view.index = n - 1
+                # Ngg / NG: jump to row N (1-indexed); bare G = last row
+                target = (
+                    min(count - 1, n - 1)
+                    if self._count_buf == "" and count > 1
+                    else n - 1
+                )
+                if count > 1:
+                    target = min(count - 1, n - 1)
+                list_view.index = target
                 self._skip_separator(direction=-1)
         elif event.key == "H":
             event.prevent_default()
@@ -2572,19 +2787,18 @@ class GtdApp(App[None]):
             self._navigate_search_match(-1)
         elif event.key == "J":
             event.prevent_default()
-            self._move_selected_down()
+            for _ in range(count):
+                self._move_selected_down()
         elif event.key == "K":
             event.prevent_default()
-            self._move_selected_up()
+            for _ in range(count):
+                self._move_selected_up()
         elif event.key == "h":
             event.prevent_default()
             self.query_one("#sidebar", ListView).focus()
         elif event.key == "i":
             event.prevent_default()
             self._jump_to_view_id("inbox")
-        elif event.key.isdigit():
-            event.prevent_default()
-            self._jump_to_view(int(event.key))
         elif event.key == "o":
             event.prevent_default()
             if self._current_view != "logbook":
@@ -2596,12 +2810,21 @@ class GtdApp(App[None]):
         elif event.key == "v":
             event.prevent_default()
             self._enter_visual_mode()
+        elif event.key == "r":
+            event.prevent_default()
+            task = self._get_selected_task()
+            if task is not None and not is_divider_task(task):
+                self._start_rename_task_from_list(task)
         elif event.key == "s":
             event.prevent_default()
-            self._start_schedule()
+            task = self._get_selected_task()
+            if task is not None and not is_divider_task(task):
+                self._start_schedule()
         elif event.key == "m":
             event.prevent_default()
-            self._start_move_task()
+            task = self._get_selected_task()
+            if task is not None and not is_divider_task(task):
+                self._start_move_task()
         elif event.key == "u":
             event.prevent_default()
             self._undo()
@@ -2617,13 +2840,19 @@ class GtdApp(App[None]):
             )
         ):
             event.prevent_default()
-            self._move_selected_to_waiting_on()
+            task = self._get_selected_task()
+            if task is None or not is_divider_task(task):
+                self._move_selected_to_waiting_on()
         elif event.key == "t":
             event.prevent_default()
-            self._handle_t_key()
+            task = self._get_selected_task()
+            if task is None or not is_divider_task(task):
+                self._handle_t_key()
         elif event.key == "x" or event.key == "space":
             event.prevent_default()
-            self._complete_selected()
+            task = self._get_selected_task()
+            if task is None or not is_divider_task(task):
+                self._complete_selected()
         elif event.key == "d":
             event.prevent_default()
             if self._current_view == "logbook":
@@ -2632,13 +2861,28 @@ class GtdApp(App[None]):
                 self._delete_selected()
         elif event.key == "y":
             event.prevent_default()
+            task = self._get_selected_task()
+            if task is not None:
+                self._task_register = task
             self._yank_task()
+        elif event.key == "p":
+            event.prevent_default()
+            self._paste_task_duplicate("after")
+        elif event.key == "P":
+            event.prevent_default()
+            self._paste_task_duplicate("before")
+        elif event.key.isdigit():
+            event.prevent_default()
+            self._jump_to_view(int(event.key))
         elif event.key == "slash":
             event.prevent_default()
             self._open_search()
         elif event.key == "W":
             event.prevent_default()
             self._open_weekly_review()
+        elif event.key == "question_mark":
+            event.prevent_default()
+            self.push_screen(HelpScreen())
         elif event.key == "colon":
             event.prevent_default()
             self._start_command()
@@ -2740,6 +2984,29 @@ class GtdApp(App[None]):
         vim.focus()
         self._update_status()
         self._refresh_list()  # show the placeholder row immediately
+
+    def action_cancel_insert_mode(self) -> None:
+        """Priority Esc handler: cancel INSERT mode input before any widget sees the key."""
+        if len(self.screen_stack) > 1:
+            # A modal is active.  If the focused widget is a VimInput in INSERT
+            # sub-mode, let the VimInput handle Escape itself (it will switch to
+            # COMMAND mode).  Otherwise forward to the screen's close action.
+            focused = self.screen.focused
+            if isinstance(focused, VimInput) and focused._vim_mode == "insert":
+                focused.set_mode("command")
+                return
+            screen = self.screen
+            if hasattr(screen, "action_save_and_close"):
+                screen.action_save_and_close()  # type: ignore[union-attr]
+            elif hasattr(screen, "action_cancel"):
+                screen.action_cancel()  # type: ignore[union-attr]
+            else:
+                screen.dismiss()
+            return
+        if self._mode == "INSERT":
+            self._cancel_input()
+        elif self._visual_mode:
+            self._exit_visual_mode()
 
     def _start_command(self) -> None:
         self._mode = "INSERT"
@@ -3031,6 +3298,17 @@ class GtdApp(App[None]):
             self._rename_area_id = ""
             self._cancel_input()
 
+        elif self._input_stage == "task_rename":
+            if value and self._rename_task_id:
+                self._push_undo()
+                self._all_tasks = edit_task(
+                    self._all_tasks, self._rename_task_id, title=value.strip()
+                )
+                self._save()
+                self._refresh_list(select_task_id=self._rename_task_id)
+            self._rename_task_id = ""
+            self._cancel_input()
+
     def _cancel_input(self) -> None:
         vim = self.query_one("#vim-input", VimInput)
         vim.clear()
@@ -3051,6 +3329,8 @@ class GtdApp(App[None]):
         self._placeholder_list_idx = None
         self._sidebar_placeholder_insert = ""
         self._sidebar_placeholder_anchor_id = ""
+        self._rename_task_id = ""
+        self._count_buf = ""
         self._update_status()
         if had_placeholder:
             self._refresh_list()  # removes placeholder; _apply_selection refocuses
@@ -3130,10 +3410,19 @@ class GtdApp(App[None]):
         task = self._get_selected_task()
         if task is None:
             return
-        self._pending_task_id = task.id
-        self._move_mode = True
-        self.query_one("#sidebar", ListView).focus()
-        self._update_status("Move to: j/k select folder, Enter confirm, Esc cancel")
+        task_id = task.id
+        entries = _build_action_picker_entries(
+            self._all_folders,
+            [p for p in self._all_projects if not p.is_complete],
+            all_tags(self._all_tasks),
+        )
+
+        def _on_pick(result: "tuple[str, str] | None") -> None:
+            if result is None:
+                return
+            self._apply_move_action([task_id], result)
+
+        self.push_screen(_ActionPickerScreen(entries), _on_pick)
 
     def _confirm_move_task(self) -> None:
         sidebar = self.query_one("#sidebar", ListView)
@@ -3176,6 +3465,77 @@ class GtdApp(App[None]):
         self._pending_task_ids = []
         self._update_status()
         self.query_one("#task-list", ListView).focus()
+
+    def _start_rename_task_from_list(self, task: Task) -> None:
+        """Open an inline rename input pre-filled with the task's current title."""
+        self._rename_task_id = task.id
+        self._mode = "INSERT"
+        self._input_stage = "task_rename"
+        inp = self.query_one("#task-input", Input)
+        inp.clear()
+        inp.insert_text_at_cursor(task.title)
+        inp.placeholder = "New title…"
+        inp.add_class("active")
+        inp.focus()
+        self._update_status("Rename: type new title, Enter to save, Esc to cancel")
+
+    def _paste_task_duplicate(self, position: str) -> None:
+        """Paste a duplicate of the yanked task above or below the selection."""
+        if self._task_register is None:
+            self._update_status("(no task yanked — press y first)")
+            return
+        src = self._task_register
+        anchor = self._get_selected_task()
+        self._push_undo()
+
+        import uuid as _uuid
+        from dataclasses import replace as _replace
+        from datetime import datetime as _dt
+
+        # The duplicate lands in the anchor's folder (current view), not src's folder.
+        target_folder = (
+            anchor.folder_id
+            if anchor is not None
+            else (src.folder_id if src.folder_id != "logbook" else "inbox")
+        )
+
+        if anchor is not None:
+            insert_pos = anchor.position + (1 if position == "after" else 0)
+            # Shift tasks in the target folder at or beyond insert_pos.
+            shifted: list[Task] = []
+            for t in self._all_tasks:
+                if t.folder_id == target_folder and t.position >= insert_pos:
+                    shifted.append(_replace(t, position=t.position + 1))
+                else:
+                    shifted.append(t)
+        else:
+            shifted = list(self._all_tasks)
+            insert_pos = (
+                max(
+                    (
+                        t.position
+                        for t in self._all_tasks
+                        if t.folder_id == target_folder
+                    ),
+                    default=0,
+                )
+                + 1
+            )
+
+        new_id = str(_uuid.uuid4())
+        dup = _replace(
+            src,
+            id=new_id,
+            created_at=_dt.now(),
+            is_deleted=False,
+            completed_at=None,
+            folder_id=target_folder,
+            position=insert_pos,
+        )
+        self._all_tasks = shifted + [dup]
+        self._save()
+        self._refresh_list(select_task_id=new_id)
+        self._update_status("(task duplicated)")
 
     def _open_task_detail(self) -> None:
         task = self._get_selected_task()
@@ -3394,14 +3754,18 @@ class GtdApp(App[None]):
 
     @property
     def _visual_selected_tasks(self) -> list[Task]:
-        """Tasks in the current VISUAL selection range (separators excluded)."""
+        """Tasks in the current VISUAL selection range (separators and dividers excluded)."""
         list_view = self.query_one("#task-list", ListView)
         cursor = list_view.index
         if self._visual_anchor_idx is None or cursor is None:
             return []
         lo = min(self._visual_anchor_idx, cursor)
         hi = max(self._visual_anchor_idx, cursor)
-        return [t for t in self._list_entries[lo : hi + 1] if t is not None]
+        return [
+            t
+            for t in self._list_entries[lo : hi + 1]
+            if t is not None and not is_divider_task(t)
+        ]
 
     def _enter_visual_mode(self) -> None:
         if self._get_selected_task() is None:
@@ -3459,6 +3823,32 @@ class GtdApp(App[None]):
             self._skip_separator(direction=-1)
             self._refresh_visual_highlights()
             self._update_status()
+
+        elif event.key == "H":
+            event.prevent_default()
+            if self._list_entries:
+                list_view.index = 0
+                self._skip_separator(direction=1)
+                self._refresh_visual_highlights()
+                self._update_status()
+
+        elif event.key == "M":
+            event.prevent_default()
+            n = len(self._list_entries)
+            if n > 0:
+                list_view.index = n // 2
+                self._skip_separator(direction=1)
+                self._refresh_visual_highlights()
+                self._update_status()
+
+        elif event.key == "L":
+            event.prevent_default()
+            n = len(self._list_entries)
+            if n > 0:
+                list_view.index = n - 1
+                self._skip_separator(direction=-1)
+                self._refresh_visual_highlights()
+                self._update_status()
 
         elif event.key in ("x", "space"):
             event.prevent_default()
@@ -3562,13 +3952,64 @@ class GtdApp(App[None]):
         if not tasks:
             self._exit_visual_mode()
             return
-        self._pending_task_ids = [t.id for t in tasks]
+        task_ids = [t.id for t in tasks]
         self._exit_visual_mode()
-        self._move_mode = True
-        self.query_one("#sidebar", ListView).focus()
-        self._update_status(
-            f"Move {len(self._pending_task_ids)} tasks to: j/k select, Enter confirm, Esc cancel"
+        entries = _build_action_picker_entries(
+            self._all_folders,
+            [p for p in self._all_projects if not p.is_complete],
+            all_tags(self._all_tasks),
         )
+
+        def _on_pick(result: "tuple[str, str] | None") -> None:
+            if result is None:
+                return
+            self._apply_move_action(task_ids, result)
+
+        self.push_screen(_ActionPickerScreen(entries), _on_pick)
+
+    def _apply_move_action(
+        self, task_ids: list[str], result: "tuple[str, str]"
+    ) -> None:
+        """Apply a picker selection to a list of task IDs."""
+        action_type, target_id = result
+        self._push_undo()
+        if action_type == "folder":
+            if target_id == "upcoming":
+                self._update_status(
+                    "(cannot move to Upcoming — schedule a date with 's' instead)"
+                )
+                return
+            for tid in reversed(task_ids):
+                self._all_tasks = move_task_to_folder(self._all_tasks, tid, target_id)
+            first_task_id = task_ids[0] if task_ids else None
+            self._current_view = target_id
+            self._save()
+            self._rebuild_sidebar()
+            self._refresh_list(select_task_id=first_task_id)
+            self._update_status()
+        elif action_type == "project":
+            from dataclasses import replace as _dc_replace
+
+            for tid in task_ids:
+                self._all_tasks = assign_task_to_project(
+                    self._all_tasks, tid, target_id
+                )
+                # Detach from its current folder — the task now lives in the project view.
+                self._all_tasks = [
+                    _dc_replace(t, folder_id="") if t.id == tid else t
+                    for t in self._all_tasks
+                ]
+            self._save()
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status("(assigned to project)")
+        elif action_type == "tag":
+            for tid in task_ids:
+                self._all_tasks = add_tag_to_task(self._all_tasks, tid, target_id)
+            self._save()
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status(f"(tag '{target_id}' added)")
 
     def _bulk_move_to_waiting_on(self) -> None:
         tasks = self._visual_selected_tasks

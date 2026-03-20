@@ -63,6 +63,7 @@ class VimInput(Widget, can_focus=True):
         placeholder: str = "",
         start_mode: str = "insert",  # "insert" | "command"
         multiline: bool = False,
+        start_at_beginning: bool = False,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
@@ -88,11 +89,18 @@ class VimInput(Widget, can_focus=True):
         self._pre_insert_action: Callable[[], None] | None = None
         # Last f/F/t/T find: (command, char).  Replayed by ; and ,.
         self._last_find: tuple[str, str] | None = None
+        self._count_buffer: str = ""  # accumulates digit prefix for count commands
+        self._insert_count: int = 1  # count captured before entering INSERT mode
+        self._pending_count: int = 1  # count saved when pending key is first set
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
         else:
             self._cursor = len(value)
+        if start_at_beginning:
+            self._cursor = 0
+            self._view_row = 0
+            self._view_offset = 0
 
     def on_mount(self) -> None:
         if self._vim_mode == "insert":
@@ -142,6 +150,14 @@ class VimInput(Widget, can_focus=True):
             # Leaving INSERT → persist the typed text as the repeat buffer.
             if self._last_insert:
                 self._repeat_text = self._last_insert
+                # Replicate N-1 times for count-before-insert (e.g. 20i-Esc).
+                if self._insert_count > 1 and self._last_insert:
+                    extra = self._last_insert * (self._insert_count - 1)
+                    self._text = (
+                        self._text[: self._cursor] + extra + self._text[self._cursor :]
+                    )
+                    self._cursor += len(extra)
+                self._insert_count = 1
                 text_to_insert = self._last_insert
                 pre = self._pre_insert_action
 
@@ -159,6 +175,8 @@ class VimInput(Widget, can_focus=True):
                     self._clamp_cursor_for_command()
 
                 self._last_action = _replay_insert
+            else:
+                self._insert_count = 1
             self._last_insert = ""
             self._pre_insert_action = None
         elif mode == "insert":
@@ -462,6 +480,14 @@ class VimInput(Widget, can_focus=True):
     def _handle_command(self, event: events.Key) -> None:
         key = event.key
 
+        # Digits accumulate as a count prefix (0 only after at least one digit).
+        if not self._pending and key.isdigit() and (key != "0" or self._count_buffer):
+            self._count_buffer += key
+            event.stop()
+            event.prevent_default()
+            self.refresh()
+            return
+
         # Resolve pending multi-key sequences (e.g. "cw", "dd", "d$", "d0", "dw", "dW").
         if self._pending:
             pending = self._pending
@@ -536,6 +562,8 @@ class VimInput(Widget, can_focus=True):
                 event.prevent_default()
                 self._push_undo()
                 if key == "d":
+                    _dd_count = self._pending_count
+                    self._pending_count = 1
                     if self._multiline:
                         row, _ = self._cursor_row_col()
                         lines = self._text.split("\n")
@@ -544,11 +572,13 @@ class VimInput(Widget, can_focus=True):
                             pyperclip.copy(self._register)
                         except Exception:
                             pass
-                        self._cmd_delete_line()
+                        for _ in range(_dd_count):
+                            self._cmd_delete_line()
 
                         def _replay_dd_multi() -> None:
                             self._push_undo()
-                            self._cmd_delete_line()
+                            for _ in range(_dd_count):
+                                self._cmd_delete_line()
 
                         self._last_action = _replay_dd_multi
                     else:
@@ -676,6 +706,7 @@ class VimInput(Widget, can_focus=True):
             # Do NOT stop these events: let them bubble so Esc reaches the parent,
             # Tab/Shift-Tab reach Textual's focus-traversal handler, and ? opens
             # the calendar picker on date fields.
+            self._count_buffer = ""
             return
 
         if key in ("j", "k") and not self._multiline:
@@ -697,6 +728,7 @@ class VimInput(Widget, can_focus=True):
         event.prevent_default()
 
         if key == "i":
+            self._insert_count = self._take_count()
             self._push_undo()
             self._pre_insert_action = None  # insert at current position — no pre-op
             self.set_mode("insert")
@@ -772,35 +804,37 @@ class VimInput(Widget, can_focus=True):
         elif key == "ctrl+r":
             self._cmd_redo()
         elif key in ("h", "left"):
-            if self._multiline:
-                row, col = self._cursor_row_col()
-                if col > 0:
-                    self._cursor -= 1
-            else:
-                self._cursor = max(0, self._cursor - 1)
+            count = self._take_count()
+            for _ in range(count):
+                self._cmd_move_left()
         elif key in ("l", "right"):
-            if self._multiline:
-                row, col = self._cursor_row_col()
-                line = self._text.split("\n")[row]
-                if line and col < len(line) - 1:
-                    self._cursor += 1
-            else:
-                if self._text:
-                    self._cursor = min(len(self._text) - 1, self._cursor + 1)
+            count = self._take_count()
+            for _ in range(count):
+                self._cmd_move_right()
         elif key == "j" and self._multiline:
             self._cmd_line_down()
         elif key == "k" and self._multiline:
             self._cmd_line_up()
         elif key == "e":
-            self._cmd_word_end_forward()
+            count = self._take_count()
+            for _ in range(count):
+                self._cmd_word_end_forward()
         elif key == "w":
-            self._cmd_word_forward(word=True)
+            count = self._take_count()
+            for _ in range(count):
+                self._cmd_word_forward(word=True)
         elif key == "W":
-            self._cmd_word_forward(word=False)
+            count = self._take_count()
+            for _ in range(count):
+                self._cmd_word_forward(word=False)
         elif key == "b":
-            self._cmd_word_backward(word=True)
+            count = self._take_count()
+            for _ in range(count):
+                self._cmd_word_backward(word=True)
         elif key == "B":
-            self._cmd_word_backward(word=False)
+            count = self._take_count()
+            for _ in range(count):
+                self._cmd_word_backward(word=False)
         elif key == "0":
             if self._multiline:
                 row, _ = self._cursor_row_col()
@@ -827,32 +861,51 @@ class VimInput(Widget, can_focus=True):
         elif key == "r":
             self._pending = "r"
         elif key == "s":
+            _s_count = self._take_count()
             self._push_undo()
-
-            def _pre_s() -> None:
+            for _ in range(_s_count):
                 if self._cursor < len(self._text) and self._text[self._cursor] != "\n":
                     self._text = (
                         self._text[: self._cursor] + self._text[self._cursor + 1 :]
                     )
-                    self._clamp_cursor_for_command()
+
+            def _pre_s() -> None:
+                for _ in range(_s_count):
+                    if (
+                        self._cursor < len(self._text)
+                        and self._text[self._cursor] != "\n"
+                    ):
+                        self._text = (
+                            self._text[: self._cursor] + self._text[self._cursor + 1 :]
+                        )
 
             self._pre_insert_action = _pre_s
-            self._cmd_substitute()
+            self.set_mode("insert")
         elif key == "left_parenthesis":
             self._cmd_sentence_backward()
         elif key == "right_parenthesis":
             self._cmd_sentence_forward()
         elif key == "x":
+            count = self._take_count()
             if self._cursor < len(self._text) and self._text[self._cursor] != "\n":
                 self._push_undo()
-                self._text = self._text[: self._cursor] + self._text[self._cursor + 1 :]
-                if self._multiline:
-                    row, col = self._cursor_row_col()
-                    line = self._text.split("\n")[row]
-                    if line and col >= len(line):
-                        self._cursor -= 1
-                else:
-                    self._cursor = min(self._cursor, max(0, len(self._text) - 1))
+                for _ in range(count):
+                    if (
+                        self._cursor < len(self._text)
+                        and self._text[self._cursor] != "\n"
+                    ):
+                        self._text = (
+                            self._text[: self._cursor] + self._text[self._cursor + 1 :]
+                        )
+                        if self._multiline:
+                            row, col = self._cursor_row_col()
+                            line = self._text.split("\n")[row]
+                            if line and col >= len(line):
+                                self._cursor -= 1
+                        else:
+                            self._cursor = min(
+                                self._cursor, max(0, len(self._text) - 1)
+                            )
 
                 def _replay_x() -> None:
                     if (
@@ -877,6 +930,7 @@ class VimInput(Widget, can_focus=True):
         elif key == "c":
             self._pending = "c"
         elif key == "d":
+            self._pending_count = self._take_count()
             self._pending = "d"
         elif key == "D":
             self._push_undo()
@@ -943,6 +997,43 @@ class VimInput(Widget, can_focus=True):
             match = self._find_matching_bracket(self._cursor)
             if match is not None:
                 self._cursor = match
+
+        # Any unhandled count prefix is discarded after every command.
+        self._count_buffer = ""
+
+    # ------------------------------------------------------------------
+    # Single-step move helpers (used by count loops)
+    # ------------------------------------------------------------------
+
+    def _cmd_move_left(self) -> None:
+        """Move cursor one character to the left (command-mode semantics)."""
+        if self._multiline:
+            _, col = self._cursor_row_col()
+            if col > 0:
+                self._cursor -= 1
+        else:
+            self._cursor = max(0, self._cursor - 1)
+
+    def _cmd_move_right(self) -> None:
+        """Move cursor one character to the right (command-mode semantics)."""
+        if self._multiline:
+            _, col = self._cursor_row_col()
+            line = self._current_line()
+            if line and col < len(line) - 1:
+                self._cursor += 1
+        else:
+            if self._text:
+                self._cursor = min(len(self._text) - 1, self._cursor + 1)
+
+    # ------------------------------------------------------------------
+    # Count prefix helper
+    # ------------------------------------------------------------------
+
+    def _take_count(self) -> int:
+        """Return the accumulated count (minimum 1) and clear the buffer."""
+        count = int(self._count_buffer) if self._count_buffer else 1
+        self._count_buffer = ""
+        return count
 
     # ------------------------------------------------------------------
     # Line motion helpers (multi-line)
