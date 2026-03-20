@@ -43,6 +43,7 @@ from gtd_tui.gtd.operations import (
     complete_task,
     deadline_status,
     delete_folder,
+    delete_project,
     delete_task,
     edit_task,
     folder_tasks,
@@ -61,6 +62,10 @@ from gtd_tui.gtd.operations import (
     move_folder_down,
     move_folder_tasks_to_today,
     move_folder_up,
+    move_project_down,
+    move_project_up,
+    move_tag_down,
+    move_tag_up,
     move_task_down,
     move_task_to_folder,
     move_task_up,
@@ -71,7 +76,9 @@ from gtd_tui.gtd.operations import (
     project_tasks,
     purge_logbook_task,
     reference_tasks,
+    rename_area,
     rename_folder,
+    rename_project,
     schedule_task,
     search_tasks,
     set_deadline,
@@ -82,6 +89,7 @@ from gtd_tui.gtd.operations import (
     spawn_repeating_tasks,
     tasks_with_tag,
     today_tasks,
+    unlink_project_tasks,
     unschedule_task,
     upcoming_tasks,
     waiting_on_tasks,
@@ -95,6 +103,7 @@ from gtd_tui.storage.file import (
     load_folders,
     load_projects,
     load_redo_stack,
+    load_tag_order,
     load_tasks,
     load_undo_stack,
     save_data,
@@ -190,19 +199,21 @@ class HelpScreen(ModalScreen[None]):
   y            Yank current line to clipboard and internal register
   p / P        Paste register after / before cursor (or below / above in notes)
 
-[bold]Sidebar Folder Actions (sidebar focused)[/bold]
+[bold]Sidebar Actions (sidebar focused)[/bold]
   g g          Jump to top of sidebar
   G            Jump to bottom of sidebar
   o / O        Create new folder after / before selected
-  N            Create new folder at end (or new project when on Projects section)
   A            Create new Area of responsibility
-  r            Rename selected folder
-  d            Delete selected folder
+  r            Rename selected folder / project / area (pre-fills current name)
+  d            Delete selected folder or project
+  J / K        Reorder selected folder, project, or tag (area-scoped for folders/projects)
   m            Assign selected folder or project to an Area
   Enter        Collapse / expand Area (when on an Area header)
 
-[bold]Projects (sidebar focused, Projects section)[/bold]
-  N            Create new project
+[bold]Projects (sidebar focused)[/bold]
+  N            Create new project (works from anywhere in the sidebar)
+  d            Delete selected project; if it has tasks prompts:
+               [d]elete all tasks  [k]eep tasks unlinked  [Esc] cancel
   Enter / l    Open project sub-task list
 
 [bold]INSERT Mode[/bold]
@@ -1368,12 +1379,13 @@ class GtdApp(App[None]):
         self._all_folders: list[Folder] = load_folders(data_file, password=password)
         self._all_projects: list[Project] = load_projects(data_file, password=password)
         self._all_areas: list[Area] = load_areas(data_file, password=password)
+        self._tag_order: list[str] = load_tag_order(data_file, password=password)
         self._collapsed_areas: set[str] = set()
         self._config: Config = load_config()
         self._last_activity: float = time.monotonic()
         self._mode: str = "NORMAL"
         self._input_stage: str = (
-            ""  # "title", "notes", "date", "command", "folder_name", "folder_rename", "project_name"
+            ""  # "title", "notes", "date", "command", "folder_name", "folder_rename", "project_name", "project_rename"
         )
         self._pending_title: str = ""
         self._pending_task_id: str = ""
@@ -1397,6 +1409,12 @@ class GtdApp(App[None]):
         self._delete_confirm_folder_id: str = ""
         # Rename folder in progress
         self._rename_folder_id: str = ""
+        # Rename project in progress
+        self._rename_project_id: str = ""
+        # Rename area in progress
+        self._rename_area_id: str = ""
+        # Delete project confirmation: non-empty ID means waiting for d/k/Esc
+        self._delete_confirm_project_id: str = ""
         # Positional folder creation: anchor + position tracked during name entry
         self._folder_insert_position: str = "end"  # "after", "before", "end"
         self._folder_insert_anchor_id: str = ""
@@ -1481,7 +1499,11 @@ class GtdApp(App[None]):
         tag_list = all_tags(self._all_tasks)
         if tag_list:
             ids.append("__tags_header__")
-            ids += [f"tag:{tag}" for tag, _ in tag_list]
+            # Use persisted order; append any new tags not yet in the order
+            existing_tags = {tag for tag, _ in tag_list}
+            ordered = [t for t in self._tag_order if t in existing_tags]
+            ordered += sorted(existing_tags - set(ordered))
+            ids += [f"tag:{tag}" for tag in ordered]
         return ids
 
     def _view_label(self, view_id: str) -> str:
@@ -1650,8 +1672,11 @@ class GtdApp(App[None]):
                         dl_text = f"  [yellow]{markup_escape(dl[0])}[/yellow]"
                     else:
                         dl_text = f"  {markup_escape(dl[0])}"
+                    indent = "│ ◆ " if project.area_id else "  ◆ "
                     sidebar.append(
-                        ListItem(Label(f"  {title_escaped} ({done}/{total}){dl_text}"))
+                        ListItem(
+                            Label(f"{indent}{title_escaped} ({done}/{total}){dl_text}")
+                        )
                     )
             elif view_id.startswith("area:"):
                 area_id = view_id[5:]
@@ -1686,10 +1711,11 @@ class GtdApp(App[None]):
             else:
                 folder = folder_map.get(view_id)
                 if folder:
+                    prefix = "│ " if folder.area_id else ""
                     sidebar.append(
                         ListItem(
                             Label(
-                                f"{folder.name}{_n(len(folder_tasks(self._all_tasks, folder.id)))}"
+                                f"{prefix}{folder.name}{_n(len(folder_tasks(self._all_tasks, folder.id)))}"
                             )
                         )
                     )
@@ -2020,7 +2046,11 @@ class GtdApp(App[None]):
 
     def _push_undo(self) -> None:
         self._undo_stack.append(
-            (copy.deepcopy(self._all_tasks), copy.deepcopy(self._all_folders))
+            (
+                copy.deepcopy(self._all_tasks),
+                copy.deepcopy(self._all_folders),
+                copy.deepcopy(self._all_projects),
+            )
         )
         if len(self._undo_stack) > self._UNDO_CAP:
             self._undo_stack.pop(0)
@@ -2047,6 +2077,7 @@ class GtdApp(App[None]):
         return self._list_entries[idx]
 
     def _save(self) -> None:
+        self._normalize_tag_order()
         save_data(
             self._all_tasks,
             self._all_folders,
@@ -2056,6 +2087,7 @@ class GtdApp(App[None]):
             redo_stack=self._redo_stack,
             projects=self._all_projects,
             areas=self._all_areas,
+            tag_order=self._tag_order,
         )
 
     def _task_to_yank_text(self, task: Task) -> str:
@@ -2104,9 +2136,12 @@ class GtdApp(App[None]):
             event.prevent_default()
             os.kill(os.getpid(), signal.SIGTSTP)
             return
-        # Delete-folder confirmation takes priority
+        # Delete confirmations take priority
         if self._delete_confirm_folder_id:
             self._handle_delete_confirm_key(event)
+            return
+        if self._delete_confirm_project_id:
+            self._handle_delete_confirm_project_key(event)
             return
         if self._mode == "INSERT":
             if event.key in ("escape", "ctrl+c"):
@@ -2163,10 +2198,30 @@ class GtdApp(App[None]):
             sidebar.action_cursor_up()
         elif event.key == "J":
             event.prevent_default()
-            self._move_selected_folder_down()
+            idx = sidebar.index
+            view_ids = self._sidebar_view_ids
+            current_sid = (
+                view_ids[idx] if idx is not None and idx < len(view_ids) else ""
+            )
+            if current_sid.startswith("project:"):
+                self._move_selected_project_down()
+            elif current_sid.startswith("tag:"):
+                self._move_selected_tag_down()
+            else:
+                self._move_selected_folder_down()
         elif event.key == "K":
             event.prevent_default()
-            self._move_selected_folder_up()
+            idx = sidebar.index
+            view_ids = self._sidebar_view_ids
+            current_sid = (
+                view_ids[idx] if idx is not None and idx < len(view_ids) else ""
+            )
+            if current_sid.startswith("project:"):
+                self._move_selected_project_up()
+            elif current_sid.startswith("tag:"):
+                self._move_selected_tag_up()
+            else:
+                self._move_selected_folder_up()
         elif event.key in ("l", "enter"):
             event.prevent_default()
             # If the highlighted item is an area header, toggle collapse on Enter.
@@ -2192,19 +2247,7 @@ class GtdApp(App[None]):
             self._start_create_folder("before")
         elif event.key == "N":
             event.prevent_default()
-            # Context-aware: create a project if sidebar is in the projects section,
-            # otherwise create a folder at the end.
-            idx = sidebar.index
-            view_ids = self._sidebar_view_ids
-            current_sid = (
-                view_ids[idx] if idx is not None and idx < len(view_ids) else ""
-            )
-            if current_sid == "__projects_header__" or current_sid.startswith(
-                "project:"
-            ):
-                self._start_new_project()
-            else:
-                self._start_create_folder("end")
+            self._start_new_project()
         elif event.key == "A":
             event.prevent_default()
             self._start_new_area()
@@ -2213,10 +2256,28 @@ class GtdApp(App[None]):
             self._start_assign_to_area()
         elif event.key == "r":
             event.prevent_default()
-            self._start_rename_folder()
+            idx = sidebar.index
+            view_ids = self._sidebar_view_ids
+            current_sid = (
+                view_ids[idx] if idx is not None and idx < len(view_ids) else ""
+            )
+            if current_sid.startswith("project:"):
+                self._start_rename_project()
+            elif current_sid.startswith("area:"):
+                self._start_rename_area()
+            else:
+                self._start_rename_folder()
         elif event.key == "d":
             event.prevent_default()
-            self._delete_selected_folder()
+            idx = sidebar.index
+            view_ids = self._sidebar_view_ids
+            current_sid = (
+                view_ids[idx] if idx is not None and idx < len(view_ids) else ""
+            )
+            if current_sid.startswith("project:"):
+                self._delete_selected_project()
+            else:
+                self._delete_selected_folder()
         elif event.key == "i":
             event.prevent_default()
             self._jump_to_view_id("inbox")
@@ -2764,6 +2825,27 @@ class GtdApp(App[None]):
                 self._rebuild_sidebar()
                 self._refresh_list()
             self._rename_folder_id = ""
+            self._cancel_input()
+
+        elif self._input_stage == "project_rename":
+            if value and self._rename_project_id:
+                self._all_projects = rename_project(
+                    self._all_projects, self._rename_project_id, value.strip()
+                )
+                self._save()
+                self._rebuild_sidebar()
+                self._refresh_list()
+            self._rename_project_id = ""
+            self._cancel_input()
+
+        elif self._input_stage == "area_rename":
+            if value and self._rename_area_id:
+                self._all_areas = rename_area(
+                    self._all_areas, self._rename_area_id, value.strip()
+                )
+                self._save()
+                self._rebuild_sidebar()
+            self._rename_area_id = ""
             self._cancel_input()
 
     def _cancel_input(self) -> None:
@@ -3524,7 +3606,9 @@ class GtdApp(App[None]):
             self._push_undo()
             self._all_folders = delete_folder(self._all_folders, folder_id)
             if self._current_view == folder_id:
-                self._current_view = "today"
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
             self._save()
             self._rebuild_sidebar()
             self._refresh_list()
@@ -3564,16 +3648,169 @@ class GtdApp(App[None]):
         self._save()
         self._rebuild_sidebar()
 
+    def _start_rename_project(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("project:"):
+            return
+        project_id = current_sid[8:]
+        project = next((p for p in self._all_projects if p.id == project_id), None)
+        if project is None:
+            return
+        self._rename_project_id = project_id
+        self._mode = "INSERT"
+        self._input_stage = "project_rename"
+        inp = self.query_one("#task-input", Input)
+        inp.value = project.title
+        inp.placeholder = "Project name..."
+        inp.add_class("active")
+        inp.focus()
+        self._update_status()
+
+    def _delete_selected_project(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("project:"):
+            return
+        project_id = current_sid[8:]
+        tasks_in_project = project_tasks(self._all_tasks, project_id)
+        if not tasks_in_project:
+            # Empty project: delete immediately
+            self._push_undo()
+            self._all_projects = delete_project(self._all_projects, project_id)
+            if self._current_view == f"project:{project_id}":
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
+            self._save()
+            self._rebuild_sidebar()
+            self._refresh_list()
+        else:
+            # Has tasks: prompt user
+            project = next((p for p in self._all_projects if p.id == project_id), None)
+            name = project.title if project else project_id
+            n = len(tasks_in_project)
+            self._delete_confirm_project_id = project_id
+            self._update_status(
+                f"'{name}' has {n} task(s). [d]elete all  [k]eep tasks  [Esc] cancel"
+            )
+
+    def _move_selected_project_up(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("project:"):
+            return
+        project_id = current_sid[8:]
+        self._all_projects = move_project_up(self._all_projects, project_id)
+        self._save()
+        self._rebuild_sidebar()
+
+    def _move_selected_project_down(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("project:"):
+            return
+        project_id = current_sid[8:]
+        self._all_projects = move_project_down(self._all_projects, project_id)
+        self._save()
+        self._rebuild_sidebar()
+
+    def _start_rename_area(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("area:"):
+            return
+        area_id = current_sid[5:]
+        area = next((a for a in self._all_areas if a.id == area_id), None)
+        if area is None:
+            return
+        self._rename_area_id = area_id
+        self._mode = "INSERT"
+        self._input_stage = "area_rename"
+        inp = self.query_one("#task-input", Input)
+        inp.value = area.name
+        inp.placeholder = "Area name..."
+        inp.add_class("active")
+        inp.focus()
+        self._update_status()
+
+    def _normalize_tag_order(self) -> None:
+        """Keep _tag_order in sync with tags actually present in tasks."""
+        existing_tags = {tag for task in self._all_tasks for tag in task.tags}
+        # Drop removed tags, keep order of remaining ones
+        self._tag_order = [t for t in self._tag_order if t in existing_tags]
+
+    def _move_selected_tag_up(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("tag:"):
+            return
+        tag_name = current_sid[4:]
+        self._normalize_tag_order()
+        # Ensure tag is in _tag_order before moving
+        existing_tags = {tag for task in self._all_tasks for tag in task.tags}
+        ordered = [t for t in self._tag_order if t in existing_tags]
+        ordered += sorted(existing_tags - set(ordered))
+        self._tag_order = move_tag_up(ordered, tag_name)
+        self._save()
+        self._rebuild_sidebar()
+
+    def _move_selected_tag_down(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("tag:"):
+            return
+        tag_name = current_sid[4:]
+        self._normalize_tag_order()
+        existing_tags = {tag for task in self._all_tasks for tag in task.tags}
+        ordered = [t for t in self._tag_order if t in existing_tags]
+        ordered += sorted(existing_tags - set(ordered))
+        self._tag_order = move_tag_down(ordered, tag_name)
+        self._save()
+        self._rebuild_sidebar()
+
     def _handle_delete_confirm_key(self, event: events.Key) -> None:
         folder_id = self._delete_confirm_folder_id
         if event.key == "d":
             event.prevent_default()
+            sidebar = self.query_one("#sidebar", ListView)
+            idx = sidebar.index or 0
             self._push_undo()
             for task in folder_tasks(self._all_tasks, folder_id):
                 self._all_tasks = delete_task(self._all_tasks, task.id)
             self._all_folders = delete_folder(self._all_folders, folder_id)
             if self._current_view == folder_id:
-                self._current_view = "today"
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
             self._save()
             self._delete_confirm_folder_id = ""
             self._rebuild_sidebar()
@@ -3581,11 +3818,15 @@ class GtdApp(App[None]):
             self._update_status()
         elif event.key == "m":
             event.prevent_default()
+            sidebar = self.query_one("#sidebar", ListView)
+            idx = sidebar.index or 0
             self._push_undo()
             self._all_tasks = move_folder_tasks_to_today(self._all_tasks, folder_id)
             self._all_folders = delete_folder(self._all_folders, folder_id)
             if self._current_view == folder_id:
-                self._current_view = "today"
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
             self._save()
             self._delete_confirm_folder_id = ""
             self._rebuild_sidebar()
@@ -3594,6 +3835,44 @@ class GtdApp(App[None]):
         elif event.key == "escape":
             event.prevent_default()
             self._delete_confirm_folder_id = ""
+            self._update_status()
+
+    def _handle_delete_confirm_project_key(self, event: events.Key) -> None:
+        project_id = self._delete_confirm_project_id
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index or 0
+        if event.key == "d":
+            event.prevent_default()
+            self._push_undo()
+            for task in project_tasks(self._all_tasks, project_id):
+                self._all_tasks = delete_task(self._all_tasks, task.id)
+            self._all_projects = delete_project(self._all_projects, project_id)
+            if self._current_view == f"project:{project_id}":
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
+            self._save()
+            self._delete_confirm_project_id = ""
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status()
+        elif event.key == "k":
+            event.prevent_default()
+            self._push_undo()
+            self._all_tasks = unlink_project_tasks(self._all_tasks, project_id)
+            self._all_projects = delete_project(self._all_projects, project_id)
+            if self._current_view == f"project:{project_id}":
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
+            self._save()
+            self._delete_confirm_project_id = ""
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status()
+        elif event.key == "escape":
+            event.prevent_default()
+            self._delete_confirm_project_id = ""
             self._update_status()
 
     # ------------------------------------------------------------------ #
@@ -3678,17 +3957,21 @@ class GtdApp(App[None]):
 
     def _apply_history(
         self,
-        pop_from: list[tuple[list[Task], list[Folder]]],
-        push_to: list[tuple[list[Task], list[Folder]]],
+        pop_from: list[tuple[list[Task], list[Folder], list[Project]]],
+        push_to: list[tuple[list[Task], list[Folder], list[Project]]],
         empty_msg: str,
     ) -> None:
         if not pop_from:
             self._update_status(empty_msg)
             return
         push_to.append(
-            (copy.deepcopy(self._all_tasks), copy.deepcopy(self._all_folders))
+            (
+                copy.deepcopy(self._all_tasks),
+                copy.deepcopy(self._all_folders),
+                copy.deepcopy(self._all_projects),
+            )
         )
-        self._all_tasks, self._all_folders = pop_from.pop()
+        self._all_tasks, self._all_folders, self._all_projects = pop_from.pop()
         self._save()
         self._rebuild_sidebar()
         self._refresh_list()

@@ -419,7 +419,7 @@ async def test_completed_project_removed_from_sidebar(tmp_path: Path) -> None:
 
 
 async def test_project_task_count_shown_in_sidebar(tmp_path: Path) -> None:
-    """The sidebar renders a project as 'Title (done/total)'."""
+    """The sidebar renders a project as '◆ Title (done/total)'."""
     data_file = tmp_path / "data.json"
     proj = Project(title="Content calendar")
     tasks: list[Task] = []
@@ -602,3 +602,258 @@ async def test_project_task_with_tags_shows_in_both_views(tmp_path: Path) -> Non
         tagged = tasks_with_tag(app._all_tasks, "reading")
         assert any(t.title == "Read paper" for t in proj_tasks)
         assert any(t.title == "Read paper" for t in tagged)
+
+
+# ---------------------------------------------------------------------------
+# PROJECT sidebar management: rename, delete, reorder
+# ---------------------------------------------------------------------------
+
+
+async def test_project_rename_via_keyboard(tmp_path: Path) -> None:
+    """Pressing r on a project sidebar entry renames it."""
+    data_file = tmp_path / "data.json"
+    proj = Project(title="Old name")
+    save_data([], [], data_file=data_file, projects=[proj])
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Navigate sidebar to the project entry
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        view_ids = app._sidebar_view_ids
+        proj_idx = view_ids.index(f"project:{proj.id}")
+        sidebar.index = proj_idx
+        await pilot.pause()
+
+        # Press r to rename
+        await pilot.press("r")
+        await pilot.pause()
+        assert app._input_stage == "project_rename"
+
+        # Cursor is at the end of the pre-filled "Old name"; erase it then type new name
+        for _ in range(len("Old name")):
+            await pilot.press("backspace")
+        for ch in "New name":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert app._input_stage == ""
+        updated = next(p for p in app._all_projects if p.id == proj.id)
+        assert updated.title == "New name"
+
+
+async def test_project_delete_via_keyboard(tmp_path: Path) -> None:
+    """Pressing d on a project sidebar entry deletes it and unlinks its tasks."""
+    data_file = tmp_path / "data.json"
+    proj = Project(title="Doomed project")
+    tasks = add_task_to_project([], proj.id, "Orphaned task")
+    save_data(tasks, [], data_file=data_file, projects=[proj])
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Navigate to project in sidebar
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        view_ids = app._sidebar_view_ids
+        proj_idx = view_ids.index(f"project:{proj.id}")
+        sidebar.index = proj_idx
+        await pilot.pause()
+
+        # Press d → confirmation prompt appears; press k to keep tasks
+        await pilot.press("d")
+        await pilot.pause()
+        assert app._delete_confirm_project_id == proj.id
+        await pilot.press("k")
+        await pilot.pause()
+
+        # Project is gone
+        assert not any(p.id == proj.id for p in app._all_projects)
+        # Task remains but is unlinked
+        assert any(t.title == "Orphaned task" for t in app._all_tasks)
+        unlinked = next(t for t in app._all_tasks if t.title == "Orphaned task")
+        assert unlinked.project_id is None
+
+
+async def test_project_reorder_via_keyboard(tmp_path: Path) -> None:
+    """Pressing K on the second project moves it above the first."""
+    data_file = tmp_path / "data.json"
+    proj1 = Project(title="Alpha", position=0)
+    proj2 = Project(title="Beta", position=1)
+    save_data([], [], data_file=data_file, projects=[proj1, proj2])
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Navigate sidebar to Beta (the second project)
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        view_ids = app._sidebar_view_ids
+        proj2_idx = view_ids.index(f"project:{proj2.id}")
+        sidebar.index = proj2_idx
+        await pilot.pause()
+
+        # Press K to move Beta up (before Alpha)
+        await pilot.press("K")
+        await pilot.pause()
+
+        ordered = sorted(app._all_projects, key=lambda p: p.position)
+        assert ordered[0].id == proj2.id
+        assert ordered[1].id == proj1.id
+
+
+# ---------------------------------------------------------------------------
+# AREA rename via keyboard
+# ---------------------------------------------------------------------------
+
+
+async def test_area_rename_via_keyboard(tmp_path: Path) -> None:
+    """Pressing r on an area sidebar entry renames it."""
+    data_file = tmp_path / "data.json"
+    area = Area(name="Old area")
+    save_data([], [], data_file=data_file, areas=[area])
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Navigate sidebar to the area entry
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        view_ids = app._sidebar_view_ids
+        area_idx = view_ids.index(f"area:{area.id}")
+        sidebar.index = area_idx
+        await pilot.pause()
+
+        # Press r to rename
+        await pilot.press("r")
+        await pilot.pause()
+        assert app._input_stage == "area_rename"
+
+        # Erase pre-filled name and type new one
+        for _ in range(len("Old area")):
+            await pilot.press("backspace")
+        for ch in "New area":
+            await pilot.press(ch)
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert app._input_stage == ""
+        updated = next(a for a in app._all_areas if a.id == area.id)
+        assert updated.name == "New area"
+
+
+# ---------------------------------------------------------------------------
+# TAG reorder via keyboard
+# ---------------------------------------------------------------------------
+
+
+async def test_tag_reorder_via_keyboard(tmp_path: Path) -> None:
+    """Pressing K on the second tag moves it above the first."""
+    data_file = tmp_path / "data.json"
+    tasks: list[Task] = []
+    tasks = add_task(tasks, "Task A")
+    task_a_id = tasks[0].id
+    tasks = set_tags(tasks, task_a_id, ["alpha"])
+    tasks = add_task(tasks, "Task B")
+    task_b_id = tasks[0].id  # add_task prepends; Task B is now at index 0
+    tasks = set_tags(tasks, task_b_id, ["beta"])
+    # Save with explicit order: alpha then beta
+    save_data(tasks, [], data_file=data_file, tag_order=["alpha", "beta"])
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        # Navigate sidebar to the "beta" tag entry
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        view_ids = app._sidebar_view_ids
+        beta_idx = view_ids.index("tag:beta")
+        sidebar.index = beta_idx
+        await pilot.pause()
+
+        # Press K to move beta above alpha
+        await pilot.press("K")
+        await pilot.pause()
+
+        # beta should now precede alpha in tag_order
+        assert app._tag_order.index("beta") < app._tag_order.index("alpha")
+
+        # And in the sidebar view ids
+        new_view_ids = app._sidebar_view_ids
+        assert new_view_ids.index("tag:beta") < new_view_ids.index("tag:alpha")
+
+
+# ---------------------------------------------------------------------------
+# PROJECT diamond + area boundary visual indicators (sidebar label checks)
+# ---------------------------------------------------------------------------
+
+
+async def test_project_in_area_has_diamond_and_pipe_prefix(tmp_path: Path) -> None:
+    """Projects inside an area use '│ ◆ ' prefix; standalone projects use '  ◆ '."""
+    data_file = tmp_path / "data.json"
+    area = Area(name="Work")
+    proj_in_area = Project(title="Scoped", area_id=area.id)
+    proj_standalone = Project(title="Floating")
+    save_data(
+        [],
+        [],
+        data_file=data_file,
+        projects=[proj_in_area, proj_standalone],
+        areas=[area],
+    )
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Check via sidebar rebuild — inspect the Label widgets
+        await pilot.press("h")
+        await pilot.pause()
+
+        labels = [str(lbl.render()) for lbl in app.query("#sidebar Label")]
+        # Find labels containing our project titles
+        scoped_label = next((txt for txt in labels if "Scoped" in txt), None)
+        floating_label = next((txt for txt in labels if "Floating" in txt), None)
+        assert scoped_label is not None
+        assert floating_label is not None
+        assert "│ ◆" in scoped_label
+        assert "  ◆" in floating_label
+
+
+async def test_folder_in_area_has_pipe_prefix(tmp_path: Path) -> None:
+    """Folders inside an area use '│ ' prefix; standalone folders have no prefix."""
+    data_file = tmp_path / "data.json"
+    area = Area(name="Research")
+    folder_in_area = Folder(name="Papers", area_id=area.id)
+    folder_standalone = Folder(name="Misc")
+    save_data(
+        [],
+        [folder_in_area, folder_standalone],
+        data_file=data_file,
+        areas=[area],
+    )
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("h")
+        await pilot.pause()
+
+        labels = [str(lbl.render()) for lbl in app.query("#sidebar Label")]
+        papers_label = next((txt for txt in labels if "Papers" in txt), None)
+        misc_label = next((txt for txt in labels if "Misc" in txt), None)
+        assert papers_label is not None
+        assert misc_label is not None
+        assert "│ Papers" in papers_label
+        assert "│" not in misc_label

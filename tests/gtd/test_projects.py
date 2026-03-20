@@ -14,9 +14,12 @@ from gtd_tui.gtd.operations import (
     complete_project,
     complete_task,
     delete_project,
+    move_project_down,
+    move_project_up,
     project_progress,
     project_tasks,
     rename_project,
+    unlink_project_tasks,
 )
 from gtd_tui.gtd.project import Project
 
@@ -268,3 +271,63 @@ def test_load_projects_no_projects_key(tmp_path) -> None:
     data_file.write_text(json.dumps({"tasks": [], "folders": []}))
     result = load_projects(data_file=data_file)
     assert result == []
+
+
+def test_move_project_up_swaps_positions() -> None:
+    projects = add_project([], "P1")
+    projects = add_project(projects, "P2")
+    pid2 = projects[1].id
+    projects = move_project_up(projects, pid2)
+    ordered = sorted(projects, key=lambda p: p.position)
+    assert ordered[0].id == pid2
+
+
+def test_move_project_down_swaps_positions() -> None:
+    projects = add_project([], "P1")
+    projects = add_project(projects, "P2")
+    pid1 = projects[0].id
+    projects = move_project_down(projects, pid1)
+    ordered = sorted(projects, key=lambda p: p.position)
+    assert ordered[0].title == "P2"
+    assert ordered[1].title == "P1"
+
+
+def test_move_project_up_at_top_is_noop() -> None:
+    projects = add_project([], "P1")
+    projects = add_project(projects, "P2")
+    pid1 = projects[0].id
+    original_pos = next(p.position for p in projects if p.id == pid1)
+    projects = move_project_up(projects, pid1)
+    new_pos = next(p.position for p in projects if p.id == pid1)
+    assert new_pos == original_pos
+
+
+def test_move_project_down_at_bottom_is_noop() -> None:
+    projects = add_project([], "P1")
+    projects = add_project(projects, "P2")
+    pid2 = projects[1].id
+    original_pos = next(p.position for p in projects if p.id == pid2)
+    projects = move_project_down(projects, pid2)
+    new_pos = next(p.position for p in projects if p.id == pid2)
+    assert new_pos == original_pos
+
+
+def test_unlink_project_tasks_clears_project_id() -> None:
+    projects = add_project([], "P1")
+    pid = projects[0].id
+    tasks = add_task_to_project([], pid, "Sub A")
+    tasks = add_task_to_project(tasks, pid, "Sub B")
+    tasks = unlink_project_tasks(tasks, pid)
+    assert all(t.project_id is None for t in tasks)
+
+
+def test_unlink_project_tasks_does_not_affect_other_projects() -> None:
+    projects = add_project([], "P1")
+    projects = add_project(projects, "P2")
+    pid1 = projects[0].id
+    pid2 = projects[1].id
+    tasks = add_task_to_project([], pid1, "A")
+    tasks = add_task_to_project(tasks, pid2, "B")
+    tasks = unlink_project_tasks(tasks, pid1)
+    task_b = next(t for t in tasks if t.title == "B")
+    assert task_b.project_id == pid2

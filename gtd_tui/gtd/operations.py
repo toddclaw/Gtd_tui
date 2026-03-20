@@ -725,27 +725,39 @@ def delete_folder(folders: list[Folder], folder_id: str) -> list[Folder]:
 
 
 def move_folder_up(folders: list[Folder], folder_id: str) -> list[Folder]:
-    """Swap a user folder with the one above it (lower position). No-op at top."""
-    ordered = sorted(folders, key=lambda f: f.position)
-    idx = next((i for i, f in enumerate(ordered) if f.id == folder_id), None)
+    """Swap a folder with the sibling above it within the same area. No-op at top."""
+    folder = next((f for f in folders if f.id == folder_id), None)
+    if folder is None:
+        return folders
+    siblings = sorted(
+        [f for f in folders if f.area_id == folder.area_id],
+        key=lambda f: f.position,
+    )
+    idx = next((i for i, f in enumerate(siblings) if f.id == folder_id), None)
     if idx is None or idx == 0:
         return folders
-    ordered[idx].position, ordered[idx - 1].position = (
-        ordered[idx - 1].position,
-        ordered[idx].position,
+    siblings[idx].position, siblings[idx - 1].position = (
+        siblings[idx - 1].position,
+        siblings[idx].position,
     )
     return folders
 
 
 def move_folder_down(folders: list[Folder], folder_id: str) -> list[Folder]:
-    """Swap a user folder with the one below it (higher position). No-op at bottom."""
-    ordered = sorted(folders, key=lambda f: f.position)
-    idx = next((i for i, f in enumerate(ordered) if f.id == folder_id), None)
-    if idx is None or idx == len(ordered) - 1:
+    """Swap a folder with the sibling below it within the same area. No-op at bottom."""
+    folder = next((f for f in folders if f.id == folder_id), None)
+    if folder is None:
         return folders
-    ordered[idx].position, ordered[idx + 1].position = (
-        ordered[idx + 1].position,
-        ordered[idx].position,
+    siblings = sorted(
+        [f for f in folders if f.area_id == folder.area_id],
+        key=lambda f: f.position,
+    )
+    idx = next((i for i, f in enumerate(siblings) if f.id == folder_id), None)
+    if idx is None or idx == len(siblings) - 1:
+        return folders
+    siblings[idx].position, siblings[idx + 1].position = (
+        siblings[idx + 1].position,
+        siblings[idx].position,
     )
     return folders
 
@@ -1121,6 +1133,75 @@ def rename_project(
 ) -> list[Project]:
     """Rename a project."""
     return [replace(p, title=title) if p.id == project_id else p for p in projects]
+
+
+def move_project_up(projects: list[Project], project_id: str) -> list[Project]:
+    """Swap a project with the sibling above it within the same area. No-op at top."""
+    project = next((p for p in projects if p.id == project_id), None)
+    if project is None:
+        return projects
+    siblings = sorted(
+        [p for p in projects if p.area_id == project.area_id],
+        key=lambda p: p.position,
+    )
+    idx = next((i for i, p in enumerate(siblings) if p.id == project_id), None)
+    if idx is None or idx == 0:
+        return projects
+    siblings[idx].position, siblings[idx - 1].position = (
+        siblings[idx - 1].position,
+        siblings[idx].position,
+    )
+    return projects
+
+
+def move_project_down(projects: list[Project], project_id: str) -> list[Project]:
+    """Swap a project with the sibling below it within the same area. No-op at bottom."""
+    project = next((p for p in projects if p.id == project_id), None)
+    if project is None:
+        return projects
+    siblings = sorted(
+        [p for p in projects if p.area_id == project.area_id],
+        key=lambda p: p.position,
+    )
+    idx = next((i for i, p in enumerate(siblings) if p.id == project_id), None)
+    if idx is None or idx == len(siblings) - 1:
+        return projects
+    siblings[idx].position, siblings[idx + 1].position = (
+        siblings[idx + 1].position,
+        siblings[idx].position,
+    )
+    return projects
+
+
+def move_tag_up(tag_order: list[str], tag_name: str) -> list[str]:
+    """Move a tag one position earlier in the ordering. No-op if already first."""
+    if tag_name not in tag_order:
+        return tag_order
+    idx = tag_order.index(tag_name)
+    if idx == 0:
+        return tag_order
+    result = list(tag_order)
+    result[idx], result[idx - 1] = result[idx - 1], result[idx]
+    return result
+
+
+def move_tag_down(tag_order: list[str], tag_name: str) -> list[str]:
+    """Move a tag one position later in the ordering. No-op if already last."""
+    if tag_name not in tag_order:
+        return tag_order
+    idx = tag_order.index(tag_name)
+    if idx == len(tag_order) - 1:
+        return tag_order
+    result = list(tag_order)
+    result[idx], result[idx + 1] = result[idx + 1], result[idx]
+    return result
+
+
+def unlink_project_tasks(tasks: list[Task], project_id: str) -> list[Task]:
+    """Clear project_id on all tasks belonging to the given project."""
+    return [
+        replace(t, project_id=None) if t.project_id == project_id else t for t in tasks
+    ]
 
 
 def complete_project(projects: list[Project], project_id: str) -> list[Project]:

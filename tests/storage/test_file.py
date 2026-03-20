@@ -385,7 +385,7 @@ def test_undo_stack_round_trip(tmp_path: Path) -> None:
     data_file = tmp_path / "data.json"
     tasks_a = add_task([], "State A")
     tasks_b = add_task([], "State B")
-    undo_stack = [(tasks_a, [])]
+    undo_stack = [(tasks_a, [], [])]
     save_data(tasks_b, [], data_file=data_file, undo_stack=undo_stack)
     loaded = load_undo_stack(data_file=data_file)
     assert len(loaded) == 1
@@ -396,7 +396,7 @@ def test_redo_stack_round_trip(tmp_path: Path) -> None:
     """Redo stack saved with save_data is restored by load_redo_stack."""
     data_file = tmp_path / "data.json"
     tasks_a = add_task([], "Redo State")
-    redo_stack = [(tasks_a, [])]
+    redo_stack = [(tasks_a, [], [])]
     save_data([], [], data_file=data_file, redo_stack=redo_stack)
     loaded = load_redo_stack(data_file=data_file)
     assert len(loaded) == 1
@@ -407,7 +407,7 @@ def test_undo_stack_capped_at_20(tmp_path: Path) -> None:
     """load_undo_stack only returns the last 20 entries when more were saved."""
     data_file = tmp_path / "data.json"
     # Build 25 snapshots
-    stack = [(add_task([], f"State {i}"), []) for i in range(25)]
+    stack = [(add_task([], f"State {i}"), [], []) for i in range(25)]
     save_data([], [], data_file=data_file, undo_stack=stack)
     loaded = load_undo_stack(data_file=data_file)
     assert len(loaded) == 20
@@ -435,7 +435,7 @@ def test_undo_stack_persists_through_encrypted_file(tmp_path: Path) -> None:
     """Undo stack is stored inside an encrypted file and can be retrieved."""
     data_file = tmp_path / "data.json"
     tasks_a = add_task([], "Encrypted undo state")
-    undo_stack = [(tasks_a, [])]
+    undo_stack = [(tasks_a, [], [])]
     save_data([], [], data_file=data_file, password="pw", undo_stack=undo_stack)
     loaded = load_undo_stack(data_file=data_file, password="pw")
     assert len(loaded) == 1

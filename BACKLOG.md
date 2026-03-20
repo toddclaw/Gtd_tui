@@ -656,6 +656,7 @@ filtering: "show me everything I can do @computer right now".
 - [x] Selecting a tag in the sidebar shows a cross-folder filtered view of matching tasks
 - [x] Tag filter view supports `x` / Space to complete and `m` to move tasks
 - [x] Storage round-trip and tag filtering covered by unit tests
+- [x] `J`/`K` while a tag is selected in the sidebar reorders tags; order persisted to disk
 
 ---
 
@@ -687,6 +688,11 @@ list of tasks; when all are complete, the project moves to Logbook automatically
 - [x] Projects and sub-tasks survive save/load round-trips
 - [x] Deadline field on projects renders with the same red/yellow urgency as task deadlines
 - [x] Tests cover project CRUD, sub-task management, and auto-completion logic
+- [x] Project sidebar entries show `◆` prefix to distinguish them from folders visually
+- [x] `r` on a project sidebar entry renames the project (pre-fills current title)
+- [x] `d` on a project sidebar entry deletes the project and unlinks its tasks (`project_id → None`)
+- [x] `J`/`K` on a project sidebar entry reorders projects by swapping positions (area-scoped: only reorders within the same area)
+- [x] Projects inside an area render with `│ ◆ ` prefix to show area membership
 
 ---
 
@@ -710,6 +716,9 @@ life domains. This is the top of the GTD hierarchy: Area → Project → Task.
   includes Areas)
 - [x] Areas survive save/load round-trips
 - [x] Tests cover Area CRUD and folder/project assignment logic
+- [x] `r` on an area header renames the area (pre-fills current name)
+- [x] Folders inside an area render with `│ ` pipe prefix for clear visual boundary
+- [x] `J`/`K` within an area reorders only items belonging to that area
 
 ---
 

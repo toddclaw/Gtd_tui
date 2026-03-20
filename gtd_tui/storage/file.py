@@ -228,7 +228,7 @@ def load_folders(
 
 _UNDO_CAP = 20
 
-UndoStack = list[tuple[list[Task], list[Folder]]]
+UndoStack = list[tuple[list[Task], list[Folder], list[Project]]]
 
 
 def _undo_stack_to_list(stack: UndoStack) -> list[Any]:
@@ -236,8 +236,9 @@ def _undo_stack_to_list(stack: UndoStack) -> list[Any]:
         {
             "tasks": [_task_to_dict(t) for t in tasks],
             "folders": [_folder_to_dict(f) for f in folders],
+            "projects": [_project_to_dict(p) for p in projects],
         }
-        for tasks, folders in stack
+        for tasks, folders, projects in stack
     ]
 
 
@@ -245,9 +246,13 @@ def _undo_stack_from_list(raw: list[Any]) -> UndoStack:
     result: UndoStack = []
     for entry in raw:
         try:
+            # Skip entries from before projects were tracked in the undo stack
+            if "projects" not in entry:
+                continue
             tasks = [_task_from_dict(t) for t in entry.get("tasks", [])]
             folders = [_folder_from_dict(f) for f in entry.get("folders", [])]
-            result.append((tasks, folders))
+            projects = [_project_from_dict(p) for p in entry.get("projects", [])]
+            result.append((tasks, folders, projects))
         except (KeyError, ValueError):
             pass  # skip corrupt entries rather than failing the whole load
     return result
@@ -290,6 +295,7 @@ def save_data(
     redo_stack: UndoStack | None = None,
     projects: list[Project] | None = None,
     areas: list[Area] | None = None,
+    tag_order: list[str] | None = None,
 ) -> None:
     """Atomically save tasks, folders, optional undo/redo stacks, projects, and areas to disk.
 
@@ -311,6 +317,8 @@ def save_data(
         payload["projects"] = [_project_to_dict(p) for p in projects]
     if areas is not None:
         payload["areas"] = [_area_to_dict(a) for a in areas]
+    if tag_order is not None:
+        payload["tag_order"] = tag_order
     json_bytes = json.dumps(payload, indent=2).encode()
     write_bytes = encrypt_data(json_bytes, password) if password else json_bytes
 
@@ -366,6 +374,20 @@ def load_areas(
         return []
 
 
+def load_tag_order(
+    data_file: Path | None = None, password: str | None = None
+) -> list[str]:
+    """Load persisted tag ordering from disk. Returns empty list if missing or corrupt."""
+    path = data_file or _DEFAULT_DATA_FILE
+    if not path.exists():
+        return []
+    try:
+        raw = _read_raw(path, password)
+        return [str(t) for t in raw.get("tag_order", [])]
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return []
+
+
 # Public serialization helpers — used by portability.py for export/import.
 task_to_dict = _task_to_dict
 task_from_dict = _task_from_dict
@@ -380,6 +402,7 @@ __all__ = [
     "load_folders",
     "load_projects",
     "load_redo_stack",
+    "load_tag_order",
     "load_tasks",
     "load_undo_stack",
     "save_data",
