@@ -15,6 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 - **Empty task list focus**: when `startup_focus_sidebar=false` and the task list is empty, focus now correctly goes to the empty-hint so `o` adds a task instead of creating a folder.
+- **Default config missing startup_focus_sidebar**: fresh config files (created when none exists) and old configs upgraded via `_ensure_config_defaults` now include `startup_focus_sidebar = true` in the `[ui]` section.
 
 ---
 

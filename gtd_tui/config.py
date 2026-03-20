@@ -109,6 +109,8 @@ def _ensure_config_defaults(path: Path, raw: dict) -> None:
     ui_lines: list[str] = []
     if not _has_key("default_view"):
         ui_lines.append('default_view = "today"\n')
+    if not _has_key("startup_focus_sidebar"):
+        ui_lines.append("startup_focus_sidebar = true\n")
     if not _has_key("theme"):
         ui_lines.append('theme = "blue"\n')
     if not _has_key("border_style"):
@@ -227,6 +229,9 @@ timeout_enabled = true
 # Options: "today", "inbox", "upcoming", "waiting_on", "someday"
 # (or the id of a user-created folder)
 default_view = "today"
+
+# If true, focus starts on the sidebar; if false, on the task list.
+startup_focus_sidebar = true
 
 # Color palette: "blue" | "red" | "yellow" | "green"
 theme = "blue"

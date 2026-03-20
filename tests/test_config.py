@@ -103,6 +103,30 @@ def test_save_default_config_contains_timeout_section(tmp_path: Path) -> None:
     assert "timeout" in data
 
 
+def test_save_default_config_contains_startup_focus_sidebar(tmp_path: Path) -> None:
+    """Fresh default config includes startup_focus_sidebar in [ui] section."""
+    out = tmp_path / "config.toml"
+    save_default_config(out)
+    with open(out, "rb") as f:
+        data = tomllib.load(f)
+    assert "ui" in data
+    assert "startup_focus_sidebar" in data["ui"]
+    assert data["ui"]["startup_focus_sidebar"] is True
+
+
+def test_ensure_config_defaults_adds_startup_focus_sidebar_when_missing(
+    tmp_path: Path,
+) -> None:
+    """Old config without startup_focus_sidebar gets it appended by _ensure_config_defaults."""
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('[timeout]\ntimeout_minutes = 30\n\n[ui]\ndefault_view = "today"\n')
+    raw = tomllib.loads(cfg.read_text())
+    _ensure_config_defaults(cfg, raw)
+    data = tomllib.loads(cfg.read_text())
+    assert "startup_focus_sidebar" in data.get("ui", {})
+    assert data["ui"]["startup_focus_sidebar"] is True
+
+
 def test_save_default_config_creates_parent_dirs(tmp_path: Path) -> None:
     out = tmp_path / "nested" / "dir" / "config.toml"
     save_default_config(out)
