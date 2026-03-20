@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import date
 
 from gtd_tui.gtd.operations import (
     add_project,

@@ -569,8 +569,6 @@ async def test_double_esc_from_detail_field_closes_and_saves(
 
 async def test_default_view_config_opens_correct_view(tmp_path: Path) -> None:
     """An app configured with default_view='inbox' opens showing the Inbox."""
-    from gtd_tui.config import Config
-
     data_file = _prepopulate(tmp_path, "Captured idea")
     app = GtdApp(data_file=data_file)
     # Override the config before the app starts
