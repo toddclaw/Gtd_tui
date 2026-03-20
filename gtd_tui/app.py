@@ -426,6 +426,8 @@ class TaskDetailScreen(
         self._checklist_active: bool = False
         # Undo history for checklist mutations within this detail screen
         self._checklist_history: list[list[ChecklistItem]] = []
+        # Non-empty item id when user is renaming a checklist item
+        self._renaming_checklist_item_id: str = ""
 
     @staticmethod
     def _interval_to_str(interval: int, unit: str) -> str:
@@ -491,7 +493,7 @@ class TaskDetailScreen(
                 id="detail-notes-input",
             )
             yield Label(
-                "Checklist  (o: add  x/Space: toggle  d: delete  J/K: reorder)",
+                "Checklist  (o: add  x/Space: toggle  d: delete  r: rename  J/K: reorder)",
                 classes="field-label",
                 id="detail-checklist-header",
             )
@@ -680,11 +682,31 @@ class TaskDetailScreen(
             self.action_save_and_close()
         elif event.vim_input.id == "detail-checklist-new":
             label = event.vim_input.value.strip()
-            if label:
-                self._checklist.append(ChecklistItem(label=label))
-                self._render_checklist()
-            event.vim_input.value = ""
-            event.vim_input.set_mode("insert")  # stay ready for the next item
+            if self._renaming_checklist_item_id:
+                item_id = self._renaming_checklist_item_id
+                self._renaming_checklist_item_id = ""
+                if label:
+                    self._checklist_push_undo()
+                    self._checklist = [
+                        (
+                            ChecklistItem(id=it.id, label=label, checked=it.checked)
+                            if it.id == item_id
+                            else it
+                        )
+                        for it in self._checklist
+                    ]
+                    self._render_checklist()
+                event.vim_input.value = ""
+                event.vim_input.set_mode("command")
+                lv = self.query_one("#detail-checklist-list", ListView)
+                lv.focus()
+                self._checklist_active = True
+            else:
+                if label:
+                    self._checklist.append(ChecklistItem(label=label))
+                    self._render_checklist()
+                event.vim_input.value = ""
+                event.vim_input.set_mode("insert")  # stay ready for the next item
 
     def on_key(self, event: events.Key) -> None:
         focused = self.focused
@@ -756,6 +778,19 @@ class TaskDetailScreen(
                     self._checklist.pop(cur)
                     restore = max(0, cur - 1) if cur > 0 else 0
                     self._render_checklist(restore_index=restore)
+                event.stop()
+                event.prevent_default()
+                return
+            if event.key == "r":
+                cur = focused.index
+                if cur is not None and 0 <= cur < len(self._checklist):
+                    item = self._checklist[cur]
+                    self._renaming_checklist_item_id = item.id
+                    new_inp = self.query_one("#detail-checklist-new", VimInput)
+                    new_inp.value = item.label
+                    new_inp.focus()
+                    new_inp.set_mode("insert")
+                    self._checklist_active = False
                 event.stop()
                 event.prevent_default()
                 return
@@ -1284,6 +1319,89 @@ class CalendarScreen(ModalScreen["date | None"]):
         self.dismiss(None)
 
 
+_BORDER_COLORS: dict[str, tuple[str, str]] = {
+    "yellow_grey": ("yellow", "grey"),
+    "red_grey": ("red", "grey"),
+}
+
+_BLOCK_CHAR = "█"
+
+
+class ColorBorderStrip(Static, can_focus=False):
+    """Renders a strip of alternating-color block characters for a screen border."""
+
+    DEFAULT_CSS = """
+    ColorBorderStrip {
+        background: transparent;
+    }
+    ColorBorderStrip.horizontal {
+        height: 1;
+        width: 1fr;
+    }
+    ColorBorderStrip.vertical {
+        width: 1;
+        height: 1fr;
+    }
+    """
+
+    def __init__(
+        self,
+        style: str,
+        block_size: int,
+        orientation: str,
+    ) -> None:
+        super().__init__(classes=orientation)
+        self._border_style = style
+        self._block_size = max(1, block_size)
+        self._orientation = orientation
+
+    def render(self) -> RichText:
+        colors = _BORDER_COLORS.get(self._border_style, ("white", "grey"))
+        if self._orientation == "horizontal":
+            length = self.size.width or 80
+        else:
+            length = self.size.height or 24
+        result = RichText()
+        for i in range(length):
+            color = colors[(i // self._block_size) % 2]
+            result.append(_BLOCK_CHAR, style=color)
+        return result
+
+
+_THEMES: dict[str, dict[str, str]] = {
+    "blue": {
+        "primary": "#0178D4",
+        "primary_dark": "#014A8A",
+        "accent": "#0EA5E9",
+    },
+    "red": {
+        "primary": "#C0392B",
+        "primary_dark": "#8B1A13",
+        "accent": "#E74C3C",
+    },
+    "yellow": {
+        "primary": "#D4A017",
+        "primary_dark": "#8A6800",
+        "accent": "#F4C430",
+    },
+    "green": {
+        "primary": "#1E8A3E",
+        "primary_dark": "#0F5225",
+        "accent": "#27AE60",
+    },
+}
+
+
+def _build_theme_css(theme: str) -> str:
+    t = _THEMES.get(theme, _THEMES["blue"])
+    # Textual CSS variables use $name syntax.
+    return f"""
+    $primary: {t['primary']};
+    $primary-darken-1: {t['primary_dark']};
+    $accent: {t['accent']};
+    """
+
+
 class GtdApp(App[None]):
     ESCAPE_TO_MINIMIZE = False  # prevent Textual's minimize-on-Esc delay
 
@@ -1370,14 +1488,33 @@ class GtdApp(App[None]):
         background: $boost;
         color: $text-muted;
     }
+
+    #border-outer {
+        height: 1fr;
+    }
+
+    #app-inner {
+        width: 1fr;
+        height: 1fr;
+    }
     """
 
+    # Preserved original CSS so theme injection always rebuilds from the base.
+    _BASE_CSS_ORIG: str = CSS
+
     def __init__(
-        self, data_file: Path | None = None, password: str | None = None
+        self,
+        data_file: Path | None = None,
+        password: str | None = None,
+        tmux_tip: bool = False,
     ) -> None:
+        # Apply theme before super().__init__() so Textual compiles it at startup.
+        config = load_config()
+        type(self).CSS = GtdApp._BASE_CSS_ORIG + _build_theme_css(config.theme)
         super().__init__()
         self._data_file: Path | None = data_file
         self._password: str | None = password
+        self._tmux_tip: bool = tmux_tip
         self._all_tasks: list[Task] = load_tasks(data_file, password=password)
         self._all_folders: list[Folder] = load_folders(data_file, password=password)
         self._all_projects: list[Project] = load_projects(data_file, password=password)
@@ -1541,7 +1678,8 @@ class GtdApp(App[None]):
                 return folder.name
         return view_id
 
-    def compose(self) -> ComposeResult:
+    def _compose_main_content(self) -> ComposeResult:
+        """Yield the core app widgets (header, sidebar+content, status)."""
         yield Label("Today", id="header")
         with Horizontal(id="main-area"):
             yield ListView(id="sidebar")
@@ -1551,6 +1689,20 @@ class GtdApp(App[None]):
                 yield ListView(id="task-list")
                 yield Label("No tasks — press o to add one", id="empty-hint")
         yield Label("NORMAL  |  Today", id="status")
+
+    def compose(self) -> ComposeResult:
+        border = self._config.border_style
+        bsize = self._config.border_block_size
+        if border == "none":
+            yield from self._compose_main_content()
+        else:
+            yield ColorBorderStrip(border, bsize, "horizontal")
+            with Horizontal(id="border-outer"):
+                yield ColorBorderStrip(border, bsize, "vertical")
+                with Vertical(id="app-inner"):
+                    yield from self._compose_main_content()
+                yield ColorBorderStrip(border, bsize, "vertical")
+            yield ColorBorderStrip(border, bsize, "horizontal")
 
     def on_mount(self) -> None:
         cfg_path = default_config_path()
@@ -1568,6 +1720,10 @@ class GtdApp(App[None]):
         self._refresh_list()
         self.query_one("#task-list", ListView).focus()
         self.set_interval(60, self._check_timeout)
+        if self._tmux_tip:
+            self._update_status(
+                "tmux detected — for faster Esc: set-environment -g ESCDELAY 25 in ~/.tmux.conf"
+            )
 
     def _check_timeout(self) -> None:
         """Called every 60 seconds; exits the app when idle too long."""
@@ -1620,45 +1776,47 @@ class GtdApp(App[None]):
         sidebar.clear()
 
         folder_map = {f.id: f for f in self._all_folders}
+        counts = self._config.counts
 
         def _n(count: int) -> str:
             return f" ({count})"
 
         for view_id in self._sidebar_view_ids:
             if view_id == "inbox":
-                sidebar.append(
-                    ListItem(Label(f"Inbox{_n(len(inbox_tasks(self._all_tasks)))}"))
-                )
+                suffix = _n(len(inbox_tasks(self._all_tasks))) if counts.inbox else ""
+                sidebar.append(ListItem(Label(f"Inbox{suffix}")))
             elif view_id == "today":
-                sidebar.append(
-                    ListItem(Label(f"Today{_n(len(today_tasks(self._all_tasks)))}"))
-                )
+                suffix = _n(len(today_tasks(self._all_tasks))) if counts.today else ""
+                sidebar.append(ListItem(Label(f"Today{suffix}")))
             elif view_id == "upcoming":
-                sidebar.append(
-                    ListItem(
-                        Label(f"Upcoming{_n(len(upcoming_tasks(self._all_tasks)))}")
-                    )
+                suffix = (
+                    _n(len(upcoming_tasks(self._all_tasks))) if counts.upcoming else ""
                 )
+                sidebar.append(ListItem(Label(f"Upcoming{suffix}")))
             elif view_id == "waiting_on":
-                sidebar.append(
-                    ListItem(
-                        Label(f"Waiting On{_n(len(waiting_on_tasks(self._all_tasks)))}")
-                    )
+                suffix = (
+                    _n(len(waiting_on_tasks(self._all_tasks)))
+                    if counts.waiting_on
+                    else ""
                 )
+                sidebar.append(ListItem(Label(f"Waiting On{suffix}")))
             elif view_id == "someday":
-                sidebar.append(
-                    ListItem(Label(f"Someday{_n(len(someday_tasks(self._all_tasks)))}"))
+                suffix = (
+                    _n(len(someday_tasks(self._all_tasks))) if counts.someday else ""
                 )
+                sidebar.append(ListItem(Label(f"Someday{suffix}")))
             elif view_id == REFERENCE_FOLDER_ID:
-                sidebar.append(
-                    ListItem(
-                        Label(f"Reference{_n(len(reference_tasks(self._all_tasks)))}")
-                    )
+                suffix = (
+                    _n(len(reference_tasks(self._all_tasks)))
+                    if counts.reference
+                    else ""
                 )
+                sidebar.append(ListItem(Label(f"Reference{suffix}")))
             elif view_id == "logbook":
-                sidebar.append(
-                    ListItem(Label(f"Logbook{_n(len(logbook_tasks(self._all_tasks)))}"))
+                suffix = (
+                    _n(len(logbook_tasks(self._all_tasks))) if counts.logbook else ""
                 )
+                sidebar.append(ListItem(Label(f"Logbook{suffix}")))
             elif view_id == "__new_folder__":
                 sidebar.append(ListItem(Label("▸ …", classes="sidebar-placeholder")))
             elif view_id == "__projects_header__":
@@ -1683,10 +1841,9 @@ class GtdApp(App[None]):
                     else:
                         dl_text = f"  {markup_escape(dl[0])}"
                     indent = "│ ◆ " if project.area_id else "  ◆ "
+                    progress = f" ({done}/{total})" if counts.projects else ""
                     sidebar.append(
-                        ListItem(
-                            Label(f"{indent}{title_escaped} ({done}/{total}){dl_text}")
-                        )
+                        ListItem(Label(f"{indent}{title_escaped}{progress}{dl_text}"))
                     )
             elif view_id.startswith("area:"):
                 area_id = view_id[5:]
@@ -1708,26 +1865,31 @@ class GtdApp(App[None]):
                 )
             elif view_id.startswith("tag:"):
                 tag_name = view_id[4:]
-                count = sum(
-                    1
-                    for t in self._all_tasks
-                    if tag_name in t.tags
-                    and t.folder_id != "logbook"
-                    and not t.is_deleted
-                )
+                if counts.tags:
+                    tag_count = sum(
+                        1
+                        for t in self._all_tasks
+                        if tag_name in t.tags
+                        and t.folder_id != "logbook"
+                        and not t.is_deleted
+                    )
+                    tag_suffix = f" ({tag_count})"
+                else:
+                    tag_suffix = ""
                 sidebar.append(
-                    ListItem(Label(f"  {markup_escape(tag_name)} ({count})"))
+                    ListItem(Label(f"  {markup_escape(tag_name)}{tag_suffix}"))
                 )
             else:
                 folder = folder_map.get(view_id)
                 if folder:
                     prefix = "│ " if folder.area_id else ""
+                    folder_suffix = (
+                        _n(len(folder_tasks(self._all_tasks, folder.id)))
+                        if counts.user_folders
+                        else ""
+                    )
                     sidebar.append(
-                        ListItem(
-                            Label(
-                                f"{prefix}{folder.name}{_n(len(folder_tasks(self._all_tasks, folder.id)))}"
-                            )
-                        )
+                        ListItem(Label(f"{prefix}{folder.name}{folder_suffix}"))
                     )
 
         view_ids = self._sidebar_view_ids
@@ -2913,6 +3075,16 @@ class GtdApp(App[None]):
         self._update_status()
 
     def _apply_date(self, value: str) -> None:
+        if value.strip() == "?":
+
+            def _on_calendar_pick(date_str: date | None) -> None:
+                if date_str is not None:
+                    self._apply_date(date_str.isoformat())
+
+            self._cancel_input()
+            self.push_screen(CalendarScreen(), _on_calendar_pick)
+            return
+
         task_ids = (
             self._pending_task_ids
             if self._pending_task_ids

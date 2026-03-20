@@ -1374,6 +1374,23 @@ def delete_checklist_item(tasks: list[Task], task_id: str, item_id: str) -> list
     return [_delete(t) for t in tasks]
 
 
+def rename_checklist_item(
+    tasks: list[Task], task_id: str, item_id: str, new_label: str
+) -> list[Task]:
+    """Rename a checklist item."""
+
+    def _rename(t: Task) -> Task:
+        if t.id != task_id:
+            return t
+        new_checklist = [
+            replace(item, label=new_label) if item.id == item_id else item
+            for item in t.checklist
+        ]
+        return replace(t, checklist=new_checklist)
+
+    return [_rename(t) for t in tasks]
+
+
 def move_checklist_item(
     tasks: list[Task], task_id: str, item_id: str, delta: int
 ) -> list[Task]:

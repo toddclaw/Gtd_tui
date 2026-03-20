@@ -1137,3 +1137,142 @@ async def test_caret_in_multiline_operates_on_current_line() -> None:
         vi._cursor = 9  # on first space of '   indent'
         await pilot.press("circumflex_accent")
         assert vi._cursor == len("first\n") + 3  # index of 'i' in '   indent'
+
+
+# ---------------------------------------------------------------------------
+# dd register population
+# ---------------------------------------------------------------------------
+
+
+async def test_dd_single_line_populates_register() -> None:
+    """dd in single-line mode copies text to _register."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        await pilot.press("d", "d")
+        assert vi._text == ""
+        assert vi._register == "hello"
+
+
+async def test_dd_multi_line_populates_register() -> None:
+    """dd in multi-line mode copies the deleted line to _register."""
+    async with _App(
+        value="first\nsecond\nthird", start_mode="command", multiline=True
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 6  # on 'second'
+        await pilot.press("d", "d")
+        assert "second" not in vi._text
+        assert vi._register == "second"
+
+
+async def test_dd_then_p_pastes_deleted_line() -> None:
+    """p after dd pastes the deleted line below current line."""
+    async with _App(
+        value="aaa\nbbb\nccc", start_mode="command", multiline=True
+    ).run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0  # on 'aaa'
+        await pilot.press("d", "d")
+        assert vi._register == "aaa"
+        await pilot.press("p")
+        # 'aaa' should be pasted back as a line after 'bbb'
+        assert "aaa" in vi._text
+
+
+# ---------------------------------------------------------------------------
+# % bracket-matching motion
+# ---------------------------------------------------------------------------
+
+
+async def test_percent_jumps_forward_to_closing_paren() -> None:
+    """% on '(' jumps to matching ')'."""
+    async with _App(value="(hello)", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0  # on '('
+        await pilot.press("percent")
+        assert vi._cursor == 6  # on ')'
+
+
+async def test_percent_jumps_backward_to_opening_paren() -> None:
+    """% on ')' jumps to matching '('."""
+    async with _App(value="(hello)", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 6  # on ')'
+        await pilot.press("percent")
+        assert vi._cursor == 0  # on '('
+
+
+async def test_percent_nested_brackets() -> None:
+    """% skips nested brackets when finding the match."""
+    async with _App(value="(a(b)c)", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0  # outer '('
+        await pilot.press("percent")
+        assert vi._cursor == 6  # outer ')'
+
+
+async def test_percent_no_match_stays_put() -> None:
+    """% on a non-bracket character does not move the cursor."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("percent")
+        assert vi._cursor == 0
+
+
+async def test_percent_square_brackets() -> None:
+    """% works for square brackets."""
+    async with _App(value="[abc]", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("percent")
+        assert vi._cursor == 4
+
+
+# ---------------------------------------------------------------------------
+# d% delete to matching bracket
+# ---------------------------------------------------------------------------
+
+
+async def test_d_percent_deletes_from_cursor_to_closing() -> None:
+    """d% deletes from '(' to matching ')' inclusive."""
+    async with _App(value="x(hello)y", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 1  # on '('
+        await pilot.press("d", "percent")
+        assert vi._text == "xy"
+        assert vi._cursor == 1
+
+
+async def test_d_percent_populates_register() -> None:
+    """d% copies the deleted span to _register."""
+    async with _App(value="(hi)", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("d", "percent")
+        assert vi._register == "(hi)"
+        assert vi._text == ""
+
+
+async def test_d_percent_no_match_does_nothing() -> None:
+    """d% when not on a bracket does not modify text."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("d", "percent")
+        assert vi._text == "hello"
+
+
+# ---------------------------------------------------------------------------
+# c% change to matching bracket
+# ---------------------------------------------------------------------------
+
+
+async def test_c_percent_deletes_bracket_span_and_enters_insert() -> None:
+    """c% deletes from '(' to ')' inclusive and enters INSERT mode."""
+    async with _App(value="(world)", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        await pilot.press("c", "percent")
+        assert vi._text == ""
+        assert vi._vim_mode == "insert"

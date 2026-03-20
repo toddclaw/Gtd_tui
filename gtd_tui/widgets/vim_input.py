@@ -518,12 +518,32 @@ class VimInput(Widget, can_focus=True):
 
                     self._pre_insert_action = _pre_c_dollar
                     self._cmd_change_to_line_end()
+                elif key == "percent":
+                    match = self._find_matching_bracket(self._cursor)
+                    if match is not None:
+                        self._push_undo()
+                        lo, hi = min(self._cursor, match), max(self._cursor, match)
+                        self._register = self._text[lo : hi + 1]
+                        try:
+                            pyperclip.copy(self._register)
+                        except Exception:
+                            pass
+                        self._text = self._text[:lo] + self._text[hi + 1 :]
+                        self._cursor = lo
+                        self.set_mode("insert")
             elif pending == "d":
                 event.stop()
                 event.prevent_default()
                 self._push_undo()
                 if key == "d":
                     if self._multiline:
+                        row, _ = self._cursor_row_col()
+                        lines = self._text.split("\n")
+                        self._register = lines[row] if row < len(lines) else ""
+                        try:
+                            pyperclip.copy(self._register)
+                        except Exception:
+                            pass
                         self._cmd_delete_line()
 
                         def _replay_dd_multi() -> None:
@@ -532,6 +552,11 @@ class VimInput(Widget, can_focus=True):
 
                         self._last_action = _replay_dd_multi
                     else:
+                        self._register = self._text
+                        try:
+                            pyperclip.copy(self._register)
+                        except Exception:
+                            pass
                         self._text = ""
                         self._cursor = 0
 
@@ -607,6 +632,31 @@ class VimInput(Widget, can_focus=True):
                         self._cmd_delete_to_word_backward(word=False)
 
                     self._last_action = _replay_dB
+                elif key == "percent":
+                    match = self._find_matching_bracket(self._cursor)
+                    if match is not None:
+                        lo, hi = min(self._cursor, match), max(self._cursor, match)
+                        self._register = self._text[lo : hi + 1]
+                        try:
+                            pyperclip.copy(self._register)
+                        except Exception:
+                            pass
+                        self._text = self._text[:lo] + self._text[hi + 1 :]
+                        self._cursor = lo
+                        self._clamp_cursor_for_command()
+
+                        def _replay_d_percent() -> None:
+                            self._push_undo()
+                            m = self._find_matching_bracket(self._cursor)
+                            if m is not None:
+                                lo2 = min(self._cursor, m)
+                                hi2 = max(self._cursor, m)
+                                self._register = self._text[lo2 : hi2 + 1]
+                                self._text = self._text[:lo2] + self._text[hi2 + 1 :]
+                                self._cursor = lo2
+                                self._clamp_cursor_for_command()
+
+                        self._last_action = _replay_d_percent
             elif pending in ("f", "F", "t", "T"):
                 event.stop()
                 event.prevent_default()
@@ -889,6 +939,10 @@ class VimInput(Widget, can_focus=True):
             self._cmd_repeat_find(reverse=True)
         elif key in ("circumflex_accent", "caret", "asciicircum"):
             self._cmd_first_nonblank()
+        elif key == "percent":
+            match = self._find_matching_bracket(self._cursor)
+            if match is not None:
+                self._cursor = match
 
     # ------------------------------------------------------------------
     # Line motion helpers (multi-line)
@@ -926,6 +980,41 @@ class VimInput(Widget, can_focus=True):
         new_row = min(row, len(lines) - 1) if lines else 0
         self._cursor = self._offset_from_row_col(new_row, 0) if lines else 0
         self._clamp_cursor_for_command()
+
+    def _find_matching_bracket(self, pos: int) -> int | None:
+        """Return the position of the bracket matching the one at pos, or None.
+
+        Handles ( ) [ ] { }.  Scans forward for openers, backward for closers.
+        """
+        text = self._text
+        if pos >= len(text):
+            return None
+        ch = text[pos]
+        openers = "([{"
+        closers = ")]}"
+        if ch in openers:
+            close = closers[openers.index(ch)]
+            depth = 0
+            for i in range(pos, len(text)):
+                if text[i] == ch:
+                    depth += 1
+                elif text[i] == close:
+                    depth -= 1
+                    if depth == 0:
+                        return i
+            return None
+        if ch in closers:
+            open_ch = openers[closers.index(ch)]
+            depth = 0
+            for i in range(pos, -1, -1):
+                if text[i] == ch:
+                    depth += 1
+                elif text[i] == open_ch:
+                    depth -= 1
+                    if depth == 0:
+                        return i
+            return None
+        return None
 
     def _cmd_open_line_below(self) -> None:
         """o in multi-line: insert a new line after the current line, enter INSERT."""

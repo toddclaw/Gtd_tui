@@ -211,7 +211,8 @@ def main() -> None:
         _cmd_import(args.import_file, data_file, password)
         sys.exit(0)
 
-    GtdApp(password=password).run()
+    tmux_tip = bool(os.environ.get("TMUX")) and not os.environ.get("ESCDELAY")
+    GtdApp(password=password, tmux_tip=tmux_tip).run()
 
 
 if __name__ == "__main__":
