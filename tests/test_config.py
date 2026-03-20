@@ -5,7 +5,12 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
-from gtd_tui.config import Config, load_config, save_default_config
+from gtd_tui.config import (
+    Config,
+    _ensure_config_defaults,
+    load_config,
+    save_default_config,
+)
 
 # ---------------------------------------------------------------------------
 # Config dataclass defaults
@@ -126,3 +131,29 @@ def test_load_config_missing_default_view_uses_default(tmp_path: Path) -> None:
     cfg_file.write_text("[timeout]\ntimeout_minutes = 10\n")
     cfg = load_config(cfg_file)
     assert cfg.default_view == "today"
+
+
+# ---------------------------------------------------------------------------
+# Regression: _ensure_config_defaults must not re-add keys that are commented
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_config_defaults_skips_commented_keys(tmp_path: Path) -> None:
+    """_ensure_config_defaults should not append keys that appear as comments."""
+    cfg = tmp_path / "config.toml"
+    # Write a config where some keys are present only as comments
+    cfg.write_text(
+        "[timeout]\n"
+        "timeout_minutes = 60\n"
+        "# timeout_enabled = false\n"
+        "\n[ui]\n"
+        '# default_view = "inbox"\n'
+        'theme = "red"\n'
+    )
+    raw = tomllib.loads(cfg.read_text())
+    _ensure_config_defaults(cfg, raw)
+
+    text_after = cfg.read_text()
+    # timeout_enabled and default_view appear as comments — they must NOT be appended again
+    assert text_after.count("timeout_enabled") == 1
+    assert text_after.count("default_view") == 1

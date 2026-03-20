@@ -73,17 +73,29 @@ class Config:
 def _ensure_config_defaults(path: Path, raw: dict) -> None:
     """Append any missing default config keys to an existing config file.
 
+    Checks both active and commented keys — if a key appears in any form
+    (active or commented), it is considered "present" and won't be appended.
     Non-destructive: only appends content, never modifies existing lines.
     Silently ignores write errors (e.g. read-only file).
     """
+    import re as _re
+
+    try:
+        file_text = path.read_text(encoding="utf-8")
+    except OSError:
+        return
+
+    def _has_key(key: str) -> bool:
+        """Return True if key appears anywhere in file (active OR commented)."""
+        return bool(_re.search(rf"(?m)^\s*#?\s*{_re.escape(key)}\s*=", file_text))
+
     missing: list[str] = []
 
     # [timeout] section
-    timeout = raw.get("timeout", {})
     timeout_lines: list[str] = []
-    if "timeout_minutes" not in timeout:
+    if not _has_key("timeout_minutes"):
         timeout_lines.append("timeout_minutes = 30\n")
-    if "timeout_enabled" not in timeout:
+    if not _has_key("timeout_enabled"):
         timeout_lines.append("timeout_enabled = true\n")
     if timeout_lines:
         if "timeout" not in raw:
@@ -91,17 +103,16 @@ def _ensure_config_defaults(path: Path, raw: dict) -> None:
         missing.extend(timeout_lines)
 
     # [ui] section
-    ui = raw.get("ui", {})
     ui_lines: list[str] = []
-    if "default_view" not in ui:
+    if not _has_key("default_view"):
         ui_lines.append('default_view = "today"\n')
-    if "theme" not in ui:
+    if not _has_key("theme"):
         ui_lines.append('theme = "blue"\n')
-    if "border_style" not in ui:
+    if not _has_key("border_style"):
         ui_lines.append('border_style = "none"\n')
-    if "border_block_size" not in ui:
+    if not _has_key("border_block_size"):
         ui_lines.append("border_block_size = 3\n")
-    if "border_text" not in ui:
+    if not _has_key("border_text"):
         ui_lines.append('border_text = ""\n')
     if ui_lines:
         if "ui" not in raw:
@@ -109,7 +120,6 @@ def _ensure_config_defaults(path: Path, raw: dict) -> None:
         missing.extend(ui_lines)
 
     # [sidebar_counts] section
-    counts_section = raw.get("sidebar_counts", {})
     count_keys = [
         "inbox",
         "today",
@@ -124,7 +134,7 @@ def _ensure_config_defaults(path: Path, raw: dict) -> None:
     ]
     counts_lines: list[str] = []
     for k in count_keys:
-        if k not in counts_section:
+        if not _has_key(k):
             counts_lines.append(f"{k} = true\n")
     if counts_lines:
         if "sidebar_counts" not in raw:
@@ -210,31 +220,31 @@ timeout_enabled = true
 # View shown when the app launches.
 # Options: "today", "inbox", "upcoming", "waiting_on", "someday"
 # (or the id of a user-created folder)
-# default_view = "today"
+default_view = "today"
 
 # Color palette: "blue" | "red" | "yellow" | "green"
-# theme = "blue"
+theme = "blue"
 
 # Screen border: "none" | "yellow_grey" | "red_grey"
-# border_style = "none"
+border_style = "none"
 
 # Number of cells per color block in the border (when border_style != "none").
-# border_block_size = 3
+border_block_size = 3
 
 # Optional text label rendered inside the screen border.
-# border_text = ""
+border_text = ""
 
 [sidebar_counts]
 # Set any entry to false to hide counts for that section.
-# inbox = true
-# today = true
-# upcoming = true
-# waiting_on = true
-# someday = true
-# reference = true
-# logbook = true
-# user_folders = true
-# projects = true
-# tags = true
+inbox = true
+today = true
+upcoming = true
+waiting_on = true
+someday = true
+reference = true
+logbook = true
+user_folders = true
+projects = true
+tags = true
 """
     path.write_text(content)

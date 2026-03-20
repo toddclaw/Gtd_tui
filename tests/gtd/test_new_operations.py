@@ -249,3 +249,27 @@ def test_add_tag_does_not_affect_other_tasks() -> None:
     new_tasks = add_tag_to_task(tasks, tasks[0].id, "@tag")
     assert "@tag" in new_tasks[0].tags
     assert new_tasks[1].tags == []
+
+
+# ---------------------------------------------------------------------------
+# Regression: // prefix enables case-sensitive search
+# ---------------------------------------------------------------------------
+
+
+def test_search_tasks_case_sensitive_double_slash() -> None:
+    """// prefix makes search case-sensitive, matching only the exact-case task."""
+    tasks = [
+        Task(title="Feature Request"),
+        Task(title="feature bug"),
+    ]
+    # Case-sensitive: only "Feature" (capital F) should match
+    results = search_tasks(tasks, "//Feature")
+    titles = [t.title for t, _ in results]
+    assert "Feature Request" in titles
+    assert "feature bug" not in titles
+
+    # Case-insensitive (no //): both should match
+    results = search_tasks(tasks, "feature")
+    titles = [t.title for t, _ in results]
+    assert "Feature Request" in titles
+    assert "feature bug" in titles

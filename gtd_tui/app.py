@@ -48,7 +48,6 @@ from gtd_tui.gtd.operations import (
     delete_folder,
     delete_project,
     delete_task,
-    duplicate_task,
     edit_task,
     folder_tasks,
     inbox_tasks,
@@ -991,14 +990,33 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
             return text.replace("[", "\\[")
 
         def _highlight(text: str, query: str) -> str:
-            q_lower = query.lower()
-            idx = text.lower().find(q_lower)
-            if idx == -1:
+            """Highlight the match in text. Handles // prefix and regex patterns."""
+            import re as _re
+
+            case_sensitive = query.startswith("//")
+            pattern = query[2:] if case_sensitive else query
+            if not pattern:
                 return _escape(text)
-            before = _escape(text[:idx])
-            match = _escape(text[idx : idx + len(query)])
-            after = _escape(text[idx + len(query) :])
-            return f"{before}[bold yellow]{match}[/bold yellow]{after}"
+            try:
+                flags = 0 if case_sensitive else _re.IGNORECASE
+                m = _re.search(pattern, text, flags)
+                if m is None:
+                    return _escape(text)
+                before = _escape(text[: m.start()])
+                match_text = _escape(text[m.start() : m.end()])
+                after = _escape(text[m.end() :])
+                return f"{before}[bold yellow]{match_text}[/bold yellow]{after}"
+            except _re.error:
+                # Fallback: plain substring search
+                haystack = text if case_sensitive else text.lower()
+                needle = pattern if case_sensitive else pattern.lower()
+                idx = haystack.find(needle)
+                if idx == -1:
+                    return _escape(text)
+                before = _escape(text[:idx])
+                match_text = _escape(text[idx : idx + len(pattern)])
+                after = _escape(text[idx + len(pattern) :])
+                return f"{before}[bold yellow]{match_text}[/bold yellow]{after}"
 
         def _folder_tag(task: Task) -> str:
             folder_map = {
@@ -1555,6 +1573,10 @@ def _build_action_picker_entries(
 
 class GtdApp(App[None]):
     ESCAPE_TO_MINIMIZE = False  # prevent Textual's minimize-on-Esc delay
+
+    BINDINGS = [
+        Binding("escape", "cancel_insert_mode", priority=True, show=False),
+    ]
 
     CSS = """
     Screen {
@@ -2492,7 +2514,7 @@ class GtdApp(App[None]):
             self._handle_delete_confirm_project_key(event)
             return
         if self._mode == "INSERT":
-            if event.key in ("escape", "ctrl+c"):
+            if event.key == "ctrl+c":
                 self._cancel_input()
         elif self._visual_mode:
             self._handle_visual_key(event)
@@ -2663,6 +2685,9 @@ class GtdApp(App[None]):
         elif event.key == "question_mark":
             event.prevent_default()
             self.push_screen(HelpScreen())
+        elif event.key == "colon":
+            event.prevent_default()
+            self._start_command()
         elif event.key == "ctrl+c":
             event.prevent_default()
             # no-op in sidebar NORMAL mode; here for completeness
@@ -2837,7 +2862,7 @@ class GtdApp(App[None]):
         elif event.key == "y":
             event.prevent_default()
             task = self._get_selected_task()
-            if task is not None and not is_divider_task(task):
+            if task is not None:
                 self._task_register = task
             self._yank_task()
         elif event.key == "p":
@@ -2959,6 +2984,29 @@ class GtdApp(App[None]):
         vim.focus()
         self._update_status()
         self._refresh_list()  # show the placeholder row immediately
+
+    def action_cancel_insert_mode(self) -> None:
+        """Priority Esc handler: cancel INSERT mode input before any widget sees the key."""
+        if len(self.screen_stack) > 1:
+            # A modal is active.  If the focused widget is a VimInput in INSERT
+            # sub-mode, let the VimInput handle Escape itself (it will switch to
+            # COMMAND mode).  Otherwise forward to the screen's close action.
+            focused = self.screen.focused
+            if isinstance(focused, VimInput) and focused._vim_mode == "insert":
+                focused.set_mode("command")
+                return
+            screen = self.screen
+            if hasattr(screen, "action_save_and_close"):
+                screen.action_save_and_close()  # type: ignore[union-attr]
+            elif hasattr(screen, "action_cancel"):
+                screen.action_cancel()  # type: ignore[union-attr]
+            else:
+                screen.dismiss()
+            return
+        if self._mode == "INSERT":
+            self._cancel_input()
+        elif self._visual_mode:
+            self._exit_visual_mode()
 
     def _start_command(self) -> None:
         self._mode = "INSERT"
@@ -3434,21 +3482,56 @@ class GtdApp(App[None]):
             self._update_status("(no task yanked — press y first)")
             return
         src = self._task_register
-        task = self._get_selected_task()
+        anchor = self._get_selected_task()
         self._push_undo()
-        new_tasks = duplicate_task(self._all_tasks, src.id)
-        # `duplicate_task` adds to the end; we need to reorder it.
-        # Find the duplicated task (last appended) and move it to the right spot.
-        new_task = new_tasks[-1]
-        if task is not None:
-            anchor_id = task.id
-            if position == "after":
-                new_tasks = insert_task_after(new_tasks, new_task.id, anchor_id)
-            else:
-                new_tasks = insert_task_before(new_tasks, new_task.id, anchor_id)
-        self._all_tasks = new_tasks
+
+        import uuid as _uuid
+        from dataclasses import replace as _replace
+        from datetime import datetime as _dt
+
+        # The duplicate lands in the anchor's folder (current view), not src's folder.
+        target_folder = (
+            anchor.folder_id
+            if anchor is not None
+            else (src.folder_id if src.folder_id != "logbook" else "inbox")
+        )
+
+        if anchor is not None:
+            insert_pos = anchor.position + (1 if position == "after" else 0)
+            # Shift tasks in the target folder at or beyond insert_pos.
+            shifted: list[Task] = []
+            for t in self._all_tasks:
+                if t.folder_id == target_folder and t.position >= insert_pos:
+                    shifted.append(_replace(t, position=t.position + 1))
+                else:
+                    shifted.append(t)
+        else:
+            shifted = list(self._all_tasks)
+            insert_pos = (
+                max(
+                    (
+                        t.position
+                        for t in self._all_tasks
+                        if t.folder_id == target_folder
+                    ),
+                    default=0,
+                )
+                + 1
+            )
+
+        new_id = str(_uuid.uuid4())
+        dup = _replace(
+            src,
+            id=new_id,
+            created_at=_dt.now(),
+            is_deleted=False,
+            completed_at=None,
+            folder_id=target_folder,
+            position=insert_pos,
+        )
+        self._all_tasks = shifted + [dup]
         self._save()
-        self._refresh_list(select_task_id=new_task.id)
+        self._refresh_list(select_task_id=new_id)
         self._update_status("(task duplicated)")
 
     def _open_task_detail(self) -> None:
@@ -3900,11 +3983,19 @@ class GtdApp(App[None]):
             self._refresh_list(select_task_id=first_task_id)
             self._update_status()
         elif action_type == "project":
+            from dataclasses import replace as _dc_replace
+
             for tid in task_ids:
                 self._all_tasks = assign_task_to_project(
                     self._all_tasks, tid, target_id
                 )
+                # Detach from its current folder — the task now lives in the project view.
+                self._all_tasks = [
+                    _dc_replace(t, folder_id="") if t.id == tid else t
+                    for t in self._all_tasks
+                ]
             self._save()
+            self._rebuild_sidebar()
             self._refresh_list()
             self._update_status("(assigned to project)")
         elif action_type == "tag":

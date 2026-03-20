@@ -1348,3 +1348,74 @@ async def test_start_at_beginning_allows_normal_typing_after() -> None:
         # Typing should insert at cursor position 0
         await pilot.press("h", "i", " ")
         assert vi.value.startswith("hi world")
+
+
+# ---------------------------------------------------------------------------
+# Regression: count prefix for s and dd
+# ---------------------------------------------------------------------------
+
+
+async def test_count_s_deletes_char_and_enters_insert() -> None:
+    """s with a count deletes one char immediately and enters INSERT mode.
+
+    The count is preserved so that repeating with '.' replays the substitution
+    with the correct count.  The initial s press deletes exactly one char.
+    """
+    async with _App(value="hello world", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        # 3s: deletes 'h' immediately and enters INSERT mode
+        await pilot.press("3", "s")
+        await pilot.pause()
+        # Immediately after 3s: 1 char ('h') deleted, mode is INSERT
+        assert vi._vim_mode == "insert"
+        assert vi._text == "ello world"
+
+
+async def test_count_s_repeat_dot_deletes_count_chars() -> None:
+    """After 3s<X><Esc>, pressing '.' should repeat the substitution deleting 3 chars.
+
+    The fix ensures _pre_s captures _s_count=3 so the dot-repeat deletes 3 chars,
+    not just 1 (which would be the buggy behavior).
+    """
+    async with _App(value="abcdefgh", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi._cursor = 0
+        # 3s: deletes 'a' (1 char), enters INSERT
+        await pilot.press("3", "s")
+        await pilot.pause()
+        assert vi._text == "bcdefgh"  # 'a' deleted
+        # Type replacement char, then Esc to commit
+        await pilot.press("X")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+        # State: 'Xbcdefgh', cursor clamped to 0 in command mode
+        assert vi._text == "Xbcdefgh"
+        assert vi._vim_mode == "command"
+        # '.' replays: pre_s deletes 3 chars ('X','b','c'), then inserts 'X' → 'XXefgh' (6 chars)
+        await pilot.press("period")
+        await pilot.pause()
+        # 3 chars deleted, 1 char inserted → net -2 chars from 'Xbcdefgh' (8 chars) = 6 chars
+        assert len(vi._text) == 6
+        assert vi._text == "XXefgh"
+
+
+async def test_count_dd_deletes_multiple_lines() -> None:
+    """2dd should delete 2 lines in multiline mode."""
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        # Type 4 lines
+        for word in ["line1", "line2", "line3", "line4"]:
+            for ch in word:
+                await pilot.press(ch)
+            await pilot.press("enter")
+        # Remove trailing newline by pressing backspace once
+        await pilot.press("backspace")
+        await pilot.press("escape")  # enter command mode
+        # Move cursor to start
+        vi._cursor = 0
+        await pilot.press("2", "d", "d")
+        await pilot.pause()
+        # Should have deleted line1 and line2, leaving line3 and line4
+        assert vi._text == "line3\nline4"
