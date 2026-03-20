@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Startup focus config** (`[ui] startup_focus_sidebar`): when `true` (default), focus starts on the sidebar; when `false`, focus starts on the task list (or the empty-hint when the list is empty) so `o` adds a task immediately.
+- **Project view strikethrough**: completed project sub-tasks now appear crossed out in the project view instead of being hidden.
+- **H/M/L/G/gg in action picker**: move/assign/tag picker supports `H` (top), `M` (middle), `L` (bottom), `G` (bottom), `gg` (top) for fast navigation.
+- **H/M/L in sidebar**: `H`, `M`, `L` jump to top/middle/bottom of the sidebar (and in move-mode folder picker).
+
+### Fixed
+- **Empty task list focus**: when `startup_focus_sidebar=false` and the task list is empty, focus now correctly goes to the empty-hint so `o` adds a task instead of creating a folder.
+
+---
+
 ## [1.7.0] — 2026-03-20
 
 ### Added

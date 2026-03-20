@@ -20,6 +20,7 @@ Special note on Esc-key latency tests:
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from textual.app import App, ComposeResult
 from textual.widgets import Label, ListView
 
 from gtd_tui.app import GtdApp, SearchScreen, TaskDetailScreen
+from gtd_tui.config import Config, load_config
 from gtd_tui.gtd.operations import (
     add_task,
     add_task_to_folder,
@@ -55,7 +57,8 @@ def _prepopulate(tmp_path: Path, *titles: str, folder: str = "today") -> Path:
 
 
 def _make_app(tmp_path: Path) -> GtdApp:
-    return GtdApp(data_file=tmp_path / "data.json")
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    return GtdApp(data_file=tmp_path / "data.json", config=cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +135,8 @@ async def test_esc_task_detail_field_insert_to_command_latency(
     press Esc → time the transition → verify COMMAND (accent).
     """
     data_file = _prepopulate(tmp_path, "Buy groceries")
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -231,7 +235,8 @@ async def test_scheduled_task_disappears_from_today_view(tmp_path: Path) -> None
     because its scheduled_date is strictly in the future.
     """
     data_file = _prepopulate(tmp_path, "Read book")
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -274,7 +279,8 @@ async def test_scheduled_task_appears_in_upcoming_view(tmp_path: Path) -> None:
     tasks = schedule_task(tasks, tasks[0].id, date.today() + timedelta(days=7))
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
         upcoming = upcoming_tasks(app._all_tasks)
@@ -300,7 +306,8 @@ async def test_completing_recurring_task_creates_new_instance(
     tasks = set_recur_rule(tasks, tasks[0].id, RecurRule(interval=7, unit="days"))
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -336,7 +343,8 @@ async def test_search_navigates_to_task_on_select(tmp_path: Path) -> None:
     From there a final Enter opens the TaskDetailScreen.
     """
     data_file = _prepopulate(tmp_path, "Draft proposal", "Review PR", "Send invoice")
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -370,7 +378,8 @@ async def test_search_navigates_to_task_on_select(tmp_path: Path) -> None:
 async def test_search_esc_returns_to_task_list(tmp_path: Path) -> None:
     """Esc from the search screen closes it and returns to the task list."""
     data_file = _prepopulate(tmp_path, "Buy milk")
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("slash")
@@ -392,7 +401,8 @@ async def test_search_esc_returns_to_task_list(tmp_path: Path) -> None:
 async def test_undo_restores_deleted_task(tmp_path: Path) -> None:
     """Deleting a task then pressing u restores it to the active list."""
     data_file = _prepopulate(tmp_path, "Fix critical bug")
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -428,6 +438,8 @@ async def test_inbox_capture_task_stays_in_inbox(tmp_path: Path) -> None:
         await pilot.press("0")
         await pilot.pause()
         assert app._current_view == "inbox"
+        await pilot.press("l")  # focus task list to show Inbox
+        await pilot.pause()
 
         # Create a new task
         await pilot.press("o")
@@ -458,7 +470,8 @@ async def test_notes_edit_persists_after_esc_save(tmp_path: Path) -> None:
     → Esc (COMMAND→save+close) → verify notes persisted in memory and on disk.
     """
     data_file = _prepopulate(tmp_path, "Write tests")
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -515,7 +528,8 @@ async def test_double_esc_from_detail_field_closes_and_saves(
     quickly — the test also asserts the sequence completes within 500 ms total.
     """
     data_file = _prepopulate(tmp_path, "Ship feature")
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -588,7 +602,8 @@ async def test_visual_bulk_delete_full_journey(tmp_path: Path) -> None:
         tasks = add_task(tasks, title)
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -624,7 +639,8 @@ async def test_visual_bulk_complete_full_journey(tmp_path: Path) -> None:
         tasks = add_task(tasks, title)
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
 

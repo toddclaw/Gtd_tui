@@ -53,6 +53,8 @@ class Config:
         timeout_enabled: Whether the auto-quit timeout is active.
         default_view: Sidebar view shown on launch ("today", "inbox", "upcoming",
             "someday", "waiting_on", or a user-folder id).
+        startup_focus_sidebar: If True, focus sidebar on launch; if False, focus
+            task list (legacy behavior, used by tests).
         theme: Color palette ("blue", "red", "yellow", "green").
         border_style: Screen border style ("none", "yellow_grey", "red_grey").
         border_block_size: Number of cells per color block in the border.
@@ -63,6 +65,7 @@ class Config:
     timeout_minutes: int = 30
     timeout_enabled: bool = True
     default_view: str = "today"
+    startup_focus_sidebar: bool = True
     theme: str = "blue"
     border_style: str = "none"
     border_block_size: int = 3
@@ -189,6 +192,9 @@ def load_config(path: Path | None = None) -> Config:
             timeout_section.get("timeout_enabled", Config.timeout_enabled)
         ),
         default_view=str(ui_section.get("default_view", Config.default_view)),
+        startup_focus_sidebar=bool(
+            ui_section.get("startup_focus_sidebar", Config.startup_focus_sidebar)
+        ),
         theme=str(ui_section.get("theme", Config.theme)),
         border_style=str(ui_section.get("border_style", Config.border_style)),
         border_block_size=int(

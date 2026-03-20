@@ -8,12 +8,14 @@ user's real data is never touched.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from textual.widgets import Label, ListView
 
 from gtd_tui.app import GtdApp, SearchScreen, TaskDetailScreen
+from gtd_tui.config import load_config
 from gtd_tui.gtd.operations import add_task, add_task_to_folder, create_folder
 from gtd_tui.storage.file import save_data
 from gtd_tui.widgets.vim_input import VimInput
@@ -24,7 +26,14 @@ from gtd_tui.widgets.vim_input import VimInput
 
 
 def _make_app(tmp_path: Path) -> GtdApp:
-    return GtdApp(data_file=tmp_path / "data.json")
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    return GtdApp(data_file=tmp_path / "data.json", config=cfg)
+
+
+def _app(data_file: Path) -> GtdApp:
+    """Create app with task list focused on startup (for tests)."""
+    cfg = replace(load_config(), startup_focus_sidebar=False)
+    return GtdApp(data_file=data_file, config=cfg)
 
 
 def _prepopulate(tmp_path: Path, *titles: str) -> Path:
@@ -60,7 +69,7 @@ async def test_launch_shows_empty_hint_with_no_tasks(tmp_path: Path) -> None:
 
 async def test_launch_loads_existing_tasks(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Buy milk", "Call dentist")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert len(app._all_tasks) == 2
@@ -99,7 +108,7 @@ async def test_add_task_appears_in_task_list(tmp_path: Path) -> None:
 
 async def test_add_task_saves_to_data_file(tmp_path: Path) -> None:
     data_file = tmp_path / "data.json"
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("o")
@@ -140,7 +149,7 @@ async def test_press_escape_cancels_task_creation(tmp_path: Path) -> None:
 
 async def test_x_completes_selected_task(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Finish report")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("x")
@@ -152,7 +161,7 @@ async def test_x_completes_selected_task(tmp_path: Path) -> None:
 
 async def test_completing_task_removes_it_from_today(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Walk dog")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("x")
@@ -168,7 +177,7 @@ async def test_completing_task_removes_it_from_today(tmp_path: Path) -> None:
 
 async def test_d_deletes_selected_task(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Finish report")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("d")
@@ -181,7 +190,7 @@ async def test_d_deletes_selected_task(tmp_path: Path) -> None:
 
 async def test_deleted_task_not_marked_complete(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Finish report")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("d")
@@ -192,7 +201,7 @@ async def test_deleted_task_not_marked_complete(tmp_path: Path) -> None:
 
 async def test_deleting_task_removes_it_from_today(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Walk dog")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("d")
@@ -203,7 +212,7 @@ async def test_deleting_task_removes_it_from_today(tmp_path: Path) -> None:
 
 async def test_deleted_task_persists_to_data_file(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Walk dog")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("d")
@@ -218,7 +227,7 @@ async def test_deleted_task_persists_to_data_file(tmp_path: Path) -> None:
 async def test_o_in_logbook_does_not_add_task(tmp_path: Path) -> None:
     """o and O must be no-ops in the Logbook — new tasks cannot be added there."""
     data_file = _prepopulate(tmp_path, "Done task")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("x")  # complete → logbook
@@ -237,7 +246,7 @@ async def test_o_in_logbook_does_not_add_task(tmp_path: Path) -> None:
 
 async def test_d_in_logbook_purges_entry(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Done task")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("x")  # complete → logbook
@@ -259,7 +268,7 @@ async def test_d_in_logbook_purges_entry(tmp_path: Path) -> None:
 
 async def test_enter_opens_task_detail_screen(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Plan sprint")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")
@@ -269,7 +278,7 @@ async def test_enter_opens_task_detail_screen(tmp_path: Path) -> None:
 
 async def test_escape_closes_task_detail_screen(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Plan sprint")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")
@@ -290,7 +299,7 @@ async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
     Second Esc from notes COMMAND mode bubbles to TaskDetailScreen → save+close.
     """
     data_file = _prepopulate(tmp_path, "foo")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -347,7 +356,7 @@ async def test_detail_fields_normalised_on_focus_advance(tmp_path: Path) -> None
     from datetime import date, timedelta
 
     data_file = _prepopulate(tmp_path, "Buy milk")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")  # open detail view
@@ -390,7 +399,7 @@ async def test_detail_date_someday_moves_task_to_someday_folder(tmp_path: Path) 
     """Entering 'someday' in the Date field of TaskDetailScreen moves the task
     to the Someday folder (case-insensitive, matches [Ss]omeday)."""
     data_file = _prepopulate(tmp_path, "Read a book")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")  # open detail view
@@ -420,7 +429,7 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
     """Open the detail view for 'foo', navigate to the Repeat field, enter '7 days',
     save, then switch to the Upcoming view and verify the task appears there."""
     data_file = _prepopulate(tmp_path, "foo")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -475,7 +484,7 @@ async def test_set_date_via_detail_screen(tmp_path: Path) -> None:
     from datetime import date, timedelta
 
     data_file = _prepopulate(tmp_path, "foo")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")  # open detail
@@ -503,7 +512,7 @@ async def test_set_date_via_detail_screen(tmp_path: Path) -> None:
 async def test_j_navigates_to_next_field_in_detail_screen(tmp_path: Path) -> None:
     """Pressing j in command mode on a single-line field moves focus to the next field."""
     data_file = _prepopulate(tmp_path, "foo")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")  # open detail — title focused
@@ -556,7 +565,7 @@ async def test_search_tasks_in_user_folder_no_markup_crash(tmp_path: Path) -> No
     tasks = add_task_to_folder([], folder_id, "Schedule a meeting")
     save_data(tasks, folders, data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("slash")
@@ -581,7 +590,7 @@ async def test_search_title_with_brackets_no_markup_crash(tmp_path: Path) -> Non
     """
     data_file = _prepopulate(tmp_path, "(ab) [cd] {ef}")
 
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("slash")
@@ -610,7 +619,8 @@ async def test_h_focuses_sidebar(tmp_path: Path) -> None:
 
 
 async def test_l_from_sidebar_focuses_task_list(tmp_path: Path) -> None:
-    app = _make_app(tmp_path)
+    # Use default config (sidebar focused) to test "l" → task list
+    app = GtdApp(data_file=tmp_path / "data.json")
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("h")  # move to sidebar
@@ -627,7 +637,7 @@ async def test_deleting_non_empty_folder_sends_tasks_to_logbook(tmp_path: Path) 
     from gtd_tui.gtd.operations import add_task_to_folder, create_folder
 
     data_file = tmp_path / "data.json"
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Create a folder and add a task to it
@@ -651,7 +661,7 @@ async def test_J_K_reorders_folders_in_sidebar(tmp_path: Path) -> None:
     from gtd_tui.gtd.operations import create_folder
 
     data_file = tmp_path / "data.json"
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Pre-populate two folders directly
@@ -700,7 +710,12 @@ async def test_o_in_sidebar_creates_folder(tmp_path: Path) -> None:
         assert app._current_view == next(
             f.id for f in app._all_folders if f.name == "Work"
         )
-        assert app.query_one("#task-list", ListView).has_focus
+        # After folder creation, focus returns to content (task list or empty-hint)
+        content_focused = (
+            app.query_one("#task-list", ListView).has_focus
+            or app.query_one("#empty-hint").has_focus
+        )
+        assert content_focused
 
 
 # ---------------------------------------------------------------------------
@@ -710,7 +725,7 @@ async def test_o_in_sidebar_creates_folder(tmp_path: Path) -> None:
 
 async def test_undo_restores_completed_task(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Write tests")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("x")  # complete the task
@@ -740,7 +755,7 @@ async def test_tasks_persist_across_app_restarts(tmp_path: Path) -> None:
     data_file = tmp_path / "data.json"
 
     # First session: add a task
-    app1 = GtdApp(data_file=data_file)
+    app1 = _app(data_file)
     async with app1.run_test() as pilot:
         await pilot.pause()
         await pilot.press("o")
@@ -752,7 +767,7 @@ async def test_tasks_persist_across_app_restarts(tmp_path: Path) -> None:
         await pilot.pause()
 
     # Second session: load the same data file and verify the task is there
-    app2 = GtdApp(data_file=data_file)
+    app2 = _app(data_file)
     async with app2.run_test() as pilot:
         await pilot.pause()
         today = [t for t in app2._all_tasks if t.folder_id == "today"]
@@ -767,7 +782,7 @@ async def test_tasks_persist_across_app_restarts(tmp_path: Path) -> None:
 async def test_recurring_task_shows_recurrence_marker(tmp_path: Path) -> None:
     """Tasks with a repeat_rule should display a ↻ marker in the list."""
     data_file = _prepopulate(tmp_path, "foo")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Open detail, advance to repeat field, set 7 days
@@ -805,7 +820,7 @@ async def test_recurring_task_shows_recurrence_marker(tmp_path: Path) -> None:
 
 async def test_H_jumps_to_top(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Task 1", "Task 2", "Task 3")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         task_list = app.query_one("#task-list", ListView)
@@ -821,7 +836,7 @@ async def test_H_jumps_to_top(tmp_path: Path) -> None:
 
 async def test_L_jumps_to_bottom(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Task 1", "Task 2", "Task 3")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         task_list = app.query_one("#task-list", ListView)
@@ -832,7 +847,7 @@ async def test_L_jumps_to_bottom(tmp_path: Path) -> None:
 
 async def test_M_jumps_to_middle(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Task 1", "Task 2", "Task 3", "Task 4", "Task 5")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         task_list = app.query_one("#task-list", ListView)
@@ -849,7 +864,7 @@ async def test_M_jumps_to_middle(tmp_path: Path) -> None:
 
 async def test_someday_keyword_moves_task_to_someday_folder(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Low priority task")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Press 's' to open schedule input
@@ -872,7 +887,7 @@ async def test_someday_keyword_moves_task_to_someday_folder(tmp_path: Path) -> N
 
 async def test_sidebar_shows_today_count(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Task A", "Task B")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         sidebar = app.query_one("#sidebar", ListView)
@@ -902,7 +917,7 @@ async def test_o_inserts_folder_after_selected(tmp_path: Path) -> None:
     folders = create_folder(folders, "Beta")
     save_data([], folders, data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Press h to move focus to sidebar (task-list → sidebar)
@@ -931,7 +946,7 @@ async def test_o_inserts_folder_after_selected(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_new_task_has_created_at(tmp_path: Path) -> None:
-    app = GtdApp(data_file=tmp_path / "data.json")
+    app = _make_app(tmp_path)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("o")
@@ -954,7 +969,7 @@ async def test_new_task_has_created_at(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_notes_support_newlines_in_detail_view(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "My task")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Open detail
@@ -993,7 +1008,7 @@ async def test_yank_copies_title_to_clipboard(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     data_file = _prepopulate(tmp_path, "Buy milk")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         with patch("pyperclip.copy") as mock_copy:
@@ -1011,7 +1026,7 @@ async def test_yank_copies_title_and_notes_to_clipboard(tmp_path: Path) -> None:
     data_file = tmp_path / "data.json"
     tasks = add_task([], "Buy milk", notes="whole milk, 2 litres")
     save_data(tasks, [], data_file=data_file)
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         with patch("pyperclip.copy") as mock_copy:
@@ -1025,7 +1040,7 @@ async def test_yank_shows_status_message(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     data_file = _prepopulate(tmp_path, "Buy milk")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         with patch("pyperclip.copy"):
@@ -1042,7 +1057,7 @@ async def test_yank_shows_unavailable_when_clipboard_missing(tmp_path: Path) -> 
     import pyperclip
 
     data_file = _prepopulate(tmp_path, "Buy milk")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         with patch("pyperclip.copy", side_effect=pyperclip.PyperclipException):
@@ -1057,7 +1072,7 @@ async def test_visual_yank_copies_all_selected_titles(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     data_file = _prepopulate(tmp_path, "Task A", "Task B", "Task C")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Enter VISUAL mode and extend down to select first two tasks
@@ -1084,7 +1099,7 @@ async def test_visual_yank_includes_notes_for_tasks_with_notes(tmp_path: Path) -
     tasks = add_task([], "Alpha", notes="alpha notes")
     tasks = add_task(tasks, "Beta")
     save_data(tasks, [], data_file=data_file)
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Select both tasks
@@ -1106,7 +1121,7 @@ async def test_visual_yank_exits_visual_mode(tmp_path: Path) -> None:
     from unittest.mock import patch
 
     data_file = _prepopulate(tmp_path, "Task A", "Task B")
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("v")
@@ -1175,7 +1190,7 @@ async def test_m_key_normal_mode_moves_task_to_folder(tmp_path: Path) -> None:
     tasks = add_task([], "Move me")
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # NORMAL mode, task selected: press m to open action picker
@@ -1211,7 +1226,7 @@ async def test_spawn_repeating_tasks_fires_on_launch(tmp_path: Path) -> None:
     tasks = set_repeat_rule(tasks, tasks[0].id, rule)
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = _app(data_file)
     async with app.run_test() as pilot:
         await pilot.pause()
         # on_mount should have spawned a Today copy (no repeat_rule on the copy)

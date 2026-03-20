@@ -80,6 +80,7 @@ from gtd_tui.gtd.operations import (
     parse_repeat_input,
     project_progress,
     project_tasks,
+    project_tasks_including_completed,
     purge_logbook_task,
     reference_tasks,
     rename_area,
@@ -213,6 +214,7 @@ class HelpScreen(ModalScreen[None]):
   p / P        Paste register after / before cursor (or below / above in notes)
 
 [bold]Sidebar Actions (sidebar focused)[/bold]
+  H / M / L    Jump to top / middle / bottom of sidebar
   g g          Jump to top of sidebar
   G            Jump to bottom of sidebar
   o / O        Create new folder after / before selected
@@ -1359,6 +1361,12 @@ _BORDER_COLORS: dict[str, tuple[str, str]] = {
 _BLOCK_CHAR = "█"
 
 
+class _FocusableEmptyHint(Label):
+    """Label that can receive focus when the task list is empty so 'o' adds task not folder."""
+
+    can_focus = True
+
+
 class ColorBorderStrip(Static, can_focus=False):
     """Renders a strip of alternating-color block characters for a screen border."""
 
@@ -1487,10 +1495,14 @@ class _ActionPickerScreen(ModalScreen["tuple[str, str] | None"]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker-outer"):
-            yield Label("Move / Assign / Tag  (j/k Enter Esc)", id="picker-header")
+            yield Label(
+                "Move / Assign / Tag  (j/k H/M/L/G/gg Enter Esc)",
+                id="picker-header",
+            )
             yield ListView(id="picker-list")
 
     def on_mount(self) -> None:
+        self._picker_pending_g = False
         lv = self.query_one("#picker-list", ListView)
         for label, payload in self._picker_entries:
             if payload is None:
@@ -1505,9 +1517,32 @@ class _ActionPickerScreen(ModalScreen["tuple[str, str] | None"]):
                 lv.index = i
                 break
 
+    def _selectable_indices(self) -> list[int]:
+        """Return indices of selectable rows (skip section headers)."""
+        return [
+            i
+            for i, (_, payload) in enumerate(self._picker_entries)
+            if payload is not None
+        ]
+
     def on_key(self, event: events.Key) -> None:
         lv = self.query_one("#picker-list", ListView)
         n = len(self._picker_entries)
+        selectable = self._selectable_indices()
+
+        # gg chord: g then g
+        pending = getattr(self, "_picker_pending_g", False)
+        if pending and event.key == "g":
+            self._picker_pending_g = False
+            event.prevent_default()
+            if selectable:
+                lv.index = selectable[0]
+            return
+        self._picker_pending_g = False
+        if event.key == "g":
+            self._picker_pending_g = True
+            return
+
         if event.key == "j":
             event.prevent_default()
             idx = (lv.index or 0) + 1
@@ -1522,6 +1557,18 @@ class _ActionPickerScreen(ModalScreen["tuple[str, str] | None"]):
                 idx -= 1
             if idx >= 0:
                 lv.index = idx
+        elif event.key == "H":
+            event.prevent_default()
+            if selectable:
+                lv.index = selectable[0]
+        elif event.key in ("G", "L"):
+            event.prevent_default()
+            if selectable:
+                lv.index = selectable[-1]
+        elif event.key == "M":
+            event.prevent_default()
+            if selectable:
+                lv.index = selectable[len(selectable) // 2]
         elif event.key in ("enter", "l"):
             event.prevent_default()
             idx = lv.index or 0
@@ -1677,10 +1724,11 @@ class GtdApp(App[None]):
         data_file: Path | None = None,
         password: str | None = None,
         tmux_tip: bool = False,
+        config: Config | None = None,
     ) -> None:
         # _config must be set before super().__init__() because get_css_variables()
         # can be called during Textual's stylesheet initialisation.
-        self._config: Config = load_config()
+        self._config: Config = config if config is not None else load_config()
         super().__init__()
         self._data_file: Path | None = data_file
         self._password: str | None = password
@@ -1741,6 +1789,8 @@ class GtdApp(App[None]):
         # VISUAL mode state
         self._visual_mode: bool = False
         self._visual_anchor_idx: int | None = None
+        # On first mount, focus sidebar instead of task list (cleared after _apply_selection)
+        self._initial_mount: bool = False
         # Pending task IDs for bulk operations (schedule, move)
         self._pending_task_ids: list[str] = []
         # Search navigation state (n / N)
@@ -1878,7 +1928,9 @@ class GtdApp(App[None]):
                 yield VimInput(placeholder="Task title...", id="vim-input")
                 yield Input(placeholder="Task title...", id="task-input")
                 yield ListView(id="task-list")
-                yield Label("No tasks — press o to add one", id="empty-hint")
+                yield _FocusableEmptyHint(
+                    "No tasks — press o to add one", id="empty-hint"
+                )
         yield Label("NORMAL  |  Today", id="status")
 
     def compose(self) -> ComposeResult:
@@ -1909,8 +1961,8 @@ class GtdApp(App[None]):
         if len(self._all_tasks) != old_len:
             self._save()
         self._rebuild_sidebar()
+        self._initial_mount = True
         self._refresh_list()
-        self.query_one("#task-list", ListView).focus()
         self.set_interval(60, self._check_timeout)
         if self._tmux_tip:
             self._update_status(
@@ -2167,10 +2219,11 @@ class GtdApp(App[None]):
         # clear() and append().  Setting index before the DOM settles causes
         # Textual to silently discard it, which makes the highlight vanish.
         target_idx = self._compute_target_index(select_task_id, prev_index)
-        if target_idx is not None:
-            self.call_after_refresh(self._apply_selection, target_idx)
-
         has_tasks = any(e is not None for e in self._list_entries)
+        if target_idx is not None or not has_tasks:
+            self.call_after_refresh(
+                self._apply_selection, target_idx if target_idx is not None else 0
+            )
         empty_hint = self.query_one("#empty-hint", Label)
         if has_tasks:
             empty_hint.add_class("hidden")
@@ -2354,8 +2407,13 @@ class GtdApp(App[None]):
         self.query_one("#header", Label).update(
             f"{markup_escape(project.title)} ({done}/{total})"
         )
-        tasks = project_tasks(self._all_tasks, project_id)
-        self._render_simple_list(list_view, tasks, self._task_label)
+        tasks = project_tasks_including_completed(self._all_tasks, project_id)
+
+        def _project_task_label(task: Task) -> str:
+            base = self._task_label(task)
+            return f"[strike]{base}[/strike]" if task.is_complete else base
+
+        self._render_simple_list(list_view, tasks, _project_task_label)
 
     def _placeholder_insert_idx(self, active: list[Task]) -> int:
         """Index within `active` before which the placeholder row is inserted."""
@@ -2406,10 +2464,24 @@ class GtdApp(App[None]):
     def _apply_selection(self, idx: int) -> None:
         """Set the ListView highlight and restore focus after a DOM rebuild."""
         list_view = self.query_one("#task-list", ListView)
-        list_view.index = idx
+        has_tasks = any(e is not None for e in self._list_entries)
+        if has_tasks:
+            list_view.index = idx
         sidebar = self.query_one("#sidebar", ListView)
-        if self._mode == "NORMAL" and not sidebar.has_focus:
-            list_view.focus()
+        has_tasks = any(e is not None for e in self._list_entries)
+        if getattr(self, "_initial_mount", False):
+            self._initial_mount = False
+            if self._config.startup_focus_sidebar:
+                sidebar.focus()
+            elif has_tasks:
+                list_view.focus()
+            else:
+                self.query_one("#empty-hint", _FocusableEmptyHint).focus()
+        elif self._mode == "NORMAL" and not sidebar.has_focus:
+            if has_tasks:
+                list_view.focus()
+            else:
+                self.query_one("#empty-hint", _FocusableEmptyHint).focus()
 
     _UNDO_CAP = 20
 
@@ -2528,17 +2600,44 @@ class GtdApp(App[None]):
 
         # Move-mode: sidebar is acting as a folder picker
         if self._move_mode:
+            n = len(self._sidebar_view_ids)
             if event.key == "j":
                 event.prevent_default()
+                self._pending_key = ""
                 sidebar.action_cursor_down()
             elif event.key == "k":
                 event.prevent_default()
+                self._pending_key = ""
                 sidebar.action_cursor_up()
+            elif event.key == "H":
+                event.prevent_default()
+                self._pending_key = ""
+                if n > 0:
+                    sidebar.index = 0
+            elif event.key == "M":
+                event.prevent_default()
+                self._pending_key = ""
+                if n > 0:
+                    sidebar.index = n // 2
+            elif event.key in ("L", "G"):
+                event.prevent_default()
+                self._pending_key = ""
+                if n > 0:
+                    sidebar.index = n - 1
+            elif self._pending_key == "g" and event.key == "g":
+                event.prevent_default()
+                self._pending_key = ""
+                if n > 0:
+                    sidebar.index = 0
+            elif event.key == "g":
+                self._pending_key = "g"
             elif event.key in ("l", "enter"):
                 event.prevent_default()
+                self._pending_key = ""
                 self._confirm_move_task()
             elif event.key == "escape":
                 event.prevent_default()
+                self._pending_key = ""
                 self._cancel_move_mode()
             return
 
@@ -2560,7 +2659,24 @@ class GtdApp(App[None]):
             if n > 0:
                 sidebar.index = n - 1
             return
-        elif event.key == "j":
+        if event.key == "H":
+            event.prevent_default()
+            if self._sidebar_view_ids:
+                sidebar.index = 0
+            return
+        if event.key == "M":
+            event.prevent_default()
+            n = len(self._sidebar_view_ids)
+            if n > 0:
+                sidebar.index = n // 2
+            return
+        if event.key == "L":
+            event.prevent_default()
+            n = len(self._sidebar_view_ids)
+            if n > 0:
+                sidebar.index = n - 1
+            return
+        if event.key == "j":
             event.prevent_default()
             sidebar.action_cursor_down()
         elif event.key == "k":
