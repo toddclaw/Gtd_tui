@@ -1291,6 +1291,32 @@ def rename_area(areas: list[Area], area_id: str, name: str) -> list[Area]:
     return [replace(a, name=name) if a.id == area_id else a for a in areas]
 
 
+def move_area_up(areas: list[Area], area_id: str) -> list[Area]:
+    """Swap an area with the one above it in position order. No-op at top."""
+    sorted_areas = sorted(areas, key=lambda a: a.position)
+    idx = next((i for i, a in enumerate(sorted_areas) if a.id == area_id), None)
+    if idx is None or idx == 0:
+        return areas
+    sorted_areas[idx].position, sorted_areas[idx - 1].position = (
+        sorted_areas[idx - 1].position,
+        sorted_areas[idx].position,
+    )
+    return areas
+
+
+def move_area_down(areas: list[Area], area_id: str) -> list[Area]:
+    """Swap an area with the one below it in position order. No-op at bottom."""
+    sorted_areas = sorted(areas, key=lambda a: a.position)
+    idx = next((i for i, a in enumerate(sorted_areas) if a.id == area_id), None)
+    if idx is None or idx == len(sorted_areas) - 1:
+        return areas
+    sorted_areas[idx].position, sorted_areas[idx + 1].position = (
+        sorted_areas[idx + 1].position,
+        sorted_areas[idx].position,
+    )
+    return areas
+
+
 def assign_folder_to_area(
     folders: list[Folder], folder_id: str, area_id: str | None
 ) -> list[Folder]:

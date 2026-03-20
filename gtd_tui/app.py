@@ -57,6 +57,8 @@ from gtd_tui.gtd.operations import (
     insert_waiting_on_task_before,
     logbook_tasks,
     make_repeat_rule,
+    move_area_down,
+    move_area_up,
     move_block_down,
     move_block_up,
     move_folder_down,
@@ -100,6 +102,7 @@ from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
 from gtd_tui.storage.file import (
     UndoStack,
     load_areas,
+    load_collapsed_areas,
     load_folders,
     load_projects,
     load_redo_stack,
@@ -1380,7 +1383,9 @@ class GtdApp(App[None]):
         self._all_projects: list[Project] = load_projects(data_file, password=password)
         self._all_areas: list[Area] = load_areas(data_file, password=password)
         self._tag_order: list[str] = load_tag_order(data_file, password=password)
-        self._collapsed_areas: set[str] = set()
+        self._collapsed_areas: set[str] = load_collapsed_areas(
+            data_file, password=password
+        )
         self._config: Config = load_config()
         self._last_activity: float = time.monotonic()
         self._mode: str = "NORMAL"
@@ -2095,6 +2100,7 @@ class GtdApp(App[None]):
             projects=self._all_projects,
             areas=self._all_areas,
             tag_order=self._tag_order,
+            collapsed_areas=self._collapsed_areas,
         )
 
     def _task_to_yank_text(self, task: Task) -> str:
@@ -2214,6 +2220,8 @@ class GtdApp(App[None]):
                 self._move_selected_project_down()
             elif current_sid.startswith("tag:"):
                 self._move_selected_tag_down()
+            elif current_sid.startswith("area:"):
+                self._move_selected_area_down()
             else:
                 self._move_selected_folder_down()
         elif event.key == "K":
@@ -2227,6 +2235,8 @@ class GtdApp(App[None]):
                 self._move_selected_project_up()
             elif current_sid.startswith("tag:"):
                 self._move_selected_tag_up()
+            elif current_sid.startswith("area:"):
+                self._move_selected_area_up()
             else:
                 self._move_selected_folder_up()
         elif event.key in ("l", "enter"):
@@ -2243,6 +2253,7 @@ class GtdApp(App[None]):
                     self._collapsed_areas.discard(area_id)
                 else:
                     self._collapsed_areas.add(area_id)
+                self._save()
                 self._rebuild_sidebar(cursor_view_id=current_sid)
             else:
                 self.query_one("#task-list", ListView).focus()
@@ -3803,6 +3814,34 @@ class GtdApp(App[None]):
         self._tag_order = move_tag_down(ordered, tag_name)
         self._save()
         self._rebuild_sidebar()
+
+    def _move_selected_area_up(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("area:"):
+            return
+        area_id = current_sid[5:]
+        self._all_areas = move_area_up(self._all_areas, area_id)
+        self._save()
+        self._rebuild_sidebar(cursor_view_id=current_sid)
+
+    def _move_selected_area_down(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("area:"):
+            return
+        area_id = current_sid[5:]
+        self._all_areas = move_area_down(self._all_areas, area_id)
+        self._save()
+        self._rebuild_sidebar(cursor_view_id=current_sid)
 
     def _handle_delete_confirm_key(self, event: events.Key) -> None:
         folder_id = self._delete_confirm_folder_id

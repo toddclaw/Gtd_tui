@@ -296,6 +296,7 @@ def save_data(
     projects: list[Project] | None = None,
     areas: list[Area] | None = None,
     tag_order: list[str] | None = None,
+    collapsed_areas: set[str] | None = None,
 ) -> None:
     """Atomically save tasks, folders, optional undo/redo stacks, projects, and areas to disk.
 
@@ -319,6 +320,8 @@ def save_data(
         payload["areas"] = [_area_to_dict(a) for a in areas]
     if tag_order is not None:
         payload["tag_order"] = tag_order
+    if collapsed_areas is not None:
+        payload["collapsed_areas"] = sorted(collapsed_areas)
     json_bytes = json.dumps(payload, indent=2).encode()
     write_bytes = encrypt_data(json_bytes, password) if password else json_bytes
 
@@ -388,6 +391,20 @@ def load_tag_order(
         return []
 
 
+def load_collapsed_areas(
+    data_file: Path | None = None, password: str | None = None
+) -> set[str]:
+    """Load the set of collapsed area IDs from disk. Returns empty set if missing."""
+    path = data_file or _DEFAULT_DATA_FILE
+    if not path.exists():
+        return set()
+    try:
+        raw = _read_raw(path, password)
+        return set(str(a) for a in raw.get("collapsed_areas", []))
+    except (json.JSONDecodeError, KeyError, ValueError):
+        return set()
+
+
 # Public serialization helpers — used by portability.py for export/import.
 task_to_dict = _task_to_dict
 task_from_dict = _task_from_dict
@@ -399,6 +416,7 @@ __all__ = [
     "folder_from_dict",
     "folder_to_dict",
     "load_areas",
+    "load_collapsed_areas",
     "load_folders",
     "load_projects",
     "load_redo_stack",
