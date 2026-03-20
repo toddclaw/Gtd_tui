@@ -5,7 +5,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
-## [Unreleased]
+## [1.7.0] — 2026-03-20
 
 ### Added
 - **Border text banner** (BACKLOG-59): `[ui] border_text` config key; when non-empty, the text is rendered centred (with primary-color background) in the top and bottom `ColorBorderStrip` widgets; left/right sides continue the alternating block pattern unchanged.
