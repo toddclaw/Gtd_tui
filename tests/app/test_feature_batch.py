@@ -161,6 +161,8 @@ async def test_reference_sidebar_shows_count(tmp_path: Path) -> None:
     tasks = add_task_to_folder(tasks, REFERENCE_FOLDER_ID, "Ref B")
     data_file = _save_tasks(tmp_path, tasks)
     app = GtdApp(data_file=data_file)
+    # Use all-default counts so the test is independent of the real config file.
+    app._config = Config()
     async with app.run_test():
         sidebar = app.query_one("#sidebar", ListView)
         items = list(sidebar.query(Label))

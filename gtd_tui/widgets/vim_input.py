@@ -518,7 +518,7 @@ class VimInput(Widget, can_focus=True):
 
                     self._pre_insert_action = _pre_c_dollar
                     self._cmd_change_to_line_end()
-                elif key == "percent":
+                elif key in ("percent", "percent_sign"):
                     match = self._find_matching_bracket(self._cursor)
                     if match is not None:
                         self._push_undo()
@@ -632,7 +632,7 @@ class VimInput(Widget, can_focus=True):
                         self._cmd_delete_to_word_backward(word=False)
 
                     self._last_action = _replay_dB
-                elif key == "percent":
+                elif key in ("percent", "percent_sign"):
                     match = self._find_matching_bracket(self._cursor)
                     if match is not None:
                         lo, hi = min(self._cursor, match), max(self._cursor, match)
@@ -939,7 +939,7 @@ class VimInput(Widget, can_focus=True):
             self._cmd_repeat_find(reverse=True)
         elif key in ("circumflex_accent", "caret", "asciicircum"):
             self._cmd_first_nonblank()
-        elif key == "percent":
+        elif key in ("percent", "percent_sign"):
             match = self._find_matching_bracket(self._cursor)
             if match is not None:
                 self._cursor = match

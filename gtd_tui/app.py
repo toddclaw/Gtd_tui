@@ -16,6 +16,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
+from textual.theme import Theme
 from textual.widgets import Input, Label, ListItem, ListView, Static
 
 from gtd_tui.config import Config, default_config_path, load_config, save_default_config
@@ -1320,8 +1321,8 @@ class CalendarScreen(ModalScreen["date | None"]):
 
 
 _BORDER_COLORS: dict[str, tuple[str, str]] = {
-    "yellow_grey": ("yellow", "grey"),
-    "red_grey": ("red", "grey"),
+    "yellow_grey": ("yellow", "bright_black"),
+    "red_grey": ("red", "bright_black"),
 }
 
 _BLOCK_CHAR = "█"
@@ -1356,7 +1357,7 @@ class ColorBorderStrip(Static, can_focus=False):
         self._orientation = orientation
 
     def render(self) -> RichText:
-        colors = _BORDER_COLORS.get(self._border_style, ("white", "grey"))
+        colors = _BORDER_COLORS.get(self._border_style, ("white", "bright_black"))
         if self._orientation == "horizontal":
             length = self.size.width or 80
         else:
@@ -1390,16 +1391,6 @@ _THEMES: dict[str, dict[str, str]] = {
         "accent": "#27AE60",
     },
 }
-
-
-def _build_theme_css(theme: str) -> str:
-    t = _THEMES.get(theme, _THEMES["blue"])
-    # Textual CSS variables use $name syntax.
-    return f"""
-    $primary: {t['primary']};
-    $primary-darken-1: {t['primary_dark']};
-    $accent: {t['accent']};
-    """
 
 
 class GtdApp(App[None]):
@@ -1499,18 +1490,15 @@ class GtdApp(App[None]):
     }
     """
 
-    # Preserved original CSS so theme injection always rebuilds from the base.
-    _BASE_CSS_ORIG: str = CSS
-
     def __init__(
         self,
         data_file: Path | None = None,
         password: str | None = None,
         tmux_tip: bool = False,
     ) -> None:
-        # Apply theme before super().__init__() so Textual compiles it at startup.
-        config = load_config()
-        type(self).CSS = GtdApp._BASE_CSS_ORIG + _build_theme_css(config.theme)
+        # _config must be set before super().__init__() because get_css_variables()
+        # can be called during Textual's stylesheet initialisation.
+        self._config: Config = load_config()
         super().__init__()
         self._data_file: Path | None = data_file
         self._password: str | None = password
@@ -1523,7 +1511,6 @@ class GtdApp(App[None]):
         self._collapsed_areas: set[str] = load_collapsed_areas(
             data_file, password=password
         )
-        self._config: Config = load_config()
         self._last_activity: float = time.monotonic()
         self._mode: str = "NORMAL"
         self._input_stage: str = (
@@ -1677,6 +1664,22 @@ class GtdApp(App[None]):
             if folder.id == view_id:
                 return folder.name
         return view_id
+
+    def get_css_variables(self) -> dict[str, str]:
+        variables = super().get_css_variables()
+        theme_name = self._config.theme
+        if theme_name != "blue":
+            t = _THEMES.get(theme_name, _THEMES["blue"])
+            # Build a temporary Theme just to let Textual derive all variants
+            # (primary-darken-1, accent-lighten-1, etc.) from the new base colors.
+            custom = Theme(
+                name="_gtd_custom",
+                primary=t["primary"],
+                accent=t["accent"],
+                dark=True,
+            )
+            variables.update(custom.to_color_system().generate())
+        return variables
 
     def _compose_main_content(self) -> ComposeResult:
         """Yield the core app widgets (header, sidebar+content, status)."""

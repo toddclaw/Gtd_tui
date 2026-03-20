@@ -40,7 +40,6 @@ class SidebarCountsConfig:
     reference: bool = True
     logbook: bool = True
     user_folders: bool = True
-    areas: bool = True
     projects: bool = True
     tags: bool = True
 
@@ -96,7 +95,6 @@ def load_config(path: Path | None = None) -> Config:
         reference=bool(counts_section.get("reference", _def_counts.reference)),
         logbook=bool(counts_section.get("logbook", _def_counts.logbook)),
         user_folders=bool(counts_section.get("user_folders", _def_counts.user_folders)),
-        areas=bool(counts_section.get("areas", _def_counts.areas)),
         projects=bool(counts_section.get("projects", _def_counts.projects)),
         tags=bool(counts_section.get("tags", _def_counts.tags)),
     )
@@ -159,7 +157,6 @@ timeout_enabled = true
 # reference = true
 # logbook = true
 # user_folders = true
-# areas = true
 # projects = true
 # tags = true
 """

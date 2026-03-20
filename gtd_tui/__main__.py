@@ -2,6 +2,12 @@ from __future__ import annotations
 
 import os
 
+# Detect tmux *before* we set ESCDELAY so we can tell whether the user already
+# has a custom value configured.  If TMUX is set and ESCDELAY has not been
+# customised, the app will display a one-time tip recommending the fix.
+_IN_TMUX: bool = bool(os.environ.get("TMUX"))
+_USER_SET_ESCDELAY: bool = bool(os.environ.get("ESCDELAY"))
+
 # Set the escape-key sequence timeout *before* any textual import.
 # Textual waits ESCDELAY milliseconds after an ESC byte to decide whether it is
 # the start of a multi-byte terminal escape sequence (e.g. arrow keys) or a
@@ -12,25 +18,29 @@ import os
 # Users can override with ESCDELAY=<ms> in their environment.
 os.environ.setdefault("ESCDELAY", "25")
 
-import argparse
-import getpass
-import sys
-from pathlib import Path
+import argparse  # noqa: E402
+import getpass  # noqa: E402
+import sys  # noqa: E402
+from pathlib import Path  # noqa: E402
 
-from platformdirs import user_data_dir
+from platformdirs import user_data_dir  # noqa: E402
 
-from gtd_tui.app import GtdApp
-from gtd_tui.gtd.dates import format_date
-from gtd_tui.gtd.operations import today_tasks, upcoming_tasks
-from gtd_tui.portability import (
+from gtd_tui.app import GtdApp  # noqa: E402
+from gtd_tui.gtd.dates import format_date  # noqa: E402
+from gtd_tui.gtd.operations import today_tasks, upcoming_tasks  # noqa: E402
+from gtd_tui.portability import (  # noqa: E402
     export_csv,
     export_json,
     export_md,
     export_txt,
     import_json,
 )
-from gtd_tui.storage.crypto import DecryptionError, decrypt_data, is_encrypted
-from gtd_tui.storage.file import load_folders, load_tasks, save_data
+from gtd_tui.storage.crypto import (  # noqa: E402
+    DecryptionError,
+    decrypt_data,
+    is_encrypted,
+)
+from gtd_tui.storage.file import load_folders, load_tasks, save_data  # noqa: E402
 
 _DEFAULT_DATA_FILE = Path(user_data_dir("gtd_tui")) / "data.json"
 
@@ -211,7 +221,7 @@ def main() -> None:
         _cmd_import(args.import_file, data_file, password)
         sys.exit(0)
 
-    tmux_tip = bool(os.environ.get("TMUX")) and not os.environ.get("ESCDELAY")
+    tmux_tip = _IN_TMUX and not _USER_SET_ESCDELAY
     GtdApp(password=password, tmux_tip=tmux_tip).run()
 
 
