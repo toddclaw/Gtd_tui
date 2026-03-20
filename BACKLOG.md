@@ -634,7 +634,7 @@ things like "Pack for trip: passport ☐, charger ☐, headphones ☐".
 
 ---
 
-### BACKLOG-30 — Tags / Contexts
+### ~~BACKLOG-30 — Tags / Contexts~~ ✅ DONE
 
 **Story points:** 8 — New `Task.tags` field, storage migration, tag-filter view, inline display.
 
@@ -649,17 +649,18 @@ filtering: "show me everything I can do @computer right now".
 - Inline tag display in the task list (dim/coloured suffix)
 
 **Acceptance criteria:**
-- [ ] `Task.tags: list[str]` (default `[]`); old JSON files without the field load without error
-- [ ] Task detail view has a Tags field (comma-separated, `@` prefix optional)
-- [ ] Tags display inline with the task title in the task list, visually distinct
-- [ ] Sidebar has a collapsible "Tags" section listing all unique tags with task counts
-- [ ] Selecting a tag in the sidebar shows a cross-folder filtered view of matching tasks
-- [ ] Tag filter view supports `x` / Space to complete and `m` to move tasks
-- [ ] Storage round-trip and tag filtering covered by unit tests
+- [x] `Task.tags: list[str]` (default `[]`); old JSON files without the field load without error
+- [x] Task detail view has a Tags field (comma-separated, `@` prefix optional)
+- [x] Tags display inline with the task title in the task list, visually distinct
+- [x] Sidebar has a collapsible "Tags" section listing all unique tags with task counts
+- [x] Selecting a tag in the sidebar shows a cross-folder filtered view of matching tasks
+- [x] Tag filter view supports `x` / Space to complete and `m` to move tasks
+- [x] Storage round-trip and tag filtering covered by unit tests
+- [x] `J`/`K` while a tag is selected in the sidebar reorders tags; order persisted to disk
 
 ---
 
-### BACKLOG-31 — Projects
+### ~~BACKLOG-31 — Projects~~ ✅ DONE
 
 **Story points:** 13 — New `Project` dataclass, sub-task linking, sidebar section, progress
 display, and auto-completion logic. Significant new UI component.
@@ -675,22 +676,27 @@ list of tasks; when all are complete, the project moves to Logbook automatically
 - Header shows live progress: `Deploy v2 (3/5)`
 
 **Acceptance criteria:**
-- [ ] `Project` dataclass: `id`, `title`, `notes`, `folder_id`, `position`, `deadline`,
+- [x] `Project` dataclass: `id`, `title`, `notes`, `folder_id`, `position`, `deadline`,
   `completed_at`
-- [ ] `Task.project_id: str | None` (default `None`); old files load without error
-- [ ] Projects appear in the sidebar under a "Projects" heading, sorted by position
-- [ ] `N` while sidebar is focused on the Projects section creates a new project
-- [ ] Selecting a project shows its sub-tasks in the main task list
-- [ ] Sub-tasks support `o`/`O`, `x`/Space, `J`/`K`, `m`, `s` within the project view
-- [ ] Project sidebar entry shows `Title (done/total)` progress
-- [ ] Completing all sub-tasks auto-completes the project and moves it to Logbook
-- [ ] Projects and sub-tasks survive save/load round-trips
-- [ ] Deadline field on projects renders with the same red/yellow urgency as task deadlines
-- [ ] Tests cover project CRUD, sub-task management, and auto-completion logic
+- [x] `Task.project_id: str | None` (default `None`); old files load without error
+- [x] Projects appear in the sidebar under a "Projects" heading, sorted by position
+- [x] `N` while sidebar is focused on the Projects section creates a new project
+- [x] Selecting a project shows its sub-tasks in the main task list
+- [x] Sub-tasks support `o`/`O`, `x`/Space, `J`/`K`, `m`, `s` within the project view
+- [x] Project sidebar entry shows `Title (done/total)` progress
+- [x] Completing all sub-tasks auto-completes the project and moves it to Logbook
+- [x] Projects and sub-tasks survive save/load round-trips
+- [x] Deadline field on projects renders with the same red/yellow urgency as task deadlines
+- [x] Tests cover project CRUD, sub-task management, and auto-completion logic
+- [x] Project sidebar entries show `◆` prefix to distinguish them from folders visually
+- [x] `r` on a project sidebar entry renames the project (pre-fills current title)
+- [x] `d` on a project sidebar entry deletes the project and unlinks its tasks (`project_id → None`)
+- [x] `J`/`K` on a project sidebar entry reorders projects by swapping positions (area-scoped: only reorders within the same area)
+- [x] Projects inside an area render with `│ ◆ ` prefix to show area membership
 
 ---
 
-### BACKLOG-32 — Areas of responsibility
+### ~~BACKLOG-32 — Areas of responsibility~~ ✅ DONE
 
 **Story points:** 8 — New `Area` dataclass, sidebar collapsible sections, folder/project
 assignment. Depends on BACKLOG-31 (Projects).
@@ -701,15 +707,18 @@ Health) that group folders and projects. Areas are never "complete" — they rep
 life domains. This is the top of the GTD hierarchy: Area → Project → Task.
 
 **Acceptance criteria:**
-- [ ] `Area` dataclass: `id`, `name`, `position`
-- [ ] Folders and projects have an optional `area_id: str | None` (default `None`)
-- [ ] Sidebar renders Areas as collapsible section headings; their folders and projects appear
+- [x] `Area` dataclass: `id`, `name`, `position`
+- [x] Folders and projects have an optional `area_id: str | None` (default `None`)
+- [x] Sidebar renders Areas as collapsible section headings; their folders and projects appear
   indented beneath when expanded
-- [ ] `A` while sidebar is focused creates a new Area
-- [ ] Folders and projects can be assigned to an Area via the `m` key (move destination picker
+- [x] `A` while sidebar is focused creates a new Area
+- [x] Folders and projects can be assigned to an Area via the `m` key (move destination picker
   includes Areas)
-- [ ] Areas survive save/load round-trips
-- [ ] Tests cover Area CRUD and folder/project assignment logic
+- [x] Areas survive save/load round-trips
+- [x] Tests cover Area CRUD and folder/project assignment logic
+- [x] `r` on an area header renames the area (pre-fills current name)
+- [x] Folders inside an area render with `│ ` pipe prefix for clear visual boundary
+- [x] `J`/`K` within an area reorders only items belonging to that area
 
 ---
 

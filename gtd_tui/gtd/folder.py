@@ -15,3 +15,4 @@ class Folder:
     name: str
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     position: int = 0
+    area_id: str | None = None

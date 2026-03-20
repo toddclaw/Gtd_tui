@@ -59,6 +59,8 @@ class Task:
     checklist: list[ChecklistItem] = field(default_factory=list)
 
     is_deleted: bool = False
+    tags: list[str] = field(default_factory=list)
+    project_id: Optional[str] = None
 
     @property
     def is_complete(self) -> bool:

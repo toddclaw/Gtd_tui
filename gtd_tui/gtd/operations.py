@@ -6,7 +6,9 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Literal
 
+from gtd_tui.gtd.area import Area
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
+from gtd_tui.gtd.project import Project
 from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
 
 _UnitLiteral = Literal["days", "weeks", "months", "years"]
@@ -723,27 +725,39 @@ def delete_folder(folders: list[Folder], folder_id: str) -> list[Folder]:
 
 
 def move_folder_up(folders: list[Folder], folder_id: str) -> list[Folder]:
-    """Swap a user folder with the one above it (lower position). No-op at top."""
-    ordered = sorted(folders, key=lambda f: f.position)
-    idx = next((i for i, f in enumerate(ordered) if f.id == folder_id), None)
+    """Swap a folder with the sibling above it within the same area. No-op at top."""
+    folder = next((f for f in folders if f.id == folder_id), None)
+    if folder is None:
+        return folders
+    siblings = sorted(
+        [f for f in folders if f.area_id == folder.area_id],
+        key=lambda f: f.position,
+    )
+    idx = next((i for i, f in enumerate(siblings) if f.id == folder_id), None)
     if idx is None or idx == 0:
         return folders
-    ordered[idx].position, ordered[idx - 1].position = (
-        ordered[idx - 1].position,
-        ordered[idx].position,
+    siblings[idx].position, siblings[idx - 1].position = (
+        siblings[idx - 1].position,
+        siblings[idx].position,
     )
     return folders
 
 
 def move_folder_down(folders: list[Folder], folder_id: str) -> list[Folder]:
-    """Swap a user folder with the one below it (higher position). No-op at bottom."""
-    ordered = sorted(folders, key=lambda f: f.position)
-    idx = next((i for i, f in enumerate(ordered) if f.id == folder_id), None)
-    if idx is None or idx == len(ordered) - 1:
+    """Swap a folder with the sibling below it within the same area. No-op at bottom."""
+    folder = next((f for f in folders if f.id == folder_id), None)
+    if folder is None:
         return folders
-    ordered[idx].position, ordered[idx + 1].position = (
-        ordered[idx + 1].position,
-        ordered[idx].position,
+    siblings = sorted(
+        [f for f in folders if f.area_id == folder.area_id],
+        key=lambda f: f.position,
+    )
+    idx = next((i for i, f in enumerate(siblings) if f.id == folder_id), None)
+    if idx is None or idx == len(siblings) - 1:
+        return folders
+    siblings[idx].position, siblings[idx + 1].position = (
+        siblings[idx + 1].position,
+        siblings[idx].position,
     )
     return folders
 
@@ -1031,6 +1045,290 @@ def spawn_repeating_tasks(tasks: list[Task], as_of: date | None = None) -> list[
         task.position = i
 
     return tasks + spawned
+
+
+# ---------------------------------------------------------------------------
+# Tags / Contexts
+# ---------------------------------------------------------------------------
+
+
+def add_tag(tasks: list[Task], task_id: str, tag: str) -> list[Task]:
+    """Add a tag to a task (no-op if already present)."""
+    tag = tag.strip()
+    if not tag:
+        return tasks
+    return [
+        replace(t, tags=[*t.tags, tag]) if t.id == task_id and tag not in t.tags else t
+        for t in tasks
+    ]
+
+
+def remove_tag(tasks: list[Task], task_id: str, tag: str) -> list[Task]:
+    """Remove a tag from a task."""
+    return [
+        replace(t, tags=[x for x in t.tags if x != tag]) if t.id == task_id else t
+        for t in tasks
+    ]
+
+
+def set_tags(tasks: list[Task], task_id: str, tags: list[str]) -> list[Task]:
+    """Replace the tags list for a task."""
+    return [replace(t, tags=tags) if t.id == task_id else t for t in tasks]
+
+
+def all_tags(tasks: list[Task]) -> list[tuple[str, int]]:
+    """Return sorted list of (tag, count) tuples across all non-logbook tasks."""
+    counts: dict[str, int] = {}
+    for t in tasks:
+        if t.folder_id != "logbook" and not t.is_deleted:
+            for tag in t.tags:
+                counts[tag] = counts.get(tag, 0) + 1
+    return sorted(counts.items())
+
+
+def tasks_with_tag(tasks: list[Task], tag: str) -> list[Task]:
+    """Return all non-logbook tasks that have the given tag, sorted by position."""
+    return sorted(
+        [
+            t
+            for t in tasks
+            if tag in t.tags and t.folder_id != "logbook" and not t.is_deleted
+        ],
+        key=lambda t: t.position,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Project operations
+# ---------------------------------------------------------------------------
+
+
+def add_project(
+    projects: list[Project],
+    title: str,
+    folder_id: str = "today",
+    deadline: date | None = None,
+) -> list[Project]:
+    """Add a new project at the end of the list."""
+    position = max((p.position for p in projects), default=-1) + 1
+    return [
+        *projects,
+        Project(
+            title=title,
+            folder_id=folder_id,
+            position=position,
+            deadline=deadline,
+            created_at=datetime.now(),
+        ),
+    ]
+
+
+def delete_project(projects: list[Project], project_id: str) -> list[Project]:
+    """Remove a project by ID."""
+    return [p for p in projects if p.id != project_id]
+
+
+def rename_project(
+    projects: list[Project], project_id: str, title: str
+) -> list[Project]:
+    """Rename a project."""
+    return [replace(p, title=title) if p.id == project_id else p for p in projects]
+
+
+def move_project_up(projects: list[Project], project_id: str) -> list[Project]:
+    """Swap a project with the sibling above it within the same area. No-op at top."""
+    project = next((p for p in projects if p.id == project_id), None)
+    if project is None:
+        return projects
+    siblings = sorted(
+        [p for p in projects if p.area_id == project.area_id],
+        key=lambda p: p.position,
+    )
+    idx = next((i for i, p in enumerate(siblings) if p.id == project_id), None)
+    if idx is None or idx == 0:
+        return projects
+    siblings[idx].position, siblings[idx - 1].position = (
+        siblings[idx - 1].position,
+        siblings[idx].position,
+    )
+    return projects
+
+
+def move_project_down(projects: list[Project], project_id: str) -> list[Project]:
+    """Swap a project with the sibling below it within the same area. No-op at bottom."""
+    project = next((p for p in projects if p.id == project_id), None)
+    if project is None:
+        return projects
+    siblings = sorted(
+        [p for p in projects if p.area_id == project.area_id],
+        key=lambda p: p.position,
+    )
+    idx = next((i for i, p in enumerate(siblings) if p.id == project_id), None)
+    if idx is None or idx == len(siblings) - 1:
+        return projects
+    siblings[idx].position, siblings[idx + 1].position = (
+        siblings[idx + 1].position,
+        siblings[idx].position,
+    )
+    return projects
+
+
+def move_tag_up(tag_order: list[str], tag_name: str) -> list[str]:
+    """Move a tag one position earlier in the ordering. No-op if already first."""
+    if tag_name not in tag_order:
+        return tag_order
+    idx = tag_order.index(tag_name)
+    if idx == 0:
+        return tag_order
+    result = list(tag_order)
+    result[idx], result[idx - 1] = result[idx - 1], result[idx]
+    return result
+
+
+def move_tag_down(tag_order: list[str], tag_name: str) -> list[str]:
+    """Move a tag one position later in the ordering. No-op if already last."""
+    if tag_name not in tag_order:
+        return tag_order
+    idx = tag_order.index(tag_name)
+    if idx == len(tag_order) - 1:
+        return tag_order
+    result = list(tag_order)
+    result[idx], result[idx + 1] = result[idx + 1], result[idx]
+    return result
+
+
+def unlink_project_tasks(tasks: list[Task], project_id: str) -> list[Task]:
+    """Clear project_id on all tasks belonging to the given project."""
+    return [
+        replace(t, project_id=None) if t.project_id == project_id else t for t in tasks
+    ]
+
+
+def complete_project(projects: list[Project], project_id: str) -> list[Project]:
+    """Mark a project as complete."""
+    return [
+        replace(p, completed_at=datetime.now()) if p.id == project_id else p
+        for p in projects
+    ]
+
+
+def project_tasks(tasks: list[Task], project_id: str) -> list[Task]:
+    """Return all active (non-logbook) sub-tasks of a project, sorted by position."""
+    return sorted(
+        [
+            t
+            for t in tasks
+            if t.project_id == project_id
+            and t.folder_id != "logbook"
+            and not t.is_deleted
+        ],
+        key=lambda t: t.position,
+    )
+
+
+def project_progress(tasks: list[Task], project_id: str) -> tuple[int, int]:
+    """Return (completed, total) for a project's sub-tasks."""
+    sub = [t for t in tasks if t.project_id == project_id and not t.is_deleted]
+    total = len(sub)
+    done = sum(1 for t in sub if t.is_complete)
+    return done, total
+
+
+def check_auto_complete_project(
+    tasks: list[Task], projects: list[Project], project_id: str
+) -> list[Project]:
+    """If all sub-tasks of a project are complete, auto-complete the project."""
+    sub = [t for t in tasks if t.project_id == project_id and not t.is_deleted]
+    if not sub:
+        return projects
+    if all(t.is_complete for t in sub):
+        return complete_project(projects, project_id)
+    return projects
+
+
+def add_task_to_project(
+    tasks: list[Task], project_id: str, title: str, notes: str = ""
+) -> list[Task]:
+    """Add a new task as a sub-task of a project."""
+    existing = project_tasks(tasks, project_id)
+    position = max((t.position for t in existing), default=-1) + 1
+    new_task = Task(
+        title=title,
+        notes=notes,
+        project_id=project_id,
+        folder_id="today",
+        position=position,
+        created_at=datetime.now(),
+    )
+    return [*tasks, new_task]
+
+
+def assign_task_to_project(
+    tasks: list[Task], task_id: str, project_id: str | None
+) -> list[Task]:
+    """Assign (or unassign) a task to a project."""
+    return [replace(t, project_id=project_id) if t.id == task_id else t for t in tasks]
+
+
+# ---------------------------------------------------------------------------
+# Area operations
+# ---------------------------------------------------------------------------
+
+
+def add_area(areas: list[Area], name: str) -> list[Area]:
+    """Add a new area at the end of the list."""
+    position = max((a.position for a in areas), default=-1) + 1
+    return [*areas, Area(name=name, position=position)]
+
+
+def delete_area(areas: list[Area], area_id: str) -> list[Area]:
+    """Remove an area by ID."""
+    return [a for a in areas if a.id != area_id]
+
+
+def rename_area(areas: list[Area], area_id: str, name: str) -> list[Area]:
+    """Rename an area."""
+    return [replace(a, name=name) if a.id == area_id else a for a in areas]
+
+
+def move_area_up(areas: list[Area], area_id: str) -> list[Area]:
+    """Swap an area with the one above it in position order. No-op at top."""
+    sorted_areas = sorted(areas, key=lambda a: a.position)
+    idx = next((i for i, a in enumerate(sorted_areas) if a.id == area_id), None)
+    if idx is None or idx == 0:
+        return areas
+    sorted_areas[idx].position, sorted_areas[idx - 1].position = (
+        sorted_areas[idx - 1].position,
+        sorted_areas[idx].position,
+    )
+    return areas
+
+
+def move_area_down(areas: list[Area], area_id: str) -> list[Area]:
+    """Swap an area with the one below it in position order. No-op at bottom."""
+    sorted_areas = sorted(areas, key=lambda a: a.position)
+    idx = next((i for i, a in enumerate(sorted_areas) if a.id == area_id), None)
+    if idx is None or idx == len(sorted_areas) - 1:
+        return areas
+    sorted_areas[idx].position, sorted_areas[idx + 1].position = (
+        sorted_areas[idx + 1].position,
+        sorted_areas[idx].position,
+    )
+    return areas
+
+
+def assign_folder_to_area(
+    folders: list[Folder], folder_id: str, area_id: str | None
+) -> list[Folder]:
+    """Assign (or unassign) a folder to an area."""
+    return [replace(f, area_id=area_id) if f.id == folder_id else f for f in folders]
+
+
+def assign_project_to_area(
+    projects: list[Project], project_id: str, area_id: str | None
+) -> list[Project]:
+    """Assign (or unassign) a project to an area."""
+    return [replace(p, area_id=area_id) if p.id == project_id else p for p in projects]
 
 
 # ---------------------------------------------------------------------------
