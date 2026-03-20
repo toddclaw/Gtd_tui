@@ -1155,3 +1155,22 @@ Implement a structured suite of UI acceptance tests using Textual's headless Pil
 - [ ] Tests use headless `run_test()` and do not rely on screen rendering details
 - [ ] All tests run in CI under 60 seconds
 - [ ] Test failures produce clear messages identifying which step failed
+
+---
+
+### BACKLOG-58 — config_and_vim feature batch ✅ DONE
+
+**Story points:** 8
+
+**Description:**
+Eight improvements implemented together: vim motions, config options, UX polish.
+
+**Features delivered:**
+- [x] Bug fix: `?` opens calendar picker from inline schedule input (`s` key flow)
+- [x] VimInput `%` / `d%` / `c%` bracket-matching motions
+- [x] Checklist item rename with `r` in checklist navigation mode
+- [x] Configurable screen border (`border_style`, `border_block_size` in config)
+- [x] Configurable color theme (`theme` in config: blue/red/yellow/green)
+- [x] tmux ESCDELAY one-time tip at startup
+- [x] Configurable sidebar counts (`[sidebar_counts]` config section)
+- [x] `dd` populates the yank register (enables `p`/`P` after delete)
