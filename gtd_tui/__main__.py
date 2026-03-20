@@ -74,7 +74,8 @@ def _print_summary(data_file: Path | None = None, password: str | None = None) -
     for t in today:
         print(f"  - {t.title}")
         if t.notes:
-            print(f"    {t.notes}")
+            for line in t.notes.splitlines():
+                print(f"    {line}")
 
     if upcoming:
         print(f"\nUpcoming ({len(upcoming)}):")
@@ -82,7 +83,8 @@ def _print_summary(data_file: Path | None = None, password: str | None = None) -
             date_str = format_date(t.scheduled_date) if t.scheduled_date else ""
             print(f"  - {t.title}  {date_str}")
             if t.notes:
-                print(f"    {t.notes}")
+                for line in t.notes.splitlines():
+                    print(f"    {line}")
 
 
 def _cmd_encrypt(data_file: Path) -> None:

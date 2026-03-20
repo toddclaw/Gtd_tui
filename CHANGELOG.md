@@ -8,6 +8,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Border text banner** (BACKLOG-59): `[ui] border_text` config key; when non-empty, the text is rendered centred (with primary-color background) in the top and bottom `ColorBorderStrip` widgets; left/right sides continue the alternating block pattern unchanged.
+- **Auto-populate missing config defaults** (BACKLOG-60): on startup, `_ensure_config_defaults()` non-destructively appends any missing TOML keys with their default values; users upgrading from older versions automatically get new config sections without losing existing settings.
+- **Default cursor at top-left in text fields** (BACKLOG-61): `VimInput` gains `start_at_beginning=True` mode; `detail-title-input` and `detail-notes-input` open with the cursor at position 0 so long content is visible from the beginning.
+- **Regex search** (unlisted): `search_tasks()` auto-detects regex patterns; falls back to case-insensitive substring matching if the pattern is invalid; `//pattern` prefix forces case-sensitive regex.
+- **Divider tasks** (BACKLOG-62): tasks whose title is exactly `-` or `=` render as a full-width dim horizontal rule; action keys (`x`, `s`, `m`, `w`, `t`) are no-ops on dividers; dividers are excluded from VISUAL selection.
+- **Duplicate task with y / p / P** (BACKLOG-63): `y` in NORMAL mode now also stores the task in `_task_register`; `p` pastes a duplicate below and `P` above the current position; duplicates get a fresh UUID and `created_at`.
+- **Quick task rename with r** (BACKLOG-64): `r` in NORMAL mode opens the inline `#task-input` pre-filled with the task's current title; Enter saves, Esc cancels; no-op on divider tasks.
+- **HML navigation in VISUAL mode** (BACKLOG-65): `H`, `M`, `L` in VISUAL block mode jump the cursor to the top/middle/bottom of the list and extend the selection, matching NORMAL mode behaviour.
+- **Help screen from sidebar** (BACKLOG-66): `?` while the sidebar has focus now opens `HelpScreen`, consistent with the task-list behaviour.
+- **Unified action picker for m** (BACKLOG-67/68): `m` opens `_ActionPickerScreen` instead of switching sidebar focus; the picker shows Folders, Projects, and Tags sections; selecting a folder moves the task, a project assigns it (`project_id`), a tag adds it (via `add_tag_to_task`); works in NORMAL and VISUAL mode.
+- **VimInput count prefix** (BACKLOG-69): digits `1`–`9` (and `0` when buffer non-empty) accumulate in `_count_buffer`; count applies to `h`, `l`, `w`, `b`, `e`, `W`, `B`, `E`, `x`; `Ni` captures count before `i` and replicates the inserted text N times on ESC.
+
+### Fixed
+- **Multiline notes indentation in CLI summary** (BACKLOG-70): `--summary` now splits notes on `\n` and indents every continuation line with four spaces.
+
+### Added
 - **VimInput `dd` populates register**: `dd` in both single-line and multi-line mode now copies the deleted text to the internal yank register (and system clipboard), so `p`/`P` paste the deleted content immediately after deletion — consistent with real vim behaviour.
 - **VimInput `%` bracket-matching motion**: `%` in COMMAND mode jumps the cursor to the matching bracket (`(`, `)`, `[`, `]`, `{`, `}`), respecting nesting. No-op when the cursor is not on a bracket.
 - **VimInput `d%` / `c%`**: `d%` deletes from cursor to matching bracket (inclusive) and populates the register; `c%` does the same then enters INSERT mode.
