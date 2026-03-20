@@ -863,6 +863,11 @@ class VimInput(Widget, can_focus=True):
         elif key == "s":
             _s_count = self._take_count()
             self._push_undo()
+            for _ in range(_s_count):
+                if self._cursor < len(self._text) and self._text[self._cursor] != "\n":
+                    self._text = (
+                        self._text[: self._cursor] + self._text[self._cursor + 1 :]
+                    )
 
             def _pre_s() -> None:
                 for _ in range(_s_count):
@@ -873,10 +878,9 @@ class VimInput(Widget, can_focus=True):
                         self._text = (
                             self._text[: self._cursor] + self._text[self._cursor + 1 :]
                         )
-                self._clamp_cursor_for_command()
 
             self._pre_insert_action = _pre_s
-            self._cmd_substitute()
+            self.set_mode("insert")
         elif key == "left_parenthesis":
             self._cmd_sentence_backward()
         elif key == "right_parenthesis":

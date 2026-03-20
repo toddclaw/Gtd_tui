@@ -10,7 +10,7 @@ from pathlib import Path
 from textual.widgets import ListView
 
 from gtd_tui.app import GtdApp, HelpScreen
-from gtd_tui.gtd.operations import add_project, add_task_to_folder
+from gtd_tui.gtd.operations import add_project, add_task_to_folder, complete_project
 from gtd_tui.storage.file import save_data
 
 # ---------------------------------------------------------------------------
@@ -278,3 +278,69 @@ async def test_assign_to_project_removes_from_folder(tmp_path: Path) -> None:
         task = pilot.app._all_tasks[0]
         assert task.folder_id == ""
         assert task.project_id == projects[0].id
+
+
+# ---------------------------------------------------------------------------
+# Outcome: rename saves new title (not just sets mode)
+# ---------------------------------------------------------------------------
+
+
+async def test_rename_saves_new_title(tmp_path: Path) -> None:
+    """Submitting a rename via Enter should persist the new title."""
+    tasks = add_task_to_folder([], "inbox", "Old Title")
+    data_file = _save_tasks_to(tmp_path, tasks)
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._current_view = "inbox"
+        app._refresh_list()
+        await pilot.pause()
+        app.query_one("#task-list", ListView).focus()
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        assert app._mode == "INSERT"
+        # Clear the pre-filled text and type the new title
+        for _ in range(len("Old Title")):
+            await pilot.press("backspace")
+        await pilot.pause()
+        for ch in "New Title":
+            await pilot.press(ch)
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app._mode == "NORMAL"
+        assert pilot.app._all_tasks[0].title == "New Title"
+
+
+# ---------------------------------------------------------------------------
+# Regression: completed projects must not appear in m picker
+# ---------------------------------------------------------------------------
+
+
+async def test_completed_project_not_in_move_picker(tmp_path: Path) -> None:
+    """The m picker must not include completed projects."""
+    tasks = add_task_to_folder([], "inbox", "My Task")
+    projects = add_project([], "Active Project")
+    projects = add_project(projects, "Done Project")
+    projects = complete_project(projects, projects[1].id)  # mark Done Project complete
+    data_file = tmp_path / "data.json"
+    save_data(tasks, [], data_file, projects=projects)
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._current_view = "inbox"
+        app._refresh_list()
+        await pilot.pause()
+        app.query_one("#task-list", ListView).focus()
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        # ActionPickerScreen should be open
+        assert len(pilot.app.screen_stack) == 2
+        picker_screen = pilot.app.screen_stack[-1]
+        # _picker_entries is a list of (label, payload) tuples
+        entry_labels = [label for label, _ in picker_screen._picker_entries]
+        picker_text = "\n".join(entry_labels)
+        assert "Done Project" not in picker_text
+        assert "Active Project" in picker_text

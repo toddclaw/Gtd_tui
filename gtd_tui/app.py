@@ -2514,7 +2514,7 @@ class GtdApp(App[None]):
             self._handle_delete_confirm_project_key(event)
             return
         if self._mode == "INSERT":
-            if event.key == "ctrl+c":
+            if event.key in ("escape", "ctrl+c"):
                 self._cancel_input()
         elif self._visual_mode:
             self._handle_visual_key(event)
@@ -3412,7 +3412,9 @@ class GtdApp(App[None]):
             return
         task_id = task.id
         entries = _build_action_picker_entries(
-            self._all_folders, self._all_projects, all_tags(self._all_tasks)
+            self._all_folders,
+            [p for p in self._all_projects if not p.is_complete],
+            all_tags(self._all_tasks),
         )
 
         def _on_pick(result: "tuple[str, str] | None") -> None:
@@ -3470,7 +3472,8 @@ class GtdApp(App[None]):
         self._mode = "INSERT"
         self._input_stage = "task_rename"
         inp = self.query_one("#task-input", Input)
-        inp.value = task.title
+        inp.clear()
+        inp.insert_text_at_cursor(task.title)
         inp.placeholder = "New title…"
         inp.add_class("active")
         inp.focus()
@@ -3952,7 +3955,9 @@ class GtdApp(App[None]):
         task_ids = [t.id for t in tasks]
         self._exit_visual_mode()
         entries = _build_action_picker_entries(
-            self._all_folders, self._all_projects, all_tags(self._all_tasks)
+            self._all_folders,
+            [p for p in self._all_projects if not p.is_complete],
+            all_tags(self._all_tasks),
         )
 
         def _on_pick(result: "tuple[str, str] | None") -> None:
