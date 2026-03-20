@@ -1359,7 +1359,7 @@ class GtdApp(App[None]):
     }
 
     .sidebar-area-header {
-        color: $primary;
+        color: $text;
         text-style: bold;
     }
 
@@ -1603,8 +1603,13 @@ class GtdApp(App[None]):
     # Sidebar management                                                   #
     # ------------------------------------------------------------------ #
 
-    def _rebuild_sidebar(self) -> None:
-        """Repopulate the sidebar from built-ins + user folders."""
+    def _rebuild_sidebar(self, cursor_view_id: str | None = None) -> None:
+        """Repopulate the sidebar from built-ins + user folders.
+
+        *cursor_view_id*, if provided, overrides *_current_view* when
+        determining which sidebar row to highlight after the rebuild.
+        Use this to keep the cursor on a non-task view such as an Area header.
+        """
         self._rebuilding_sidebar = True
         sidebar = self.query_one("#sidebar", ListView)
         sidebar.clear()
@@ -1721,11 +1726,13 @@ class GtdApp(App[None]):
                     )
 
         view_ids = self._sidebar_view_ids
+        target = cursor_view_id or self._current_view
         try:
-            idx = view_ids.index(self._current_view)
+            idx = view_ids.index(target)
         except ValueError:
             idx = 0
-            self._current_view = "today"
+            if cursor_view_id is None:
+                self._current_view = "today"
         self.call_after_refresh(self._apply_sidebar_selection, idx)
         self.call_after_refresh(self._clear_rebuilding_flag)
 
@@ -2236,7 +2243,7 @@ class GtdApp(App[None]):
                     self._collapsed_areas.discard(area_id)
                 else:
                     self._collapsed_areas.add(area_id)
-                self._rebuild_sidebar()
+                self._rebuild_sidebar(cursor_view_id=current_sid)
             else:
                 self.query_one("#task-list", ListView).focus()
         elif event.key == "o":
