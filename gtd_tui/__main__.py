@@ -26,6 +26,7 @@ from pathlib import Path  # noqa: E402
 from platformdirs import user_data_dir  # noqa: E402
 
 from gtd_tui.app import GtdApp  # noqa: E402
+from gtd_tui.config import load_config  # noqa: E402
 from gtd_tui.gtd.dates import format_date  # noqa: E402
 from gtd_tui.gtd.operations import today_tasks, upcoming_tasks  # noqa: E402
 from gtd_tui.portability import (  # noqa: E402
@@ -41,6 +42,10 @@ from gtd_tui.storage.crypto import (  # noqa: E402
     is_encrypted,
 )
 from gtd_tui.storage.file import load_folders, load_tasks, save_data  # noqa: E402
+from gtd_tui.storage.rotating_backup import (  # noqa: E402
+    create_backup_copy,
+    rotate_backups,
+)
 
 _DEFAULT_DATA_FILE = Path(user_data_dir("gtd_tui")) / "data.json"
 
@@ -150,6 +155,31 @@ def _cmd_export(
         print(content, end="")
 
 
+def _cmd_backup_now(data_file: Path) -> None:
+    """Create a one-shot backup of the data file and rotate; no TUI."""
+    if not data_file.is_file():
+        print(f"Data file not found: {data_file}", file=sys.stderr)
+        sys.exit(1)
+    cfg = load_config()
+    b = cfg.backup
+    bdir = (
+        Path(b.directory).expanduser()
+        if b.directory.strip()
+        else _DEFAULT_DATA_FILE.parent / "backups"
+    )
+    created = create_backup_copy(data_file, bdir)
+    if created is None:
+        print("Backup failed.", file=sys.stderr)
+        sys.exit(1)
+    rotate_backups(
+        bdir,
+        daily_keep=b.daily_keep,
+        weekly_keep=b.weekly_keep,
+        monthly_keep=b.monthly_keep,
+    )
+    print(f"Backup created: {created}")
+
+
 def _cmd_import(import_file: str, data_file: Path, password: str | None) -> None:
     """Import tasks and folders from a JSON export file (non-destructive merge)."""
     path = Path(import_file)
@@ -197,6 +227,11 @@ def main() -> None:
         dest="import_file",
         help="Import tasks from a JSON export file (non-destructive merge)",
     )
+    parser.add_argument(
+        "--backup-now",
+        action="store_true",
+        help="Create a one-shot backup of the data file and exit (uses [backup] config)",
+    )
     args = parser.parse_args()
 
     data_file = _DEFAULT_DATA_FILE
@@ -221,6 +256,10 @@ def main() -> None:
 
     if args.import_file:
         _cmd_import(args.import_file, data_file, password)
+        sys.exit(0)
+
+    if args.backup_now:
+        _cmd_backup_now(data_file)
         sys.exit(0)
 
     tmux_tip = _IN_TMUX and not _USER_SET_ESCDELAY

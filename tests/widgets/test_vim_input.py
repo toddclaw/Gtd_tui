@@ -75,6 +75,15 @@ async def test_typing_in_insert_mode() -> None:
         assert _vi(pilot.app).value == "hi"
 
 
+async def test_spell_check_on_space_in_insert() -> None:
+    """When spell_check_on_space is set, Space corrects the word before cursor."""
+    async with _App().run_test() as pilot:
+        vi = _vi(pilot.app)
+        vi.set_spell_check_on_space(lambda w: "the" if w == "teh" else w)
+        await pilot.press("t", "e", "h", "space")
+        assert vi.value == "the "
+
+
 async def test_backspace_in_insert_mode() -> None:
     async with _App(value="ab").run_test() as pilot:
         await pilot.press("backspace")

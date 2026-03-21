@@ -255,3 +255,43 @@ def test_summary_empty_list(tmp_path: Path, capsys) -> None:
     captured = capsys.readouterr()
     assert "Today" in captured.out
     assert "Morning run" not in captured.out
+
+
+# ---------------------------------------------------------------------------
+# _cmd_backup_now
+# ---------------------------------------------------------------------------
+
+
+def test_backup_now_exits_when_file_missing(tmp_path: Path) -> None:
+    """Exits with code 1 when the data file does not exist."""
+    from gtd_tui.__main__ import _cmd_backup_now
+
+    with pytest.raises(SystemExit) as exc_info:
+        _cmd_backup_now(tmp_path / "missing.json")
+
+    assert exc_info.value.code == 1
+
+
+def test_backup_now_creates_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """Creates a backup and prints the path."""
+    from gtd_tui.__main__ import _cmd_backup_now
+    from gtd_tui.config import BackupConfig, Config
+    from gtd_tui.storage.file import save_data
+
+    data_file = tmp_path / "data.json"
+    bdir = tmp_path / "backups"
+    save_data([], [], data_file=data_file)
+
+    monkeypatch.setattr(
+        "gtd_tui.__main__.load_config",
+        lambda: Config(backup=BackupConfig(directory=str(bdir))),
+    )
+
+    _cmd_backup_now(data_file)
+
+    captured = capsys.readouterr()
+    assert "Backup created" in captured.out
+    assert bdir.exists()
+    assert len(list(bdir.glob("gtd_backup_*.json"))) == 1

@@ -132,10 +132,39 @@ gtd-tui -s
 ### Data and Privacy
 
 - All data is stored locally in `~/.local/share/gtd_tui/data.json`
-- Optional rotating backups: enable `[backup]` in `~/.config/gtd_tui/config.toml` — copies land in `~/.local/share/gtd_tui/backups` by default (encrypted databases stay encrypted)
-- Optional spell check / capitalization: `[text]` section in the same config file (off by default)
 - Writes are atomic (temp-file rename) with `600` permissions — owner read/write only
 - No network access, no telemetry
+
+### Configuration
+
+Config file: `~/.config/gtd_tui/config.toml` (created on first run).
+
+**`[backup]` — Rotating copies of the data file**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `false` | Copy data file after each save (throttled) |
+| `directory` | `""` | Backup dir; empty = `~/.local/share/gtd_tui/backups` |
+| `daily_keep` | `7` | Keep one backup per day for last N days |
+| `weekly_keep` | `4` | Keep one per week for last N weeks |
+| `monthly_keep` | `12` | Keep one per month for last N months |
+| `throttle_minutes` | `60` | Min minutes between backups |
+
+CLI: `gtd-tui --backup-now` creates a one-shot backup and exits (useful for cron).
+
+**`[text]` — Spell check and capitalization (off by default)**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `spell_check_enabled` | `false` | Enable spell correction (English) |
+| `spell_check_titles` | `true` | Apply to task titles |
+| `spell_check_notes` | `true` | Apply to notes |
+| `spell_check_on_submit` | `true` | Fix on Enter/save |
+| `spell_check_as_you_type` | `false` | Fix last word on Space in INSERT |
+| `capitalization_fix_enabled` | `false` | Fix THe → The, etc. |
+| `capitalization_fix_titles` | `true` | Apply to titles |
+| `capitalization_fix_notes` | `true` | Apply to notes |
+| `capitalization_sentence_case` | `false` | Capitalize after `.` `!` `?` |
 
 ---
 

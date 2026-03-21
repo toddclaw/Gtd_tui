@@ -104,7 +104,6 @@ from gtd_tui.gtd.operations import (
 )
 from gtd_tui.gtd.project import Project
 from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
-from gtd_tui.storage.rotating_backup import maybe_backup_after_save
 from gtd_tui.storage.file import (
     UndoStack,
     default_data_file_path,
@@ -118,6 +117,7 @@ from gtd_tui.storage.file import (
     load_undo_stack,
     save_data,
 )
+from gtd_tui.storage.rotating_backup import maybe_backup_after_save
 from gtd_tui.text.processing import fix_capitalization, fix_spelling
 from gtd_tui.widgets.vim_input import VimInput
 
@@ -243,7 +243,8 @@ class HelpScreen(ModalScreen[None]):
   :help / :h   Show this help screen
 
 [bold]CLI[/bold]
-  gtd-tui -s   Print today's tasks to stdout and exit
+  gtd-tui -s             Print today's tasks to stdout and exit
+  gtd-tui --backup-now   Create a one-shot backup of the data file and exit
 
 [bold]General[/bold]
   q            Quit
@@ -565,6 +566,16 @@ class TaskDetailScreen(
             )
 
     def on_mount(self) -> None:
+        app = self.app
+        if hasattr(app, "_spell_check_as_you_type_fn"):
+            for wid, field in [
+                ("#detail-title-input", "titles"),
+                ("#detail-notes-input", "notes"),
+            ]:
+                inp = self.query_one(wid, VimInput)
+                inp.set_spell_check_on_space(
+                    app._spell_check_as_you_type_fn(field)  # type: ignore[union-attr]
+                )
         self.query_one("#detail-title-input", VimInput).focus()
         self._render_checklist()
 
@@ -1830,6 +1841,17 @@ class GtdApp(App[None]):
         if spell:
             result = fix_spelling(result)
         return result
+
+    def _spell_check_as_you_type_fn(self, category: str):
+        """Return spell-check callback for Space in INSERT, or None if disabled."""
+        t = self._config.text
+        if (
+            not t.spell_check_enabled
+            or not t.spell_check_as_you_type
+            or not bool(getattr(t, f"spell_check_{category}", False))
+        ):
+            return None
+        return fix_spelling
 
     @property
     def _sidebar_view_ids(self) -> list[str]:
@@ -3141,6 +3163,7 @@ class GtdApp(App[None]):
         else:
             vim.set_placeholder("Task title...")
         vim.clear()
+        vim.set_spell_check_on_space(self._spell_check_as_you_type_fn("titles"))
         vim.set_mode("insert")  # creation always starts in INSERT
         vim.add_class("active")
         vim.focus()
@@ -3184,6 +3207,7 @@ class GtdApp(App[None]):
         vim_input = self.query_one("#vim-input", VimInput)
         vim_input.clear()
         vim_input.set_placeholder("New project name…")
+        vim_input.set_spell_check_on_space(self._spell_check_as_you_type_fn("projects"))
         vim_input.add_class("active")
         vim_input.set_mode("insert")
         vim_input.focus()
@@ -3214,6 +3238,7 @@ class GtdApp(App[None]):
         vim_input = self.query_one("#vim-input", VimInput)
         vim_input.clear()
         vim_input.set_placeholder("New area name…")
+        vim_input.set_spell_check_on_space(self._spell_check_as_you_type_fn("areas"))
         vim_input.add_class("active")
         vim_input.set_mode("insert")
         vim_input.focus()

@@ -12,9 +12,7 @@ from platformdirs import user_data_dir
 
 from gtd_tui.storage.crypto import is_encrypted
 
-_BACKUP_NAME_RE = re.compile(
-    r"^gtd_backup_(\d{4}-\d{2}-\d{2}_\d{6})\.(json|enc)$"
-)
+_BACKUP_NAME_RE = re.compile(r"^gtd_backup_(\d{4}-\d{2}-\d{2}_\d{6})\.(json|enc)$")
 
 
 @dataclass(frozen=True)
@@ -149,7 +147,11 @@ def maybe_backup_after_save(
     ):
         return last_backup_monotonic
 
-    bdir = Path(backup_directory).expanduser() if backup_directory.strip() else _default_backup_dir()
+    bdir = (
+        Path(backup_directory).expanduser()
+        if backup_directory.strip()
+        else _default_backup_dir()
+    )
     created = create_backup_copy(data_file, bdir)
     if created is None:
         return last_backup_monotonic

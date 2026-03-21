@@ -13,6 +13,7 @@ Multi-line mode (multiline=True):
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 
 import pyperclip
@@ -92,6 +93,7 @@ class VimInput(Widget, can_focus=True):
         self._count_buffer: str = ""  # accumulates digit prefix for count commands
         self._insert_count: int = 1  # count captured before entering INSERT mode
         self._pending_count: int = 1  # count saved when pending key is first set
+        self._spell_check_on_space: Callable[[str], str] | None = None
         # In command mode the cursor stays within the text (not past last char).
         if start_mode == "command":
             self._cursor: int = max(0, len(value) - 1) if value else 0
@@ -143,6 +145,10 @@ class VimInput(Widget, can_focus=True):
     def set_placeholder(self, placeholder: str) -> None:
         self._placeholder = placeholder
         self.refresh()
+
+    def set_spell_check_on_space(self, fn: Callable[[str], str] | None) -> None:
+        """Set optional spell-check callback; called with the current word on Space in INSERT mode."""
+        self._spell_check_on_space = fn
 
     def set_mode(self, mode: str) -> None:
         """Switch between 'insert' and 'command' sub-modes."""
@@ -465,6 +471,27 @@ class VimInput(Widget, can_focus=True):
             event.stop()
             event.prevent_default()
             self._cmd_line_down()
+
+        elif key == "space" and self._spell_check_on_space:
+            event.stop()
+            event.prevent_default()
+            row, _ = self._cursor_row_col()
+            line_start = self._offset_from_row_col(row, 0)
+            text_before = self._text[line_start : self._cursor]
+            match = re.search(r"[A-Za-z']+$", text_before)
+            if match:
+                word = match.group(0)
+                word_start = self._cursor - len(word)
+                corrected = self._spell_check_on_space(word)
+                if corrected != word:
+                    self._push_undo()
+                    self._text = (
+                        self._text[:word_start] + corrected + self._text[self._cursor :]
+                    )
+                    self._cursor = word_start + len(corrected)
+            self._text = self._text[: self._cursor] + " " + self._text[self._cursor :]
+            self._cursor += 1
+            self._last_insert += " "
 
         elif event.is_printable and event.character:
             event.stop()

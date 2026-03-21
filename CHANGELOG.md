@@ -12,6 +12,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - **GitHub Release changelog order**: `scripts/reorder_changelog_section.py` reorders each version’s notes (Added → Changed → Fixed; major-style Added bullets first); release workflow uses it; documented in `CLAUDE.md`.
 - **Configurable rotating backups**: `[backup]` in `config.toml` — optional throttled copies after each save to `~/.local/share/gtd_tui/backups` (or `directory`), tiered rotation (`daily_keep`, `weekly_keep`, `monthly_keep`); encrypted databases copy as `.enc`.
 - **Optional spell check and capitalization**: `[text]` in `config.toml` — per-field toggles for English spell correction (`pyspellchecker`) and THe-style / sentence-case fixes on submit.
+- **Spell check as you type**: `spell_check_as_you_type = true` — correct the last word when pressing Space in INSERT mode (titles, notes, projects, areas, detail view).
+- **CLI `--backup-now`**: One-shot backup of the data file and exit; uses `[backup]` config for directory and rotation.
+- **README Configuration section**: Tables for `[backup]` and `[text]` options.
+- **`.gitignore`**: Narrowed `backup.*` to explicit `backup.json`, `backup.csv`, etc., so `gtd_tui/**/backup*.py` is not ignored.
 - **CLAUDE.md release process**: clarifies that merge ≠ shipped release (version bump + tag on `main` still required); `gh pr merge --auto` only after `pre_push_check` / full suite green.
 - **README.md**: Development section summarizes the same release and `--auto` rules for maintainers.
 
