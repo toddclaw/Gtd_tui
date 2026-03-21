@@ -174,6 +174,15 @@ pip install -e ".[dev]"
 
 ```bash
 pre-commit install
+# Optional but strongly recommended: run the full test suite before every push
+# (commit hooks do not run pytest — only black, ruff, mypy, etc.)
+pre-commit install --hook-type pre-push
+```
+
+The **pre-push** hook runs `python scripts/pre_push_check.py` (full `pytest`, `black --check`, `ruff check`, `mypy`). Use a shell where `python` is your dev environment (e.g. activate `.venv` before `git push`), or run the script manually:
+
+```bash
+python scripts/pre_push_check.py
 ```
 
 ## Running the Application
@@ -195,12 +204,17 @@ pytest
 ## Development
 
 ```bash
-# Run all checks
+# Run all checks (matches CI and pre_push_check.py)
 black --check .    # formatting
 ruff check .       # linting
 mypy gtd_tui/      # type checking
-pytest             # tests
+pytest             # tests — not run by commit hooks; run before every push
 
-# Or let pre-commit run them all at commit time
+# Pre-commit at commit time: black, ruff, mypy, secrets, etc. — not pytest
 pre-commit run --all-files
+
+# One-shot gate before git push (recommended)
+python scripts/pre_push_check.py
 ```
+
+See **CLAUDE.md → Git Workflow → Pre-push checklist** for the full contributor workflow.

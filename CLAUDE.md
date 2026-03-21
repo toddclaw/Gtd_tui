@@ -57,8 +57,9 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-# Install pre-commit hooks (enforces black/ruff/mypy at commit time)
+# Install pre-commit hooks (black/ruff/mypy at commit time; pytest is NOT run on commit)
 pre-commit install
+pre-commit install --hook-type pre-push   # optional: full tests + linters before git push
 
 # Run the application
 python -m gtd_tui
@@ -368,6 +369,7 @@ Keep rendering and state mutation strictly separated.
 - Unit test keybinding dispatch and modal state machine
 - Integration test the storage layer (read/write round-trips)
 - Run `pytest` before every commit; a failing suite blocks merging
+- **Headless Pilot tests** that send keys to the main screen (e.g. `o`, `v`, `Enter` on a task) assume the **task list** has focus. Production default is `startup_focus_sidebar=true` (sidebar focused). Pass `config=CFG_TASK_LIST_FOCUS` from `tests.cfg` (or `replace(load_config(), startup_focus_sidebar=False)`) when constructing `GtdApp` unless the test explicitly drives the sidebar first.
 
 ---
 
@@ -387,6 +389,18 @@ Add inbox task capture with keyboard shortcut
 Fix project deletion leaving orphaned tasks
 Refactor storage layer to use JSON serialization
 ```
+
+### Pre-push checklist
+
+**Mandatory before every push.** Do not push until every item below passes. Commit-time `pre-commit` runs **black**, **ruff**, and **mypy** only — it does **not** run **pytest**, so a green commit hook does **not** mean tests pass.
+
+1. **Full test suite** — `pytest` or `pytest tests/` (same as CI). The suite takes a few minutes; run it anyway.
+2. **Format / lint / types** — `black --check .`, `ruff check .`, `mypy gtd_tui/` (or `pre-commit run --all-files` for the same checks pre-commit enforces at commit).
+3. **Convenience script** — from the repo root with dev dependencies installed: `python scripts/pre_push_check.py` (runs steps 1–2 in order, using the current interpreter — activate `.venv` first).
+4. **Optional automation** — install the pre-push hook so `git push` runs the same gate: `pre-commit install && pre-commit install --hook-type pre-push`. The hook invokes `python scripts/pre_push_check.py`; ensure the `python` on your PATH when Git runs hooks is the one with dev extras (e.g. activate `.venv` before pushing, or configure your shell so `python` resolves to `.venv/bin/python` in this repo).
+5. **Quick sanity** — `git status` shows only intentional changes; you are on the intended branch (`git branch --show-current`).
+
+**Why this matters:** CI on `main` / PRs runs **pytest** plus linters. Pushing without a local full `pytest` run has caused broken test suites to land on remote branches.
 
 ### Feature Work Checklist
 
@@ -408,30 +422,31 @@ Follow this order for every piece of work:
 - [ ] **Update `:help`** — if any new keybindings were added, add them to `HelpScreen._HELP_TEXT` in `gtd_tui/app.py`
 - [ ] **Update `CLAUDE.md`** — if new prerequisites, conventions, or key files were introduced
 - [ ] **Update `CHANGELOG.md`** (or create it if absent) — add a bullet under `[Unreleased]` describing the change
-- [ ] Commit and push to the feature branch
+- [ ] **Pre-push checklist** — complete [Pre-push checklist](#pre-push-checklist) before `git push`
 
 ### Release Process
 
 When the user asks to make a release (e.g. "release v1.3.0" or "merge and tag"), follow these steps in order — do not skip any:
 
 1. **Commit pending changes** on the current feature branch (if any uncommitted work exists)
-2. **Push the feature branch** to remote: `git push origin <branch>`
-3. **Open a pull request** from the feature branch into `main`:
+2. **Pre-push checklist** — run `python scripts/pre_push_check.py` (or full `pytest` + linters per [Pre-push checklist](#pre-push-checklist)); do not push with failing tests
+3. **Push the feature branch** to remote: `git push origin <branch>`
+4. **Open a pull request** from the feature branch into `main`:
    - Use `gh pr create` with a title of the form `Release vX.Y.Z`
    - The PR body must include:
      - A one-paragraph summary of all changes being merged (synthesised from the commit log and `CHANGELOG.md [Unreleased]` section)
      - A bulleted list of every BACKLOG item completed (title only, not acceptance criteria)
      - The version being released
    - Example: `gh pr create --title "Release vX.Y.Z" --body "$(cat <<'EOF'\n...\nEOF\n)"`
-4. **Merge the pull request**: `gh pr merge <number> --merge --subject "Merge branch '<branch>' — vX.Y.Z"`
+5. **Merge the pull request**: `gh pr merge <number> --merge --subject "Merge branch '<branch>' — vX.Y.Z"`
    (use `--merge` for a standard merge commit, preserving full history)
-5. **Checkout main and pull**: `git checkout main && git pull origin main`
-6. **Bump version** in `pyproject.toml`: `version = "X.Y.Z"`
-7. **Commit the version bump**: `git commit -m "Bump version to X.Y.Z"`
-8. **Create annotated tag**: `git tag -a vX.Y.Z HEAD -m "vX.Y.Z — <short summary of changes>"`
-9. **Push main**: `git push origin main`
-10. **Push tags**: `git push origin vX.Y.Z`
-11. **Return to feature branch**: `git checkout <branch>`
+6. **Checkout main and pull**: `git checkout main && git pull origin main`
+7. **Bump version** in `pyproject.toml`: `version = "X.Y.Z"`
+8. **Commit the version bump**: `git commit -m "Bump version to X.Y.Z"`
+9. **Create annotated tag**: `git tag -a vX.Y.Z HEAD -m "vX.Y.Z — <short summary of changes>"`
+10. **Push main**: `git push origin main`
+11. **Push tags**: `git push origin vX.Y.Z`
+12. **Return to feature branch**: `git checkout <branch>`
 
 GitHub Actions will automatically build the wheel and publish the release once the tag arrives.
 
@@ -449,6 +464,7 @@ GitHub Actions will automatically build the wheel and publish the release once t
 | `gtd_tui/__main__.py` | Entry point — keep thin |
 | `gtd_tui/app.py` | Application state, event loop |
 | `gtd_tui/ui.py` | All TUI rendering logic |
+| `scripts/pre_push_check.py` | Full pytest + black + ruff + mypy before push (see Pre-push checklist) |
 
 ---
 
