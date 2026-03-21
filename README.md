@@ -218,3 +218,5 @@ python scripts/pre_push_check.py
 ```
 
 See **CLAUDE.md → Git Workflow** for contributor workflow: **Before starting work (branch sanity)** (right branch, up to date with remote), **Pre-push checklist** (full tests before push), and **Closing a body of work** (reflection and optional follow-up improvements when working with an AI assistant).
+
+**Releases:** Merging a release PR into `main` is not the end — you still need to bump `pyproject.toml`, create the `vX.Y.Z` tag, and push `main` + the tag (see **CLAUDE.md → Release Process**). If you use **`gh pr merge --auto`**, enable it only after **`python scripts/pre_push_check.py`** (or an equivalent full test run) has passed.
