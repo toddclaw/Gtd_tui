@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **CLAUDE.md release process**: clarifies that merge ≠ shipped release (version bump + tag on `main` still required); `gh pr merge --auto` only after `pre_push_check` / full suite green.
+
 ---
 
 ## [1.7.1] — 2026-03-21
