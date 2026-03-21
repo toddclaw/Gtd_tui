@@ -104,8 +104,10 @@ from gtd_tui.gtd.operations import (
 )
 from gtd_tui.gtd.project import Project
 from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
+from gtd_tui.storage.rotating_backup import maybe_backup_after_save
 from gtd_tui.storage.file import (
     UndoStack,
+    default_data_file_path,
     load_areas,
     load_collapsed_areas,
     load_folders,
@@ -116,6 +118,7 @@ from gtd_tui.storage.file import (
     load_undo_stack,
     save_data,
 )
+from gtd_tui.text.processing import fix_capitalization, fix_spelling
 from gtd_tui.widgets.vim_input import VimInput
 
 
@@ -245,6 +248,8 @@ class HelpScreen(ModalScreen[None]):
 [bold]General[/bold]
   q            Quit
   Ctrl+Z       Suspend to background (resume with fg)
+  Config       ~/.config/gtd_tui/config.toml — [backup] rotating copies of data.json;
+               [text] optional spell check / capitalization on save (see comments in file)
 
   j / k to scroll  ·  Esc, Enter, or q to close\
 """
@@ -697,6 +702,9 @@ class TaskDetailScreen(
             self.action_save_and_close()
         elif event.vim_input.id == "detail-checklist-new":
             label = event.vim_input.value.strip()
+            app = self.app
+            if hasattr(app, "_normalize_user_text"):
+                label = app._normalize_user_text("checklist", label)  # type: ignore[union-attr]
             if self._renaming_checklist_item_id:
                 item_id = self._renaming_checklist_item_id
                 self._renaming_checklist_item_id = ""
@@ -1797,6 +1805,31 @@ class GtdApp(App[None]):
         self._last_search_query: str = ""
         self._search_match_ids: list[str] = []
         self._search_match_idx: int = 0
+        self._last_backup_monotonic: float = 0.0
+
+    def _normalize_user_text(self, category: str, text: str) -> str:
+        """Apply configured capitalization and spell correction for *category* keys."""
+        if not text:
+            return text
+        t = self._config.text
+        cap = (
+            t.capitalization_fix_enabled
+            and bool(getattr(t, f"capitalization_fix_{category}", False))
+            and t.capitalization_fix_on_submit
+        )
+        spell = (
+            t.spell_check_enabled
+            and bool(getattr(t, f"spell_check_{category}", False))
+            and t.spell_check_on_submit
+        )
+        result = text
+        if cap:
+            result = fix_capitalization(
+                result, sentence_case=t.capitalization_sentence_case
+            )
+        if spell:
+            result = fix_spelling(result)
+        return result
 
     @property
     def _sidebar_view_ids(self) -> list[str]:
@@ -2531,6 +2564,19 @@ class GtdApp(App[None]):
             tag_order=self._tag_order,
             collapsed_areas=self._collapsed_areas,
         )
+        data_path = self._data_file or default_data_file_path()
+        b = self._config.backup
+        self._last_backup_monotonic = maybe_backup_after_save(
+            data_path,
+            enabled=b.enabled,
+            backup_directory=b.directory,
+            daily_keep=b.daily_keep,
+            weekly_keep=b.weekly_keep,
+            monthly_keep=b.monthly_keep,
+            throttle_minutes=b.throttle_minutes,
+            last_backup_monotonic=self._last_backup_monotonic,
+            now_monotonic=time.monotonic(),
+        )
 
     def _task_to_yank_text(self, task: Task) -> str:
         """Return the clipboard representation of a single task."""
@@ -3242,17 +3288,17 @@ class GtdApp(App[None]):
             if not value:
                 self._cancel_input()
                 return
-            self._pending_title = value
+            self._pending_title = self._normalize_user_text("titles", value)
             self._save_new_task("")
 
         elif self._input_stage == "notes":
-            self._save_new_task(value)
+            self._save_new_task(self._normalize_user_text("notes", value))
 
         elif self._input_stage == "project_name":
-            self._finish_new_project(value)
+            self._finish_new_project(self._normalize_user_text("projects", value))
 
         elif self._input_stage == "area_name":
-            self._finish_new_area(value)
+            self._finish_new_area(self._normalize_user_text("areas", value))
 
     def _save_new_task(self, notes: str) -> None:
         """Create the pending task with the given notes and clean up."""
@@ -3364,6 +3410,7 @@ class GtdApp(App[None]):
             self._sidebar_placeholder_insert = ""
             self._sidebar_placeholder_anchor_id = ""
             if value:
+                value = self._normalize_user_text("folders", value)
                 new_folder_id = str(uuid.uuid4())
                 self._all_folders = insert_folder(
                     self._all_folders,
@@ -3384,6 +3431,7 @@ class GtdApp(App[None]):
 
         elif self._input_stage == "folder_rename":
             if value and self._rename_folder_id:
+                value = self._normalize_user_text("folders", value)
                 self._all_folders = rename_folder(
                     self._all_folders, self._rename_folder_id, value
                 )
@@ -3395,8 +3443,9 @@ class GtdApp(App[None]):
 
         elif self._input_stage == "project_rename":
             if value and self._rename_project_id:
+                value = self._normalize_user_text("projects", value.strip())
                 self._all_projects = rename_project(
-                    self._all_projects, self._rename_project_id, value.strip()
+                    self._all_projects, self._rename_project_id, value
                 )
                 self._save()
                 self._rebuild_sidebar()
@@ -3406,8 +3455,9 @@ class GtdApp(App[None]):
 
         elif self._input_stage == "area_rename":
             if value and self._rename_area_id:
+                value = self._normalize_user_text("areas", value.strip())
                 self._all_areas = rename_area(
-                    self._all_areas, self._rename_area_id, value.strip()
+                    self._all_areas, self._rename_area_id, value
                 )
                 self._save()
                 self._rebuild_sidebar()
@@ -3416,9 +3466,10 @@ class GtdApp(App[None]):
 
         elif self._input_stage == "task_rename":
             if value and self._rename_task_id:
+                value = self._normalize_user_text("titles", value.strip())
                 self._push_undo()
                 self._all_tasks = edit_task(
-                    self._all_tasks, self._rename_task_id, title=value.strip()
+                    self._all_tasks, self._rename_task_id, title=value
                 )
                 self._save()
                 self._refresh_list(select_task_id=self._rename_task_id)
@@ -3681,6 +3732,17 @@ class GtdApp(App[None]):
                 new_checklist,
             ) = result
 
+            new_title = self._normalize_user_text("titles", new_title)
+            new_notes = self._normalize_user_text("notes", new_notes)
+            new_checklist = [
+                ChecklistItem(
+                    id=it.id,
+                    label=self._normalize_user_text("checklist", it.label),
+                    checked=it.checked,
+                )
+                for it in new_checklist
+            ]
+
             # Parse date field.
             move_to_someday = date_text.strip().lower() == "someday"
             new_date = old_date
@@ -3748,7 +3810,11 @@ class GtdApp(App[None]):
                 new_deadline = old_deadline
 
             new_tags = (
-                [t.strip() for t in tags_raw.split(",") if t.strip()]
+                [
+                    self._normalize_user_text("tags", t.strip())
+                    for t in tags_raw.split(",")
+                    if t.strip()
+                ]
                 if tags_raw
                 else []
             )

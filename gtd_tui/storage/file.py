@@ -23,6 +23,11 @@ from gtd_tui.storage.crypto import (
 _DEFAULT_DATA_FILE = Path(user_data_dir("gtd_tui")) / "data.json"
 
 
+def default_data_file_path() -> Path:
+    """Default XDG path for the task database (`data.json`)."""
+    return _DEFAULT_DATA_FILE
+
+
 def _repeat_rule_to_dict(rule: RepeatRule) -> dict[str, Any]:
     return {
         "interval": rule.interval,
@@ -413,6 +418,7 @@ folder_from_dict = _folder_from_dict
 
 __all__ = [
     "UndoStack",
+    "default_data_file_path",
     "folder_from_dict",
     "folder_to_dict",
     "load_areas",

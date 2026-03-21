@@ -103,6 +103,30 @@ def test_save_default_config_contains_timeout_section(tmp_path: Path) -> None:
     assert "timeout" in data
 
 
+def test_save_default_config_contains_backup_and_text_sections(tmp_path: Path) -> None:
+    out = tmp_path / "config.toml"
+    save_default_config(out)
+    with open(out, "rb") as f:
+        data = tomllib.load(f)
+    assert "backup" in data
+    assert data["backup"]["enabled"] is False
+    assert "text" in data
+    assert data["text"]["spell_check_enabled"] is False
+
+
+def test_load_config_reads_backup_and_text(tmp_path: Path) -> None:
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text(
+        "[backup]\nenabled = true\ndaily_keep = 3\nthrottle_minutes = 0\n"
+        "[text]\nspell_check_enabled = true\ncapitalization_fix_enabled = true\n"
+    )
+    cfg = load_config(cfg_file)
+    assert cfg.backup.enabled is True
+    assert cfg.backup.daily_keep == 3
+    assert cfg.text.spell_check_enabled is True
+    assert cfg.text.capitalization_fix_enabled is True
+
+
 def test_save_default_config_contains_startup_focus_sidebar(tmp_path: Path) -> None:
     """Fresh default config includes startup_focus_sidebar in [ui] section."""
     out = tmp_path / "config.toml"

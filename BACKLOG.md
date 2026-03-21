@@ -1384,3 +1384,19 @@ After the feature batch 59–71 is implemented, do a full pass over `HelpScreen.
 - [ ] `README.md` reflects the current feature set
 - [ ] No stale keybindings remain in the help text
 - [ ] The config file reference in README shows all current config options
+
+---
+
+### BACKLOG-72 — Configurable backups, spell check, capitalization; release tooling ✅ DONE
+
+**Story points:** 8
+
+**Description:**
+Rotating backups after save (`[backup]` in config), optional English spell check and capitalization fixes on submit (`[text]`), GitHub release notes reorder script, and maintainer docs for protecting `main` with PR-only rules.
+
+**Acceptance criteria:**
+- [x] `[backup]` with throttle, directory, daily/weekly/monthly retention; copies `.json` or encrypted blob
+- [x] `[text]` per-field toggles for spell and capitalization; `spell_check_as_you_type` reserved in config
+- [x] `scripts/reorder_changelog_section.py` + release workflow; `CLAUDE.md` documents both
+- [x] `README` / `CLAUDE.md` describe GitHub rulesets for `main`
+- [x] Tests for backup rotation, text processing, changelog script, config load

@@ -380,6 +380,19 @@ Keep rendering and state mutation strictly separated.
 - Development happens on feature branches: `claude/<description>-<id>`
 - Do not push directly to `master`/`main`
 
+### Protecting `main` on GitHub (pull requests only)
+
+To block direct pushes and merges to `main` so all changes go through pull requests:
+
+1. Open the repository on GitHub → **Settings** → **Code and automation** → **Rules** → **Rulesets** (or **Branches** → **Branch protection rules** on older UIs).
+2. **New ruleset** (or **Add rule**), target branch `main` (or `refs/heads/main`).
+3. Enable **Require a pull request before merging** (set minimum approvals if you want reviews).
+4. Enable **Block force pushes** (usually on by default for protected branches).
+5. Optionally **Require status checks to pass** (e.g. your CI workflow) before merge.
+6. To prevent admins from bypassing: under ruleset enforcement, disable **Allow bypass** for the roles that should not skip rules.
+
+GitHub does not store this in the repo; each maintainer with admin access must configure it once per repository.
+
 ### Before starting work (branch sanity)
 
 **Wrong-branch mistakes** (e.g. implementing a release fix on a stale feature branch, or mixing two PRs) waste time and confuse history. **Before writing code or committing**, confirm the following:
@@ -481,6 +494,8 @@ When the user asks to make a release (e.g. "release v1.3.0" or "merge and tag"),
 
 GitHub Actions will automatically build the wheel and publish the release once the tag arrives.
 
+**GitHub Release body:** The release workflow runs `scripts/reorder_changelog_section.py` on the tagged version’s `CHANGELOG.md` section. It orders subsections **Added** → **Changed** → **Fixed** (then Deprecated / Removed / Security), and sorts **Added** bullets with BACKLOG references and bold lead-ins first. Keep `[Unreleased]` entries in normal Keep a Changelog form; the script shapes what users see on the GitHub Release page.
+
 ---
 
 ## Key Files Reference
@@ -492,9 +507,13 @@ GitHub Actions will automatically build the wheel and publish the release once t
 | `AGENTS.md` | Short agent checklist (branch sanity, closure); points to CLAUDE.md |
 | `BACKLOG.md` | Feature backlog with all story details |
 | `CHANGELOG.md` | Release notes — update for every feature/fix |
+| `scripts/reorder_changelog_section.py` | Release workflow: reorder changelog section for GitHub Release body |
 | `pyproject.toml` | Package metadata and dependencies |
 | `gtd_tui/__main__.py` | Entry point — keep thin |
 | `gtd_tui/app.py` | Application state, event loop |
+| `gtd_tui/config.py` | `config.toml` loading (`[backup]`, `[text]`, UI, timeout, etc.) |
+| `gtd_tui/storage/rotating_backup.py` | Throttled rotating copies of `data.json` (or encrypted blob) |
+| `gtd_tui/text/processing.py` | Spell check and capitalization for submitted text |
 | `gtd_tui/ui.py` | All TUI rendering logic |
 | `scripts/pre_push_check.py` | Full pytest + black + ruff + mypy before push (see Pre-push checklist) |
 
@@ -508,7 +527,7 @@ See [BACKLOG.md](BACKLOG.md) for the full feature backlog.
 
 - **Before editing:** Follow [Before starting work (branch sanity)](#before-starting-work-branch-sanity) — confirm `git branch --show-current`, `git fetch` + `git pull` on the correct branch (especially for release/PR-specific work). Do not assume the workspace is on the right branch.
 - **After substantive work:** Follow [Closing a body of work](#closing-a-body-of-work-reflection-and-follow-up) — reflect, propose a few improvements, let the user pick one to implement next (do not auto-implement suggestions without their choice).
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 30, 31, 32, 33, 53, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71 are **complete**. BACKLOG-23 is pending. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 30, 31, 32, 33, 53, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72 are **complete**. BACKLOG-23 is pending. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
