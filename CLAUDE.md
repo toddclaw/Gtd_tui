@@ -454,6 +454,10 @@ This keeps improvements user-driven and avoids piling on unrequested changes.
 
 When the user asks to make a release (e.g. "release v1.3.0" or "merge and tag"), follow these steps in order — do not skip any:
 
+**Merging the release PR is not the end of the release.** After the PR lands on `main`, you must still **bump `pyproject.toml`**, **commit on `main`**, **tag `vX.Y.Z`**, and **push `main` + the tag** (steps 6–11). Until the tag is pushed, the versioned wheel/GitHub release does not ship. Do not treat the PR merge as “released” if those steps are pending.
+
+**`gh pr merge --auto`:** Enable **auto-merge only after** step 2 (**`pre_push_check`**) has passed locally (or you have equivalent proof the full suite is green). Do not turn on auto-merge while the branch is untested — CI on the PR helps, but the checklist still expects a full `pytest` run before merge.
+
 0. **Branch sanity** — You must be on the **release PR branch** (not `main`, not an unrelated `claude/…` branch). Run `git branch --show-current`, `git fetch origin`, and `git pull origin <branch>` so local matches the PR you intend to ship.
 1. **Commit pending changes** on the current feature branch (if any uncommitted work exists)
 2. **Pre-push checklist** — run `python scripts/pre_push_check.py` (or full `pytest` + linters per [Pre-push checklist](#pre-push-checklist)); do not push with failing tests
@@ -465,8 +469,8 @@ When the user asks to make a release (e.g. "release v1.3.0" or "merge and tag"),
      - A bulleted list of every BACKLOG item completed (title only, not acceptance criteria)
      - The version being released
    - Example: `gh pr create --title "Release vX.Y.Z" --body "$(cat <<'EOF'\n...\nEOF\n)"`
-5. **Merge the pull request**: `gh pr merge <number> --merge --subject "Merge branch '<branch>' — vX.Y.Z"`
-   (use `--merge` for a standard merge commit, preserving full history)
+5. **Merge the pull request** (only after step 2 is green): `gh pr merge <number> --merge --subject "Merge branch '<branch>' — vX.Y.Z"`
+   (use `--merge` for a standard merge commit, preserving full history). If you use **`gh pr merge --auto`**, queue it **after** step 2 — never enable auto-merge before the full test suite has passed.
 6. **Checkout main and pull**: `git checkout main && git pull origin main`
 7. **Bump version** in `pyproject.toml`: `version = "X.Y.Z"`
 8. **Commit the version bump**: `git commit -m "Bump version to X.Y.Z"`
