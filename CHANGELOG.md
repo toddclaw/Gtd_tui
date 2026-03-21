@@ -7,13 +7,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.7.1] — 2026-03-21
+
 ### Added
 - **Startup focus config** (`[ui] startup_focus_sidebar`): when `true` (default), focus starts on the sidebar; when `false`, focus starts on the task list (or the empty-hint when the list is empty) so `o` adds a task immediately.
 - **Project view strikethrough**: completed project sub-tasks now appear crossed out in the project view instead of being hidden.
 - **H/M/L/G/gg in action picker**: move/assign/tag picker supports `H` (top), `M` (middle), `L` (bottom), `G` (bottom), `gg` (top) for fast navigation.
 - **H/M/L in sidebar**: `H`, `M`, `L` jump to top/middle/bottom of the sidebar (and in move-mode folder picker).
-
-### Added
 - **Pre-push quality gate**: `scripts/pre_push_check.py` runs full `pytest`, `black --check`, `ruff check`, and `mypy gtd_tui/`; documented mandatory pre-push checklist in `CLAUDE.md`; optional `pre-commit` **pre-push** hook (`pre-commit install --hook-type pre-push`); `README.md` contributor notes updated to stress that commit hooks do not run tests.
 - **Contributor / agent workflow**: `CLAUDE.md` documents branch sanity before work, release step 0, and **closing a body of work** (reflection + user-selected follow-ups); `AGENTS.md` and `.cursor/rules/closure.mdc` mirror the closure step for AI tools.
 
