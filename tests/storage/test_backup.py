@@ -27,23 +27,37 @@ def _touch_backup(backup_dir: Path, when: datetime, *, encrypted: bool = False) 
 def test_create_backup_copy_plain_json(tmp_path: Path) -> None:
     data = tmp_path / "data.json"
     save_data([], [], data_file=data)
-    dest = create_backup_copy(data, tmp_path / "bk")
+    dest = create_backup_copy(data, tmp_path / "bk", gzip_backups=False)
     assert dest is not None
     assert dest.suffix == ".json"
     assert dest.read_text() == data.read_text()
+
+
+def test_create_backup_copy_plain_json_gzipped(tmp_path: Path) -> None:
+    import gzip
+
+    data = tmp_path / "data.json"
+    save_data([], [], data_file=data)
+    dest = create_backup_copy(data, tmp_path / "bk", gzip_backups=True)
+    assert dest is not None
+    assert dest.suffix == ".gz"
+    assert dest.stem.endswith(".json")
+    with gzip.open(dest, "rt") as f:
+        assert f.read() == data.read_text()
 
 
 def test_create_backup_copy_encrypted(tmp_path: Path) -> None:
     data = tmp_path / "data.json"
     save_data([], [], data_file=data, password="secret")
     assert data.read_bytes()[:4] == MAGIC
-    dest = create_backup_copy(data, tmp_path / "bk")
+    dest = create_backup_copy(data, tmp_path / "bk", gzip_backups=False)
     assert dest is not None
     assert dest.suffix == ".enc"
     assert dest.read_bytes() == data.read_bytes()
 
 
 def test_rotate_keeps_daily_and_drops_old(tmp_path: Path) -> None:
+    """daily_keep=N: keep 1 backup per day for the N most recent days."""
     bdir = tmp_path / "backups"
     base = datetime(2026, 1, 15, 12, 0, 0)
     paths = [_touch_backup(bdir, base - timedelta(days=i)) for i in range(10)]
@@ -81,6 +95,8 @@ def test_maybe_backup_throttle(tmp_path: Path) -> None:
         throttle_minutes=60,
         last_backup_monotonic=last,
         now_monotonic=100.0,
+        gzip_backups=False,
+        daily_slots_per_day=1,
     )
     assert last == 100.0
     assert len(list(bdir.glob("*"))) == 1
@@ -94,6 +110,8 @@ def test_maybe_backup_throttle(tmp_path: Path) -> None:
         throttle_minutes=60,
         last_backup_monotonic=last,
         now_monotonic=101.0,
+        gzip_backups=False,
+        daily_slots_per_day=1,
     )
     assert last2 == 100.0
     assert len(list(bdir.glob("*"))) == 1

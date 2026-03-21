@@ -753,6 +753,37 @@ async def test_area_rename_via_keyboard(tmp_path: Path) -> None:
         assert updated.name == "New area"
 
 
+async def test_area_delete_with_confirmation(tmp_path: Path) -> None:
+    """Pressing d on an area with projects shows confirmation; d confirms delete."""
+    data_file = tmp_path / "data.json"
+    area = Area(name="Work")
+    proj = Project(title="Website", area_id=area.id)
+    save_data([], [], data_file=data_file, projects=[proj], areas=[area])
+
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        view_ids = app._sidebar_view_ids
+        area_idx = view_ids.index(f"area:{area.id}")
+        sidebar.index = area_idx
+        await pilot.pause()
+
+        await pilot.press("d")
+        await pilot.pause()
+        assert app._delete_confirm_area_id == area.id
+
+        await pilot.press("d")
+        await pilot.pause()
+        assert app._delete_confirm_area_id == ""
+        assert area.id not in [a.id for a in app._all_areas]
+        updated_proj = next(p for p in app._all_projects if p.id == proj.id)
+        assert updated_proj.area_id is None
+
+
 # ---------------------------------------------------------------------------
 # TAG reorder via keyboard
 # ---------------------------------------------------------------------------

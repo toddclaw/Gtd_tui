@@ -286,7 +286,7 @@ def test_backup_now_creates_file(
 
     monkeypatch.setattr(
         "gtd_tui.__main__.load_config",
-        lambda: Config(backup=BackupConfig(directory=str(bdir))),
+        lambda: Config(backup=BackupConfig(directory=str(bdir), gzip=False)),
     )
 
     _cmd_backup_now(data_file)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import re
 import shutil
 from dataclasses import dataclass
@@ -12,7 +13,10 @@ from platformdirs import user_data_dir
 
 from gtd_tui.storage.crypto import is_encrypted
 
-_BACKUP_NAME_RE = re.compile(r"^gtd_backup_(\d{4}-\d{2}-\d{2}_\d{6})\.(json|enc)$")
+# Supports both uncompressed (.json, .enc) and gzipped (.json.gz, .enc.gz)
+_BACKUP_NAME_RE = re.compile(
+    r"^gtd_backup_(\d{4}-\d{2}-\d{2}_\d{6})\.(json|enc)(\.gz)?$"
+)
 
 
 @dataclass(frozen=True)
@@ -53,12 +57,15 @@ def rotate_backups(
     backup_dir: Path,
     *,
     daily_keep: int,
-    weekly_keep: int,
-    monthly_keep: int,
+    daily_slots_per_day: int = 1,
+    weekly_keep: int = 4,
+    monthly_keep: int = 12,
 ) -> None:
     """Keep tiered backups; delete files that fall outside retention.
 
-    A keep count of 0 disables that tier (no slots). If all tiers are 0, nothing is deleted.
+    daily_keep: number of calendar days to retain.
+    daily_slots_per_day: max backups to keep per calendar day (1 = one per day).
+    A keep count of 0 disables that tier. If all tiers are 0, nothing is deleted.
     """
     if daily_keep <= 0 and weekly_keep <= 0 and monthly_keep <= 0:
         return
@@ -68,12 +75,24 @@ def rotate_backups(
 
     selected: set[Path] = set()
     if daily_keep > 0:
-        days_used: set[date] = set()
+        slots = max(1, daily_slots_per_day)
+        days_seen: set[date] = set()
+        day_counts: dict[date, int] = {}
         for bf in files:
             d = bf.when.date()
-            if d not in days_used and len(days_used) < daily_keep:
-                selected.add(bf.path)
-                days_used.add(d)
+            if slots == 1:
+                if d not in days_seen and len(days_seen) < daily_keep:
+                    selected.add(bf.path)
+                    days_seen.add(d)
+            else:
+                if d not in days_seen:
+                    if len(days_seen) >= daily_keep:
+                        continue
+                    days_seen.add(d)
+                n = day_counts.get(d, 0)
+                if n < slots:
+                    selected.add(bf.path)
+                    day_counts[d] = n + 1
 
     if weekly_keep > 0:
         weeks_used: set[tuple[int, int]] = set()
@@ -104,7 +123,9 @@ def rotate_backups(
                 pass
 
 
-def create_backup_copy(data_file: Path, backup_dir: Path) -> Path | None:
+def create_backup_copy(
+    data_file: Path, backup_dir: Path, *, gzip_backups: bool = True
+) -> Path | None:
     """Copy *data_file* into *backup_dir* with a timestamped name. Returns new path."""
     if not data_file.is_file():
         return None
@@ -116,8 +137,14 @@ def create_backup_copy(data_file: Path, backup_dir: Path) -> Path | None:
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     backup_dir.mkdir(parents=True, exist_ok=True)
     dest = backup_dir / f"gtd_backup_{stamp}.{ext}"
+    if gzip_backups:
+        dest = dest.with_suffix(dest.suffix + ".gz")
     try:
-        shutil.copyfile(data_file, dest)
+        if gzip_backups:
+            with open(data_file, "rb") as src, gzip.open(dest, "wb") as dst:
+                shutil.copyfileobj(src, dst)
+        else:
+            shutil.copyfile(data_file, dest)
         dest.chmod(0o600)
     except OSError:
         return None
@@ -130,11 +157,13 @@ def maybe_backup_after_save(
     enabled: bool,
     backup_directory: str,
     daily_keep: int,
+    daily_slots_per_day: int = 1,
     weekly_keep: int,
     monthly_keep: int,
     throttle_minutes: int,
     last_backup_monotonic: float,
     now_monotonic: float,
+    gzip_backups: bool = True,
 ) -> float:
     """If policy allows, copy *data_file* and rotate. Returns updated last-backup time."""
     if not enabled:
@@ -152,13 +181,14 @@ def maybe_backup_after_save(
         if backup_directory.strip()
         else _default_backup_dir()
     )
-    created = create_backup_copy(data_file, bdir)
+    created = create_backup_copy(data_file, bdir, gzip_backups=gzip_backups)
     if created is None:
         return last_backup_monotonic
 
     rotate_backups(
         bdir,
         daily_keep=daily_keep,
+        daily_slots_per_day=daily_slots_per_day,
         weekly_keep=weekly_keep,
         monthly_keep=monthly_keep,
     )

@@ -8,6 +8,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Task creation (o/O) Esc behavior**: First Esc enters COMMAND mode; second Esc saves and exits. Enter saves and exits. Ctrl+C cancels (blank title also cancels).
+- **Backup gzip compression**: `[backup] gzip = true` (default) compresses backups to save space.
+- **Backup daily_slots_per_day**: `[backup] daily_slots_per_day` — keep multiple backups per calendar day (default 1).
+- **Single-instance lockfile**: Prevents two gtd-tui processes from opening the same database; prints "Another gtd-tui is already running." and exits when lockfile exists.
+- **Sidebar d on Area**: Delete Area with confirmation when it has folders/projects; [d] confirms, [Esc] cancels.
 - **GitHub `main` protection (docs)**: `CLAUDE.md` / `README.md` describe enabling rulesets / branch protection so changes go through pull requests.
 - **GitHub Release changelog order**: `scripts/reorder_changelog_section.py` reorders each version’s notes (Added → Changed → Fixed; major-style Added bullets first); release workflow uses it; documented in `CLAUDE.md`.
 - **Configurable rotating backups**: `[backup]` in `config.toml` — optional throttled copies after each save to `~/.local/share/gtd_tui/backups` (or `directory`), tiered rotation (`daily_keep`, `weekly_keep`, `monthly_keep`); encrypted databases copy as `.enc`.

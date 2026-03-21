@@ -203,20 +203,25 @@ This project follows code craftsmanship practices. Every piece of code should be
 
 ### Test-Driven Development (TDD)
 
-This project uses TDD. Write tests before or alongside implementation — never after.
+This project uses TDD. **Always write tests first, then implement** — never after.
 
 **Workflow:**
-1. Write a failing test that describes the desired behaviour
+1. Write a **failing** test that describes the desired behaviour
 2. Write the minimum code to make it pass
 3. Refactor, keeping tests green
+
+**Test scope:**
+- **Unit tests** — domain logic, storage, keybinding dispatch
+- **Integration tests** — full flows via Pilot API (e.g. `test_add_task_appears_in_task_list`, `test_area_delete_with_confirmation`). For any user-visible feature, add at least one integration test that drives the app through the key sequence and asserts on observable state.
+- Do **not** test Textual internals or pure rendering — test the logic that drives rendering
 
 **What to test:**
 - All GTD domain logic: task creation, completion, scheduling, filtering, sorting, state transitions
 - Storage layer: read/write round-trips, corrupt/missing file handling
 - Keybinding dispatch: modal state transitions (normal → insert → normal, etc.)
-- Do **not** test Textual internals or pure rendering — test the logic that drives rendering
+- User flows: task creation (o/O, Esc, Enter, Ctrl+C), sidebar actions (d, r on areas/folders/projects), etc.
 
-**Test location:** `tests/` mirroring the package structure (`tests/gtd/test_task.py`, `tests/storage/test_file.py`, etc.)
+**Test location:** `tests/` mirroring the package structure (`tests/gtd/test_task.py`, `tests/storage/test_file.py`, `tests/app/test_*.py` for integration tests)
 
 ```bash
 pytest                        # run all tests
@@ -364,7 +369,7 @@ Keep rendering and state mutation strictly separated.
 
 ### Testing
 
-- This project uses **TDD** — write tests before or alongside implementation (see Development Process above)
+- This project uses **TDD** — write tests first, then implement (see [Test-Driven Development](#test-driven-development-tdd) above)
 - Unit test domain logic (task creation, filtering, sorting, state transitions)
 - Unit test keybinding dispatch and modal state machine
 - Integration test the storage layer (read/write round-trips)
@@ -436,7 +441,8 @@ Follow this order for every piece of work:
 - [ ] Confirm with `git branch --show-current` (and `git branch -vv` if unsure about upstream)
 
 **Implementation:**
-- [ ] Write tests first (TDD), then implementation
+- [ ] Write tests first (TDD), then implementation — including integration tests for user-visible flows
+- [ ] **New config option?** — add it to `save_default_config()` in `gtd_tui/config.py` with a comment
 - [ ] `black .` — code is formatted
 - [ ] `ruff check .` — no lint warnings
 - [ ] `mypy .` — no type errors
@@ -511,7 +517,7 @@ GitHub Actions will automatically build the wheel and publish the release once t
 | `pyproject.toml` | Package metadata and dependencies |
 | `gtd_tui/__main__.py` | Entry point — keep thin |
 | `gtd_tui/app.py` | Application state, event loop |
-| `gtd_tui/config.py` | `config.toml` loading (`[backup]`, `[text]`, UI, timeout, etc.) |
+| `gtd_tui/config.py` | `config.toml` loading; `save_default_config()` — add new options with comments |
 | `gtd_tui/storage/rotating_backup.py` | Throttled rotating copies of `data.json` (or encrypted blob) |
 | `gtd_tui/text/processing.py` | Spell check and capitalization for submitted text |
 | `gtd_tui/ui.py` | All TUI rendering logic |

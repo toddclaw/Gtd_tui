@@ -42,6 +42,10 @@ from gtd_tui.storage.crypto import (  # noqa: E402
     is_encrypted,
 )
 from gtd_tui.storage.file import load_folders, load_tasks, save_data  # noqa: E402
+from gtd_tui.storage.lockfile import (  # noqa: E402
+    release_lock,
+    try_acquire_lock,
+)
 from gtd_tui.storage.rotating_backup import (  # noqa: E402
     create_backup_copy,
     rotate_backups,
@@ -167,13 +171,14 @@ def _cmd_backup_now(data_file: Path) -> None:
         if b.directory.strip()
         else _DEFAULT_DATA_FILE.parent / "backups"
     )
-    created = create_backup_copy(data_file, bdir)
+    created = create_backup_copy(data_file, bdir, gzip_backups=b.gzip)
     if created is None:
         print("Backup failed.", file=sys.stderr)
         sys.exit(1)
     rotate_backups(
         bdir,
         daily_keep=b.daily_keep,
+        daily_slots_per_day=b.daily_slots_per_day,
         weekly_keep=b.weekly_keep,
         monthly_keep=b.monthly_keep,
     )
@@ -262,8 +267,16 @@ def main() -> None:
         _cmd_backup_now(data_file)
         sys.exit(0)
 
+    data_dir = data_file.parent
+    if not try_acquire_lock(data_dir):
+        print("Another gtd-tui is already running.", file=sys.stderr)
+        sys.exit(1)
+
     tmux_tip = _IN_TMUX and not _USER_SET_ESCDELAY
-    GtdApp(password=password, tmux_tip=tmux_tip).run()
+    try:
+        GtdApp(password=password, tmux_tip=tmux_tip).run()
+    finally:
+        release_lock(data_dir)
 
 
 if __name__ == "__main__":

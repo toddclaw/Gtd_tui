@@ -15,6 +15,7 @@ from textual.widgets import ListView
 from gtd_tui.app import GtdApp
 from gtd_tui.gtd.operations import add_task
 from gtd_tui.storage.file import save_data
+from gtd_tui.widgets.vim_input import VimInput
 from tests.cfg import CFG_TASK_LIST_FOCUS
 
 # ---------------------------------------------------------------------------
@@ -63,6 +64,33 @@ async def test_ctrl_c_does_not_save_partial_task(tmp_path: Path) -> None:
         await pilot.pause()
         assert app._mode == "NORMAL"
         assert all(t.title != "Task" for t in app._all_tasks)
+
+
+# ---------------------------------------------------------------------------
+# Esc → command mode, 2nd Esc → save (task creation)
+# ---------------------------------------------------------------------------
+
+
+async def test_second_esc_saves_task(tmp_path: Path) -> None:
+    """First Esc enters COMMAND mode; second Esc saves and exits task creation."""
+    app = _make_app(tmp_path)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("o")
+        await pilot.pause()
+        assert app._mode == "INSERT"
+        await pilot.press("S", "a", "v", "e", " ", "m", "e")
+        await pilot.pause()
+        await pilot.press("escape")  # 1st Esc → COMMAND mode
+        await pilot.pause()
+        assert app._mode == "INSERT"  # still in task creation flow
+        vim = app.query_one("#vim-input", VimInput)
+        assert vim._vim_mode == "command"
+        await pilot.press("escape")  # 2nd Esc → save and exit
+        await pilot.pause()
+        assert app._mode == "NORMAL"
+        today_tasks = [t for t in app._all_tasks if t.folder_id == "today"]
+        assert any(t.title == "Save me" for t in today_tasks)
 
 
 # ---------------------------------------------------------------------------

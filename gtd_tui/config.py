@@ -50,10 +50,12 @@ class BackupConfig:
 
     enabled: bool = False
     directory: str = ""
-    daily_keep: int = 7
+    daily_keep: int = 7  # days to retain (1 backup per day) when daily_slots_per_day=1
+    daily_slots_per_day: int = 1  # backups to keep per calendar day (1=one per day)
     weekly_keep: int = 4
     monthly_keep: int = 12
     throttle_minutes: int = 60
+    gzip: bool = True  # compress backups to save space
 
 
 @dataclass
@@ -192,9 +194,11 @@ def _ensure_config_defaults(path: Path, raw: dict) -> None:
         ("enabled", "false"),
         ("directory", '""'),
         ("daily_keep", "7"),
+        ("daily_slots_per_day", "1"),
         ("weekly_keep", "4"),
         ("monthly_keep", "12"),
         ("throttle_minutes", "60"),
+        ("gzip", "true"),
     ]
     backup_lines: list[str] = []
     for k, v in backup_keys:
@@ -283,11 +287,15 @@ def load_config(path: Path | None = None) -> Config:
         enabled=bool(backup_section.get("enabled", _def_backup.enabled)),
         directory=str(backup_section.get("directory", _def_backup.directory)),
         daily_keep=int(backup_section.get("daily_keep", _def_backup.daily_keep)),
+        daily_slots_per_day=int(
+            backup_section.get("daily_slots_per_day", _def_backup.daily_slots_per_day)
+        ),
         weekly_keep=int(backup_section.get("weekly_keep", _def_backup.weekly_keep)),
         monthly_keep=int(backup_section.get("monthly_keep", _def_backup.monthly_keep)),
         throttle_minutes=int(
             backup_section.get("throttle_minutes", _def_backup.throttle_minutes)
         ),
+        gzip=bool(backup_section.get("gzip", _def_backup.gzip)),
     )
     _def_text = TextEditConfig()
     text = TextEditConfig(
@@ -457,10 +465,15 @@ enabled = false
 # Empty = ~/.local/share/gtd_tui/backups
 directory = ""
 daily_keep = 7
+# Backups to keep per calendar day (1 = one per day; 7 = up to 7 per day).
+# Use daily_slots_per_day > 1 to retain multiple backups from the same day.
+daily_slots_per_day = 1
 weekly_keep = 4
 monthly_keep = 12
 # Minimum minutes between backups (avoids a copy on every keystroke-driven save).
 throttle_minutes = 60
+# Compress backups with gzip to save space.
+gzip = true
 
 [text]
 # Spell check (pyspellchecker, English) on submit when enabled.

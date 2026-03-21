@@ -5,6 +5,7 @@ import os
 import signal
 import time
 import uuid
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -45,6 +46,7 @@ from gtd_tui.gtd.operations import (
     clear_deadline,
     complete_task,
     deadline_status,
+    delete_area,
     delete_folder,
     delete_project,
     delete_task,
@@ -235,9 +237,10 @@ class HelpScreen(ModalScreen[None]):
                [d]elete all tasks  [k]eep tasks unlinked  [Esc] cancel
   Enter / l    Open project sub-task list
 
-[bold]INSERT Mode[/bold]
-  Esc          Return to COMMAND mode
-  Ctrl+c       Cancel new task without saving
+[bold]INSERT Mode (task creation o/O)[/bold]
+  Esc          Return to COMMAND mode (2nd Esc saves and exits)
+  Enter        Save and exit
+  Ctrl+c       Cancel without saving  (blank title also cancels)
 
 [bold]Commands  (type : then the command)[/bold]
   :help / :h   Show this help screen
@@ -1642,6 +1645,7 @@ class GtdApp(App[None]):
 
     BINDINGS = [
         Binding("escape", "cancel_insert_mode", priority=True, show=False),
+        Binding("ctrl+c", "cancel_task_input", priority=True, show=False),
     ]
 
     CSS = """
@@ -1793,6 +1797,8 @@ class GtdApp(App[None]):
         self._rename_area_id: str = ""
         # Delete project confirmation: non-empty ID means waiting for d/k/Esc
         self._delete_confirm_project_id: str = ""
+        # Delete area confirmation: non-empty ID means waiting for d/Esc
+        self._delete_confirm_area_id: str = ""
         # Task register: holds a yanked Task for duplication via p/P
         self._task_register: Task | None = None
         # Task rename from list: holds the task id being renamed
@@ -2593,11 +2599,13 @@ class GtdApp(App[None]):
             enabled=b.enabled,
             backup_directory=b.directory,
             daily_keep=b.daily_keep,
+            daily_slots_per_day=b.daily_slots_per_day,
             weekly_keep=b.weekly_keep,
             monthly_keep=b.monthly_keep,
             throttle_minutes=b.throttle_minutes,
             last_backup_monotonic=self._last_backup_monotonic,
             now_monotonic=time.monotonic(),
+            gzip_backups=b.gzip,
         )
 
     def _task_to_yank_text(self, task: Task) -> str:
@@ -2653,9 +2661,12 @@ class GtdApp(App[None]):
         if self._delete_confirm_project_id:
             self._handle_delete_confirm_project_key(event)
             return
+        if self._delete_confirm_area_id:
+            self._handle_delete_confirm_area_key(event)
+            return
         if self._mode == "INSERT":
-            if event.key in ("escape", "ctrl+c"):
-                self._cancel_input()
+            # Escape and Ctrl+C handled by bindings (cancel_insert_mode, cancel_task_input)
+            pass
         elif self._visual_mode:
             self._handle_visual_key(event)
         elif self.query_one("#sidebar", ListView).has_focus:
@@ -2835,6 +2846,8 @@ class GtdApp(App[None]):
             )
             if current_sid.startswith("project:"):
                 self._delete_selected_project()
+            elif current_sid.startswith("area:"):
+                self._delete_selected_area()
             else:
                 self._delete_selected_folder()
         elif event.key == "i":
@@ -3171,7 +3184,7 @@ class GtdApp(App[None]):
         self._refresh_list()  # show the placeholder row immediately
 
     def action_cancel_insert_mode(self) -> None:
-        """Priority Esc handler: cancel INSERT mode input before any widget sees the key."""
+        """Priority Esc handler: 2nd Esc=save during task creation; else cancel/close."""
         if len(self.screen_stack) > 1:
             # A modal is active.  If the focused widget is a VimInput in INSERT
             # sub-mode, let the VimInput handle Escape itself (it will switch to
@@ -3188,10 +3201,25 @@ class GtdApp(App[None]):
             else:
                 screen.dismiss()
             return
+        # Task creation (o/O): 1st Esc → COMMAND mode; 2nd Esc → save & exit
+        if self._mode == "INSERT" and self._input_stage in ("title", "notes"):
+            focused = self.screen.focused
+            if isinstance(focused, VimInput) and (focused.id or "") == "vim-input":
+                if focused._vim_mode == "insert":
+                    focused.set_mode("command")
+                    return
+                if focused._vim_mode == "command":
+                    focused.post_message(VimInput.Submitted(focused, focused.value))
+                    return
         if self._mode == "INSERT":
             self._cancel_input()
         elif self._visual_mode:
             self._exit_visual_mode()
+
+    def action_cancel_task_input(self) -> None:
+        """Ctrl+C: cancel INSERT mode input (discard without saving)."""
+        if self._mode == "INSERT":
+            self._cancel_input()
 
     def _start_command(self) -> None:
         self._mode = "INSERT"
@@ -4431,6 +4459,45 @@ class GtdApp(App[None]):
         inp.focus()
         self._update_status()
 
+    def _delete_selected_area(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("area:"):
+            return
+        area_id = current_sid[5:]
+        area = next((a for a in self._all_areas if a.id == area_id), None)
+        if area is None:
+            return
+        folders_in_area = [f for f in self._all_folders if f.area_id == area_id]
+        projects_in_area = [p for p in self._all_projects if p.area_id == area_id]
+        if folders_in_area or projects_in_area:
+            n_f = len(folders_in_area)
+            n_p = len(projects_in_area)
+            parts = []
+            if n_f:
+                parts.append(f"{n_f} folder(s)")
+            if n_p:
+                parts.append(f"{n_p} project(s)")
+            self._delete_confirm_area_id = area_id
+            self._update_status(
+                f"'{area.name}' has {', '.join(parts)}. [d] delete area  [Esc] cancel"
+            )
+        else:
+            self._push_undo()
+            self._all_areas = delete_area(self._all_areas, area_id)
+            if self._current_view.startswith("area:") and area_id in self._current_view:
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
+            self._save()
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status()
+
     def _delete_selected_folder(self) -> None:
         sidebar = self.query_one("#sidebar", ListView)
         idx = sidebar.index
@@ -4742,6 +4809,36 @@ class GtdApp(App[None]):
         elif event.key == "escape":
             event.prevent_default()
             self._delete_confirm_project_id = ""
+            self._update_status()
+
+    def _handle_delete_confirm_area_key(self, event: events.Key) -> None:
+        area_id = self._delete_confirm_area_id
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index or 0
+        if event.key == "d":
+            event.prevent_default()
+            self._push_undo()
+            self._all_folders = [
+                replace(f, area_id=None) if f.area_id == area_id else f
+                for f in self._all_folders
+            ]
+            self._all_projects = [
+                replace(p, area_id=None) if p.area_id == area_id else p
+                for p in self._all_projects
+            ]
+            self._all_areas = delete_area(self._all_areas, area_id)
+            if self._current_view.startswith("area:") and area_id in self._current_view:
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
+            self._save()
+            self._delete_confirm_area_id = ""
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status()
+        elif event.key == "escape":
+            event.prevent_default()
+            self._delete_confirm_area_id = ""
             self._update_status()
 
     # ------------------------------------------------------------------ #

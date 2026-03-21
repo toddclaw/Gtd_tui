@@ -114,8 +114,9 @@ Navigation within the detail view:
 |---|---|
 | `o` / `O` | Create new folder after / before selected |
 | `N` | Create new folder at end |
-| `r` | Rename selected folder |
-| `d` | Delete selected folder (prompts if non-empty) |
+| `A` | Create new Area of responsibility |
+| `r` | Rename selected folder, project, or Area |
+| `d` | Delete selected folder, project, or Area (prompts if has tasks/children) |
 
 ### CLI Summary
 
@@ -135,6 +136,10 @@ gtd-tui -s
 - Writes are atomic (temp-file rename) with `600` permissions — owner read/write only
 - No network access, no telemetry
 
+### Single Instance (Lockfile)
+
+Only one gtd-tui process can use the database at a time. On startup the app creates a lockfile (`.gtd_tui.lock`) in the data directory. If another instance is already running, you'll see "Another gtd-tui is already running." and the new process exits. **Stale lockfile:** If gtd-tui crashes or is killed, the lockfile may remain. Remove it manually to start a new session: `rm ~/.local/share/gtd_tui/.gtd_tui.lock`
+
 ### Configuration
 
 Config file: `~/.config/gtd_tui/config.toml` (created on first run).
@@ -145,10 +150,12 @@ Config file: `~/.config/gtd_tui/config.toml` (created on first run).
 |--------|---------|-------------|
 | `enabled` | `false` | Copy data file after each save (throttled) |
 | `directory` | `""` | Backup dir; empty = `~/.local/share/gtd_tui/backups` |
-| `daily_keep` | `7` | Keep one backup per day for last N days |
+| `daily_keep` | `7` | Days to retain |
+| `daily_slots_per_day` | `1` | Backups to keep per calendar day (1 = one per day; 7 = up to 7 per day) |
 | `weekly_keep` | `4` | Keep one per week for last N weeks |
 | `monthly_keep` | `12` | Keep one per month for last N months |
 | `throttle_minutes` | `60` | Min minutes between backups |
+| `gzip` | `true` | Compress backups to save space |
 
 CLI: `gtd-tui --backup-now` creates a one-shot backup and exits (useful for cron).
 
