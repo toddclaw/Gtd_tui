@@ -380,6 +380,18 @@ Keep rendering and state mutation strictly separated.
 - Development happens on feature branches: `claude/<description>-<id>`
 - Do not push directly to `master`/`main`
 
+### Before starting work (branch sanity)
+
+**Wrong-branch mistakes** (e.g. implementing a release fix on a stale feature branch, or mixing two PRs) waste time and confuse history. **Before writing code or committing**, confirm the following:
+
+1. **Intended branch** — Run `git branch --show-current` and verify the name matches the work (e.g. the open PR branch for a release, or a new `claude/…` branch branched from current `main`). If you are not on the right branch: `git stash` (if needed), `git checkout <correct-branch>`, then `git stash pop`.
+2. **Sync with remote** — Run `git fetch origin` then `git status -sb`. If you are **behind** `origin/<branch>`, pull before editing so you do not build on outdated code or fight avoidable merge conflicts:
+   - `git pull origin <branch>`  
+   - or `git pull --rebase origin <branch>` if your team prefers rebase.
+3. **Tracking** — Optional: `git branch -vv` shows whether the current branch tracks the right remote (e.g. `[origin/claude/my-feature]`). After creating a new branch, set upstream on first push: `git push -u origin <branch>`.
+
+For **release or PR-specific fixes**, explicitly name the target branch in the task (e.g. “work on `claude/vim-movement-folder-management` for PR #13”) and re-check step 1 after any `git checkout`.
+
 ### Commit Messages
 
 Use clear, imperative commit messages:
@@ -407,8 +419,8 @@ Refactor storage layer to use JSON serialization
 Follow this order for every piece of work:
 
 **Before starting:**
-- [ ] Confirm you are on the correct feature branch (`git branch --show-current`)
-- [ ] Pull latest changes: `git pull origin <branch>`
+- [ ] **Branch sanity** — complete [Before starting work (branch sanity)](#before-starting-work-branch-sanity): correct branch name for this task/PR, `git fetch origin`, `git status -sb`, pull or rebase if behind remote
+- [ ] Confirm with `git branch --show-current` (and `git branch -vv` if unsure about upstream)
 
 **Implementation:**
 - [ ] Write tests first (TDD), then implementation
@@ -423,15 +435,30 @@ Follow this order for every piece of work:
 - [ ] **Update `CLAUDE.md`** — if new prerequisites, conventions, or key files were introduced
 - [ ] **Update `CHANGELOG.md`** (or create it if absent) — add a bullet under `[Unreleased]` describing the change
 - [ ] **Pre-push checklist** — complete [Pre-push checklist](#pre-push-checklist) before `git push`
+- [ ] **Closure** — complete [Closing a body of work](#closing-a-body-of-work-reflection-and-follow-up) (reflection + suggestions; implement only what the user selects next) *(AI assistants: required end-of-task)*
+
+### Closing a body of work (reflection and follow-up)
+
+**Applies after every coherent body of work** (feature, bugfix, release prep, substantial docs — not trivial one-line answers).
+
+Before treating the task as finished, the assistant should:
+
+1. **Reflect briefly** — What went well? What was unclear, slow, or error-prone? (e.g. wrong branch, missing tests, scope creep.)
+2. **Offer suggestions** — Give the user **a few concrete options** (typically 2–4) for how a similar request could go better next time (process, tests, docs, tooling, or code structure).
+3. **Wait for selection** — **Do not implement** any suggestion in the same turn unless the user explicitly asked you to choose. End with an invitation: e.g. “Reply with **A**, **B**, **C**, or **none** (or describe another tweak), and I’ll implement the one you pick.”
+4. **Next turn** — When the user names a choice, implement that suggestion (or acknowledge **none**).
+
+This keeps improvements user-driven and avoids piling on unrequested changes.
 
 ### Release Process
 
 When the user asks to make a release (e.g. "release v1.3.0" or "merge and tag"), follow these steps in order — do not skip any:
 
+0. **Branch sanity** — You must be on the **release PR branch** (not `main`, not an unrelated `claude/…` branch). Run `git branch --show-current`, `git fetch origin`, and `git pull origin <branch>` so local matches the PR you intend to ship.
 1. **Commit pending changes** on the current feature branch (if any uncommitted work exists)
 2. **Pre-push checklist** — run `python scripts/pre_push_check.py` (or full `pytest` + linters per [Pre-push checklist](#pre-push-checklist)); do not push with failing tests
 3. **Push the feature branch** to remote: `git push origin <branch>`
-4. **Open a pull request** from the feature branch into `main`:
+4. **Open a pull request** from the feature branch into `main` (skip if the release PR already exists — push updates the existing PR):
    - Use `gh pr create` with a title of the form `Release vX.Y.Z`
    - The PR body must include:
      - A one-paragraph summary of all changes being merged (synthesised from the commit log and `CHANGELOG.md [Unreleased]` section)
@@ -458,6 +485,7 @@ GitHub Actions will automatically build the wheel and publish the release once t
 |---|---|
 | `README.md` | User-facing project description |
 | `CLAUDE.md` | This file — AI assistant conventions |
+| `AGENTS.md` | Short agent checklist (branch sanity, closure); points to CLAUDE.md |
 | `BACKLOG.md` | Feature backlog with all story details |
 | `CHANGELOG.md` | Release notes — update for every feature/fix |
 | `pyproject.toml` | Package metadata and dependencies |
@@ -474,6 +502,8 @@ See [BACKLOG.md](BACKLOG.md) for the full feature backlog.
 
 ## Notes for AI Assistants
 
+- **Before editing:** Follow [Before starting work (branch sanity)](#before-starting-work-branch-sanity) — confirm `git branch --show-current`, `git fetch` + `git pull` on the correct branch (especially for release/PR-specific work). Do not assume the workspace is on the right branch.
+- **After substantive work:** Follow [Closing a body of work](#closing-a-body-of-work-reflection-and-follow-up) — reflect, propose a few improvements, let the user pick one to implement next (do not auto-implement suggestions without their choice).
 - BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 30, 31, 32, 33, 53, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71 are **complete**. BACKLOG-23 is pending. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.

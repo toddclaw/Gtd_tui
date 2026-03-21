@@ -1,0 +1,17 @@
+---
+description: Closing a body of work — reflection and follow-up (required end-of-task)
+alwaysApply: true
+---
+
+# Closing a Body of Work
+
+**AI assistants: required after every coherent body of work** (feature, bugfix, release prep, substantial docs — not trivial one-line answers).
+
+Before treating the task as finished:
+
+1. **Reflect briefly** — What went well? What was unclear, slow, or error-prone?
+2. **Offer suggestions** — Give the user 2–4 concrete options for how a similar request could go better next time.
+3. **Wait for selection** — Do not implement any suggestion in the same turn unless the user explicitly asked you to choose.
+4. **Next turn** — When the user names a choice, implement that suggestion (or acknowledge "none").
+
+See **CLAUDE.md → Closing a body of work (reflection and follow-up)** for full details.
