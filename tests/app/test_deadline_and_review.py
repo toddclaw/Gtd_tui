@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from textual.widgets import Label, ListView
 
 from gtd_tui.app import GtdApp, TaskDetailScreen, WeeklyReviewScreen
+from gtd_tui.config import load_config
 from gtd_tui.gtd.operations import add_task, complete_task, set_deadline
 from gtd_tui.storage.file import save_data
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+_CFG_TASK_FOCUS = replace(load_config(), startup_focus_sidebar=False)
 
 
 def _app_with_tasks(tmp_path: Path, *titles: str) -> GtdApp:
@@ -22,7 +26,7 @@ def _app_with_tasks(tmp_path: Path, *titles: str) -> GtdApp:
     for title in reversed(titles):
         tasks = add_task(tasks, title)
     save_data(tasks, [], data_file=data_file)
-    return GtdApp(data_file=data_file)
+    return GtdApp(data_file=data_file, config=_CFG_TASK_FOCUS)
 
 
 def _app_with_deadline(tmp_path: Path, title: str, deadline: date) -> GtdApp:
@@ -30,7 +34,7 @@ def _app_with_deadline(tmp_path: Path, title: str, deadline: date) -> GtdApp:
     tasks = add_task([], title)
     tasks = set_deadline(tasks, tasks[0].id, deadline)
     save_data(tasks, [], data_file=data_file)
-    return GtdApp(data_file=data_file)
+    return GtdApp(data_file=data_file, config=_CFG_TASK_FOCUS)
 
 
 # ---------------------------------------------------------------------------

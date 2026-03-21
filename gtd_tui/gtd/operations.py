@@ -1291,6 +1291,28 @@ def project_tasks(tasks: list[Task], project_id: str) -> list[Task]:
     )
 
 
+def project_tasks_including_completed(tasks: list[Task], project_id: str) -> list[Task]:
+    """Return all sub-tasks of a project (active + completed), sorted for display.
+
+    Active tasks first (by position); completed tasks (logbook) follow, sorted
+    by completed_at ascending (oldest completed first).
+    Excludes deleted tasks and tasks with wrong project_id.
+    """
+    active = [
+        t
+        for t in tasks
+        if t.project_id == project_id and t.folder_id != "logbook" and not t.is_deleted
+    ]
+    completed = [
+        t
+        for t in tasks
+        if t.project_id == project_id and t.folder_id == "logbook" and not t.is_deleted
+    ]
+    active.sort(key=lambda t: t.position)
+    completed.sort(key=lambda t: (t.completed_at or datetime.min).replace(tzinfo=None))
+    return active + completed
+
+
 def project_progress(tasks: list[Task], project_id: str) -> tuple[int, int]:
     """Return (completed, total) for a project's sub-tasks."""
     sub = [t for t in tasks if t.project_id == project_id and not t.is_deleted]

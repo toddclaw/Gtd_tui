@@ -9,6 +9,7 @@ from textual.widgets import Label, ListItem, ListView
 from gtd_tui.app import GtdApp
 from gtd_tui.gtd.operations import add_task, add_waiting_on_task, create_folder
 from gtd_tui.storage.file import save_data
+from tests.cfg import CFG_TASK_LIST_FOCUS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -16,13 +17,17 @@ from gtd_tui.storage.file import save_data
 
 
 def _make_app(tmp_path: Path, *titles: str) -> GtdApp:
-    """Create an app with tasks in display order: first title = first in list."""
+    """Create an app with tasks in display order: first title = first in list.
+
+    Task list is focused on startup so visual-mode keys (``v``, ``j``, etc.)
+    hit the list, not the sidebar (default config focuses the sidebar).
+    """
     data_file = tmp_path / "data.json"
     tasks: list = []
     for title in reversed(titles):
         tasks = add_task(tasks, title)
     save_data(tasks, [], data_file=data_file)
-    return GtdApp(data_file=data_file)
+    return GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
 
 
 def _status(app: GtdApp) -> str:
@@ -284,7 +289,7 @@ async def test_bulk_t_moves_selected_to_today(tmp_path: Path) -> None:
     for title in ("A", "B", "C"):
         tasks = add_waiting_on_task(tasks, title)
     save_data(tasks, [], data_file=data_file)
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Navigate to Waiting On view (Inbox=0, Today=1, Upcoming=2, WaitingOn=3)
@@ -334,7 +339,7 @@ async def test_bulk_m_moves_selected_to_chosen_folder(tmp_path: Path) -> None:
     folder_id = "test-folder-id"
     folders = create_folder(folders, "Work", folder_id=folder_id)
     save_data(tasks, folders, data_file=data_file)
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("v", "j")  # select A + B
@@ -363,7 +368,7 @@ async def test_bulk_m_preserves_order(tmp_path: Path) -> None:
     folder_id = "test-folder-order"
     folders = create_folder(folders, "Work", folder_id=folder_id)
     save_data(tasks, folders, data_file=data_file)
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("v", "j", "j")  # select A, B, C
@@ -393,7 +398,7 @@ async def test_bulk_m_is_single_undo_step(tmp_path: Path) -> None:
     folder_id = "test-folder-id-2"
     folders = create_folder(folders, "Work", folder_id=folder_id)
     save_data(tasks, folders, data_file=data_file)
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("v", "j")

@@ -23,6 +23,7 @@ from gtd_tui.gtd.operations import (
     today_tasks,
 )
 from gtd_tui.storage.file import save_data
+from tests.cfg import CFG_TASK_LIST_FOCUS
 
 # ---------------------------------------------------------------------------
 # Unit-level: inbox_tasks / BUILTIN_FOLDER_IDS
@@ -73,7 +74,7 @@ def test_inbox_tasks_not_in_today_even_with_date() -> None:
 
 
 def _make_app(tmp_path: Path) -> GtdApp:
-    return GtdApp(data_file=tmp_path / "data.json")
+    return GtdApp(data_file=tmp_path / "data.json", config=CFG_TASK_LIST_FOCUS)
 
 
 def _prepopulate_inbox(tmp_path: Path, *titles: str) -> Path:
@@ -138,7 +139,7 @@ async def test_create_task_in_inbox(tmp_path: Path) -> None:
 
 async def test_inbox_tasks_not_shown_in_today_view(tmp_path: Path) -> None:
     data_file = _prepopulate_inbox(tmp_path, "Secret inbox task")
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Verify in app state

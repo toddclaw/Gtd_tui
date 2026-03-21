@@ -34,3 +34,16 @@ repos:
           - textual>=0.70
           - platformdirs>=4.0
           - cryptography>=41.0
+
+  # Full test suite + linters before push (commit hooks do not run pytest).
+  # Install with: pre-commit install && pre-commit install --hook-type pre-push
+  # Requires dev deps in the same Python as `python` on PATH when git runs hooks
+  # (use an activated .venv, or run manually: python scripts/pre_push_check.py).
+  - repo: local
+    hooks:
+      - id: pre-push-check
+        name: pre-push (pytest + black + ruff + mypy)
+        entry: python scripts/pre_push_check.py
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

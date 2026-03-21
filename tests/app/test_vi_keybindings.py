@@ -15,6 +15,7 @@ from textual.widgets import ListView
 from gtd_tui.app import GtdApp
 from gtd_tui.gtd.operations import add_task
 from gtd_tui.storage.file import save_data
+from tests.cfg import CFG_TASK_LIST_FOCUS
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -22,7 +23,7 @@ from gtd_tui.storage.file import save_data
 
 
 def _make_app(tmp_path: Path) -> GtdApp:
-    return GtdApp(data_file=tmp_path / "data.json")
+    return GtdApp(data_file=tmp_path / "data.json", config=CFG_TASK_LIST_FOCUS)
 
 
 def _prepopulate(tmp_path: Path, *titles: str) -> Path:
@@ -73,7 +74,7 @@ async def test_ctrl_d_moves_cursor_down(tmp_path: Path) -> None:
     """Ctrl+d should move the cursor down from position 0."""
     titles = [f"Task {i}" for i in range(20)]
     data_file = _prepopulate(tmp_path, *titles)
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         list_view = app.query_one("#task-list", ListView)
@@ -89,7 +90,7 @@ async def test_ctrl_u_moves_cursor_up(tmp_path: Path) -> None:
     """Ctrl+u should move the cursor up from a non-zero position."""
     titles = [f"Task {i}" for i in range(20)]
     data_file = _prepopulate(tmp_path, *titles)
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         list_view = app.query_one("#task-list", ListView)
@@ -106,7 +107,7 @@ async def test_ctrl_u_moves_cursor_up(tmp_path: Path) -> None:
 async def test_ctrl_d_at_bottom_stays_at_bottom(tmp_path: Path) -> None:
     """Ctrl+d at the last item should not go out of bounds."""
     data_file = _prepopulate(tmp_path, "Only task")
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         list_view = app.query_one("#task-list", ListView)
@@ -120,7 +121,7 @@ async def test_ctrl_d_at_bottom_stays_at_bottom(tmp_path: Path) -> None:
 async def test_ctrl_u_at_top_stays_at_top(tmp_path: Path) -> None:
     """Ctrl+u at the first item should not go below 0."""
     data_file = _prepopulate(tmp_path, "Only task")
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         list_view = app.query_one("#task-list", ListView)
@@ -139,7 +140,7 @@ async def test_ctrl_u_at_top_stays_at_top(tmp_path: Path) -> None:
 async def test_n_navigates_to_next_search_match(tmp_path: Path) -> None:
     """n should cycle through stored search matches."""
     data_file = _prepopulate(tmp_path, "Alpha task", "Beta task", "Alpha second")
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Manually inject search state (simulates a prior / search for "Alpha")
@@ -158,7 +159,7 @@ async def test_n_navigates_to_next_search_match(tmp_path: Path) -> None:
 async def test_N_navigates_to_previous_search_match(tmp_path: Path) -> None:
     """N should cycle backwards through stored search matches."""
     data_file = _prepopulate(tmp_path, "Alpha task", "Beta task", "Alpha second")
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         from gtd_tui.gtd.operations import search_tasks
@@ -175,7 +176,7 @@ async def test_N_navigates_to_previous_search_match(tmp_path: Path) -> None:
 async def test_n_wraps_around(tmp_path: Path) -> None:
     """n at the last match should wrap to the first."""
     data_file = _prepopulate(tmp_path, "Alpha task", "Alpha second")
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         from gtd_tui.gtd.operations import search_tasks
@@ -192,7 +193,7 @@ async def test_n_wraps_around(tmp_path: Path) -> None:
 async def test_n_is_noop_without_prior_search(tmp_path: Path) -> None:
     """n with no stored search state should not crash."""
     data_file = _prepopulate(tmp_path, "Task A")
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         # No search state set — press n should silently do nothing

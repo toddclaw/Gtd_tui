@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import date
 
 from gtd_tui.gtd.operations import (
@@ -18,6 +19,7 @@ from gtd_tui.gtd.operations import (
     move_project_up,
     project_progress,
     project_tasks,
+    project_tasks_including_completed,
     rename_project,
     unlink_project_tasks,
 )
@@ -100,6 +102,82 @@ def test_project_tasks_excludes_logbook() -> None:
     tasks = complete_task(tasks, tid)
     result = project_tasks(tasks, pid)
     assert result == []
+
+
+def test_project_tasks_including_completed_empty() -> None:
+    """Empty project returns no tasks."""
+    projects = add_project([], "P1")
+    pid = projects[0].id
+    assert project_tasks_including_completed([], pid) == []
+    assert project_tasks_including_completed(add_task([], "Other"), pid) == []
+
+
+def test_project_tasks_including_completed_only_active() -> None:
+    """Only active tasks: same as project_tasks, sorted by position."""
+    projects = add_project([], "P1")
+    pid = projects[0].id
+    tasks = add_task_to_project([], pid, "B")
+    tasks = add_task_to_project(tasks, pid, "A")
+    result = project_tasks_including_completed(tasks, pid)
+    assert len(result) == 2
+    assert [t.title for t in result] == ["B", "A"]  # by position
+    assert all(t.folder_id != "logbook" for t in result)
+
+
+def test_project_tasks_including_completed_only_completed() -> None:
+    """Only completed tasks: returned sorted by completed_at ascending."""
+    projects = add_project([], "P1")
+    pid = projects[0].id
+    tasks = add_task_to_project([], pid, "First")
+    tasks = add_task_to_project(tasks, pid, "Second")
+    tid1, tid2 = tasks[0].id, tasks[1].id
+    tasks = complete_task(tasks, tid1)
+    tasks = complete_task(tasks, tid2)
+    result = project_tasks_including_completed(tasks, pid)
+    assert len(result) == 2
+    assert all(t.folder_id == "logbook" for t in result)
+    assert result[0].completed_at <= result[1].completed_at
+
+
+def test_project_tasks_including_completed_mixed_order() -> None:
+    """Active first (by position), then completed (by completed_at ascending)."""
+    projects = add_project([], "P1")
+    pid = projects[0].id
+    tasks = add_task_to_project([], pid, "Active1")
+    tasks = add_task_to_project(tasks, pid, "Active2")
+    tasks = add_task_to_project(tasks, pid, "ToComplete")
+    tid = tasks[2].id
+    tasks = complete_task(tasks, tid)
+    result = project_tasks_including_completed(tasks, pid)
+    assert len(result) == 3
+    assert result[0].title == "Active1"
+    assert result[1].title == "Active2"
+    assert result[2].title == "ToComplete"
+    assert result[2].folder_id == "logbook"
+
+
+def test_project_tasks_including_completed_excludes_deleted() -> None:
+    """Deleted tasks are excluded."""
+    projects = add_project([], "P1")
+    pid = projects[0].id
+    tasks = add_task_to_project([], pid, "Sub")
+    tid = tasks[0].id
+    tasks = complete_task(tasks, tid)
+    tasks = [replace(t, is_deleted=True) if t.id == tid else t for t in tasks]
+    result = project_tasks_including_completed(tasks, pid)
+    assert result == []
+
+
+def test_project_tasks_including_completed_excludes_other_projects() -> None:
+    """Tasks from other projects are excluded."""
+    projects = add_project([], "P1")
+    projects = add_project(projects, "P2")
+    pid1, pid2 = projects[0].id, projects[1].id
+    tasks = add_task_to_project([], pid1, "A")
+    tasks = add_task_to_project(tasks, pid2, "B")
+    result = project_tasks_including_completed(tasks, pid1)
+    assert len(result) == 1
+    assert result[0].title == "A"
 
 
 def test_project_tasks_excludes_other_projects() -> None:

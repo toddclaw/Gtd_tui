@@ -33,6 +33,7 @@ from gtd_tui.gtd.project import Project
 from gtd_tui.gtd.task import Task
 from gtd_tui.storage.file import save_data
 from gtd_tui.widgets.vim_input import VimInput
+from tests.cfg import CFG_TASK_LIST_FOCUS
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -40,7 +41,7 @@ from gtd_tui.widgets.vim_input import VimInput
 
 
 def _make_app(tmp_path: Path) -> GtdApp:
-    return GtdApp(data_file=tmp_path / "data.json")
+    return GtdApp(data_file=tmp_path / "data.json", config=CFG_TASK_LIST_FOCUS)
 
 
 def _prepopulate(
@@ -80,7 +81,7 @@ def _prepopulate(
 async def test_tags_field_visible_in_task_detail(tmp_path: Path) -> None:
     """TaskDetailScreen exposes a tags VimInput field."""
     data_file = _prepopulate(tmp_path, "Write blog post")
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")  # open detail
@@ -98,7 +99,7 @@ async def test_tags_saved_via_detail_screen(tmp_path: Path) -> None:
     → verify task.tags == ["work", "home"]
     """
     data_file = _prepopulate(tmp_path, "Deep work session")
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")  # open detail
@@ -139,7 +140,7 @@ async def test_tags_cleared_when_field_emptied(tmp_path: Path) -> None:
     tasks = set_tags(tasks, tasks[0].id, ["work", "home"])
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")  # open detail
@@ -175,7 +176,7 @@ async def test_tags_appear_in_sidebar_after_being_set(tmp_path: Path) -> None:
     tasks = set_tags(tasks, tasks[0].id, ["work"])
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert "tag:work" in app._sidebar_view_ids
@@ -192,7 +193,7 @@ async def test_tag_view_shows_only_tagged_tasks(tmp_path: Path) -> None:
     tasks = set_tags(tasks, tasks[0].id, ["urgent"])
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -217,7 +218,7 @@ async def test_tag_count_in_sidebar_is_correct(tmp_path: Path) -> None:
     tasks = set_tags(tasks, tasks[1].id, ["focus"])
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         tag_counts = dict(all_tags(app._all_tasks))
@@ -231,7 +232,7 @@ async def test_existing_tags_preloaded_in_detail_screen(tmp_path: Path) -> None:
     tasks = set_tags(tasks, tasks[0].id, ["work", "urgent"])
     save_data(tasks, [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("enter")
@@ -260,7 +261,7 @@ async def test_project_creation_via_sidebar_keyboard(tmp_path: Path) -> None:
     existing_project = Project(title="Existing project")
     save_data([], [], data_file=data_file, projects=[existing_project])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -303,7 +304,7 @@ async def test_project_view_shown_after_creation(tmp_path: Path) -> None:
     existing_project = Project(title="Seed project")
     save_data([], [], data_file=data_file, projects=[existing_project])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("h")
@@ -335,7 +336,7 @@ async def test_task_created_in_project_view_has_project_id(tmp_path: Path) -> No
     proj = Project(title="Website redesign")
     save_data([], [], data_file=data_file, projects=[proj])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -371,7 +372,7 @@ async def test_project_progress_updates_when_task_completed(tmp_path: Path) -> N
     tasks = add_task_to_project(tasks, proj.id, "Task three")
     save_data(tasks, [], data_file=data_file, projects=[proj])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -398,7 +399,7 @@ async def test_project_appears_in_sidebar_view_ids(tmp_path: Path) -> None:
     proj = Project(title="Side project")
     save_data([], [], data_file=data_file, projects=[proj])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert f"project:{proj.id}" in app._sidebar_view_ids
@@ -412,7 +413,7 @@ async def test_completed_project_removed_from_sidebar(tmp_path: Path) -> None:
     proj = Project(title="Old project", completed_at=datetime.now())
     save_data([], [], data_file=data_file, projects=[proj])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert f"project:{proj.id}" not in app._sidebar_view_ids
@@ -427,7 +428,7 @@ async def test_project_task_count_shown_in_sidebar(tmp_path: Path) -> None:
     tasks = add_task_to_project(tasks, proj.id, "Publish post")
     save_data(tasks, [], data_file=data_file, projects=[proj])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         sidebar = app.query_one("#sidebar", ListView)
@@ -452,7 +453,7 @@ async def test_area_creation_via_keyboard(tmp_path: Path) -> None:
     data_file = tmp_path / "data.json"
     save_data([], [], data_file=data_file)
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -480,7 +481,7 @@ async def test_area_appears_in_sidebar_view_ids(tmp_path: Path) -> None:
     area = Area(name="Work")
     save_data([], [], data_file=data_file, areas=[area])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         assert f"area:{area.id}" in app._sidebar_view_ids
@@ -495,7 +496,7 @@ async def test_project_assigned_to_area_via_api_appears_under_area(
     proj = Project(title="Website", area_id=area.id)
     save_data([], [], data_file=data_file, projects=[proj], areas=[area])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         view_ids = app._sidebar_view_ids
@@ -518,7 +519,7 @@ async def test_area_assignment_via_keyboard_picker(tmp_path: Path) -> None:
     proj = Project(title="Literature review")
     save_data([], [], data_file=data_file, projects=[proj], areas=[area])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -568,7 +569,7 @@ async def test_multiple_areas_in_sidebar_order(tmp_path: Path) -> None:
     area_personal = Area(name="Personal", position=1)
     save_data([], [], data_file=data_file, areas=[area_work, area_personal])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         view_ids = app._sidebar_view_ids
@@ -595,7 +596,7 @@ async def test_project_task_with_tags_shows_in_both_views(tmp_path: Path) -> Non
     tasks = set_tags(tasks, tasks[0].id, ["reading"])
     save_data(tasks, [], data_file=data_file, projects=[proj])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         proj_tasks = project_tasks(app._all_tasks, proj.id)
@@ -615,7 +616,7 @@ async def test_project_rename_via_keyboard(tmp_path: Path) -> None:
     proj = Project(title="Old name")
     save_data([], [], data_file=data_file, projects=[proj])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -653,7 +654,7 @@ async def test_project_delete_via_keyboard(tmp_path: Path) -> None:
     tasks = add_task_to_project([], proj.id, "Orphaned task")
     save_data(tasks, [], data_file=data_file, projects=[proj])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -688,7 +689,7 @@ async def test_project_reorder_via_keyboard(tmp_path: Path) -> None:
     proj2 = Project(title="Beta", position=1)
     save_data([], [], data_file=data_file, projects=[proj1, proj2])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -721,7 +722,7 @@ async def test_area_rename_via_keyboard(tmp_path: Path) -> None:
     area = Area(name="Old area")
     save_data([], [], data_file=data_file, areas=[area])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -770,7 +771,7 @@ async def test_tag_reorder_via_keyboard(tmp_path: Path) -> None:
     # Save with explicit order: alpha then beta
     save_data(tasks, [], data_file=data_file, tag_order=["alpha", "beta"])
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
 
@@ -814,7 +815,7 @@ async def test_project_in_area_has_diamond_and_pipe_prefix(tmp_path: Path) -> No
         areas=[area],
     )
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         # Check via sidebar rebuild — inspect the Label widgets
@@ -844,7 +845,7 @@ async def test_folder_in_area_has_pipe_prefix(tmp_path: Path) -> None:
         areas=[area],
     )
 
-    app = GtdApp(data_file=data_file)
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
         await pilot.press("h")

@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Startup focus config** (`[ui] startup_focus_sidebar`): when `true` (default), focus starts on the sidebar; when `false`, focus starts on the task list (or the empty-hint when the list is empty) so `o` adds a task immediately.
+- **Project view strikethrough**: completed project sub-tasks now appear crossed out in the project view instead of being hidden.
+- **H/M/L/G/gg in action picker**: move/assign/tag picker supports `H` (top), `M` (middle), `L` (bottom), `G` (bottom), `gg` (top) for fast navigation.
+- **H/M/L in sidebar**: `H`, `M`, `L` jump to top/middle/bottom of the sidebar (and in move-mode folder picker).
+
+### Added
+- **Pre-push quality gate**: `scripts/pre_push_check.py` runs full `pytest`, `black --check`, `ruff check`, and `mypy gtd_tui/`; documented mandatory pre-push checklist in `CLAUDE.md`; optional `pre-commit` **pre-push** hook (`pre-commit install --hook-type pre-push`); `README.md` contributor notes updated to stress that commit hooks do not run tests.
+
+### Fixed
+- **Empty task list focus**: when `startup_focus_sidebar=false` and the task list is empty, focus now correctly goes to the empty-hint so `o` adds a task instead of creating a folder.
+- **Default config missing startup_focus_sidebar**: fresh config files (created when none exists) and old configs upgraded via `_ensure_config_defaults` now include `startup_focus_sidebar = true` in the `[ui]` section.
+- **Integration tests vs. sidebar default focus**: Pilot tests that drive the task list now use `tests.cfg.CFG_TASK_LIST_FOCUS` so they match production `startup_focus_sidebar=true` without breaking (visual mode, vi keybindings, tags/projects/areas acceptance, inbox TUI tests).
+
+---
+
 ## [1.7.0] — 2026-03-20
 
 ### Added
