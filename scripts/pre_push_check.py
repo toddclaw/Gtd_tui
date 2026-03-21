@@ -6,6 +6,8 @@ Uses the same interpreter as this script, so activate your dev venv first::
     source .venv/bin/activate   # or: uv run python scripts/pre_push_check.py
 
 Exit status is non-zero if any step fails.
+
+After substantive work, see CLAUDE.md → Closing a body of work (reflection and follow-up).
 """
 
 from __future__ import annotations

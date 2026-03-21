@@ -15,6 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 - **Pre-push quality gate**: `scripts/pre_push_check.py` runs full `pytest`, `black --check`, `ruff check`, and `mypy gtd_tui/`; documented mandatory pre-push checklist in `CLAUDE.md`; optional `pre-commit` **pre-push** hook (`pre-commit install --hook-type pre-push`); `README.md` contributor notes updated to stress that commit hooks do not run tests.
+- **Contributor / agent workflow**: `CLAUDE.md` documents branch sanity before work, release step 0, and **closing a body of work** (reflection + user-selected follow-ups); `AGENTS.md` and `.cursor/rules/closure.mdc` mirror the closure step for AI tools.
 
 ### Fixed
 - **Empty task list focus**: when `startup_focus_sidebar=false` and the task list is empty, focus now correctly goes to the empty-hint so `o` adds a task instead of creating a folder.
