@@ -784,6 +784,149 @@ async def test_area_delete_with_confirmation(tmp_path: Path) -> None:
         assert updated_proj.area_id is None
 
 
+async def test_area_delete_preserves_folders_and_projects(tmp_path: Path) -> None:
+    """Deleting an area only disassociates; folders and projects are preserved."""
+    data_file = tmp_path / "data.json"
+    area = Area(name="Work")
+    folder = Folder(name="Design", area_id=area.id)
+    proj = Project(title="Website", area_id=area.id)
+    save_data(
+        [],
+        [folder],
+        data_file=data_file,
+        projects=[proj],
+        areas=[area],
+    )
+
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        view_ids = app._sidebar_view_ids
+        area_idx = view_ids.index(f"area:{area.id}")
+        sidebar.index = area_idx
+        await pilot.pause()
+
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+
+        assert area.id not in [a.id for a in app._all_areas]
+        assert folder.id in [f.id for f in app._all_folders]
+        assert proj.id in [p.id for p in app._all_projects]
+        assert next(f for f in app._all_folders if f.id == folder.id).name == "Design"
+        assert next(p for p in app._all_projects if p.id == proj.id).title == "Website"
+
+
+async def test_area_rename_second_esc_saves(tmp_path: Path) -> None:
+    """r on Area: 1st Esc=command mode, 2nd Esc=saves rename (like o/O)."""
+    data_file = tmp_path / "data.json"
+    area = Area(name="Old")
+    save_data([], [], data_file=data_file, areas=[area])
+
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        view_ids = app._sidebar_view_ids
+        area_idx = view_ids.index(f"area:{area.id}")
+        sidebar.index = area_idx
+        await pilot.pause()
+
+        await pilot.press("r")
+        await pilot.pause()
+        assert app._input_stage == "area_rename"
+        for _ in range(len("Old")):
+            await pilot.press("backspace")
+        for ch in "New":
+            await pilot.press(ch)
+        await pilot.pause()
+
+        await pilot.press("escape")
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert app._input_stage == ""
+        updated = next(a for a in app._all_areas if a.id == area.id)
+        assert updated.name == "New"
+
+
+async def test_undo_restores_area_delete(tmp_path: Path) -> None:
+    """u after d on Area restores the area and folder/project membership."""
+    data_file = tmp_path / "data.json"
+    area = Area(name="Work")
+    folder = Folder(name="Design", area_id=area.id)
+    proj = Project(title="Site", area_id=area.id)
+    save_data(
+        [],
+        [folder],
+        data_file=data_file,
+        projects=[proj],
+        areas=[area],
+    )
+
+    app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        view_ids = app._sidebar_view_ids
+        area_idx = view_ids.index(f"area:{area.id}")
+        sidebar.index = area_idx
+        await pilot.pause()
+
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        assert area.id not in [a.id for a in app._all_areas]
+
+        await pilot.press("u")
+        await pilot.pause()
+        assert area.id in [a.id for a in app._all_areas]
+        assert next(a for a in app._all_areas if a.id == area.id).name == "Work"
+        assert next(f for f in app._all_folders if f.id == folder.id).area_id == area.id
+        assert next(p for p in app._all_projects if p.id == proj.id).area_id == area.id
+
+
+async def test_undo_area_delete_persists_through_quit(tmp_path: Path) -> None:
+    """Area delete, quit, restart, u — restores area and membership."""
+    data_file = tmp_path / "data.json"
+    area = Area(name="Work")
+    proj = Project(title="Site", area_id=area.id)
+    save_data([], [], data_file=data_file, projects=[proj], areas=[area])
+
+    app1 = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
+    async with app1.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("h")
+        await pilot.pause()
+        sidebar = app1.query_one("#sidebar", ListView)
+        view_ids = app1._sidebar_view_ids
+        area_idx = view_ids.index(f"area:{area.id}")
+        sidebar.index = area_idx
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+        await pilot.press("d")
+        await pilot.pause()
+
+    app2 = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
+    async with app2.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("u")
+        await pilot.pause()
+        assert area.id in [a.id for a in app2._all_areas]
+        assert next(p for p in app2._all_projects if p.id == proj.id).area_id == area.id
+
+
 # ---------------------------------------------------------------------------
 # TAG reorder via keyboard
 # ---------------------------------------------------------------------------

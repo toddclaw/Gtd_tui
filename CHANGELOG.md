@@ -8,6 +8,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Rename (r) Esc behavior matches o/O**: First Esc enters COMMAND mode; second Esc saves and exits. Applies to task, folder, project, and area renames.
+- **Undo stack includes areas**: `u` after Area delete restores the area and folder/project membership; undo persists through quit and restart.
 - **Task creation (o/O) Esc behavior**: First Esc enters COMMAND mode; second Esc saves and exits. Enter saves and exits. Ctrl+C cancels (blank title also cancels).
 - **Backup gzip compression**: `[backup] gzip = true` (default) compresses backups to save space.
 - **Backup daily_slots_per_day**: `[backup] daily_slots_per_day` — keep multiple backups per calendar day (default 1).

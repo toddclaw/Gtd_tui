@@ -142,6 +142,13 @@ class VimInput(Widget, can_focus=True):
         self._view_row = 0
         self.refresh()
 
+    def set_value_cursor_end(self, text: str) -> None:
+        """Set value and place cursor at end (for pre-filled rename fields)."""
+        self._text = text
+        self._cursor = len(text)
+        self._update_scroll()
+        self.refresh()
+
     def set_placeholder(self, placeholder: str) -> None:
         self._placeholder = placeholder
         self.refresh()

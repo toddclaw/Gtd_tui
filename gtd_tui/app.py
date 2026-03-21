@@ -2552,6 +2552,7 @@ class GtdApp(App[None]):
                 copy.deepcopy(self._all_tasks),
                 copy.deepcopy(self._all_folders),
                 copy.deepcopy(self._all_projects),
+                copy.deepcopy(self._all_areas),
             )
         )
         if len(self._undo_stack) > self._UNDO_CAP:
@@ -3201,8 +3202,18 @@ class GtdApp(App[None]):
             else:
                 screen.dismiss()
             return
-        # Task creation (o/O): 1st Esc → COMMAND mode; 2nd Esc → save & exit
-        if self._mode == "INSERT" and self._input_stage in ("title", "notes"):
+        # Task creation (o/O) and renames (r): 1st Esc → COMMAND mode; 2nd Esc → save & exit
+        rename_stages = (
+            "area_rename",
+            "project_rename",
+            "folder_rename",
+            "task_rename",
+        )
+        if self._mode == "INSERT" and self._input_stage in (
+            "title",
+            "notes",
+            *rename_stages,
+        ):
             focused = self.screen.focused
             if isinstance(focused, VimInput) and (focused.id or "") == "vim-input":
                 if focused._vim_mode == "insert":
@@ -3353,6 +3364,53 @@ class GtdApp(App[None]):
         elif self._input_stage == "area_name":
             self._finish_new_area(self._normalize_user_text("areas", value))
 
+        elif self._input_stage == "folder_rename":
+            if value and self._rename_folder_id:
+                value = self._normalize_user_text("folders", value)
+                self._all_folders = rename_folder(
+                    self._all_folders, self._rename_folder_id, value
+                )
+                self._save()
+                self._rebuild_sidebar()
+                self._refresh_list()
+            self._rename_folder_id = ""
+            self._cancel_input()
+
+        elif self._input_stage == "project_rename":
+            if value and self._rename_project_id:
+                value = self._normalize_user_text("projects", value.strip())
+                self._all_projects = rename_project(
+                    self._all_projects, self._rename_project_id, value
+                )
+                self._save()
+                self._rebuild_sidebar()
+                self._refresh_list()
+            self._rename_project_id = ""
+            self._cancel_input()
+
+        elif self._input_stage == "area_rename":
+            if value and self._rename_area_id:
+                value = self._normalize_user_text("areas", value.strip())
+                self._all_areas = rename_area(
+                    self._all_areas, self._rename_area_id, value
+                )
+                self._save()
+                self._rebuild_sidebar()
+            self._rename_area_id = ""
+            self._cancel_input()
+
+        elif self._input_stage == "task_rename":
+            if value and self._rename_task_id:
+                value = self._normalize_user_text("titles", value.strip())
+                self._push_undo()
+                self._all_tasks = edit_task(
+                    self._all_tasks, self._rename_task_id, title=value
+                )
+                self._save()
+                self._refresh_list(select_task_id=self._rename_task_id)
+            self._rename_task_id = ""
+            self._cancel_input()
+
     def _save_new_task(self, notes: str) -> None:
         """Create the pending task with the given notes and clean up."""
         self._push_undo()
@@ -3481,53 +3539,6 @@ class GtdApp(App[None]):
             else:
                 self._rebuild_sidebar()
                 self._cancel_input()
-
-        elif self._input_stage == "folder_rename":
-            if value and self._rename_folder_id:
-                value = self._normalize_user_text("folders", value)
-                self._all_folders = rename_folder(
-                    self._all_folders, self._rename_folder_id, value
-                )
-                self._save()
-                self._rebuild_sidebar()
-                self._refresh_list()
-            self._rename_folder_id = ""
-            self._cancel_input()
-
-        elif self._input_stage == "project_rename":
-            if value and self._rename_project_id:
-                value = self._normalize_user_text("projects", value.strip())
-                self._all_projects = rename_project(
-                    self._all_projects, self._rename_project_id, value
-                )
-                self._save()
-                self._rebuild_sidebar()
-                self._refresh_list()
-            self._rename_project_id = ""
-            self._cancel_input()
-
-        elif self._input_stage == "area_rename":
-            if value and self._rename_area_id:
-                value = self._normalize_user_text("areas", value.strip())
-                self._all_areas = rename_area(
-                    self._all_areas, self._rename_area_id, value
-                )
-                self._save()
-                self._rebuild_sidebar()
-            self._rename_area_id = ""
-            self._cancel_input()
-
-        elif self._input_stage == "task_rename":
-            if value and self._rename_task_id:
-                value = self._normalize_user_text("titles", value.strip())
-                self._push_undo()
-                self._all_tasks = edit_task(
-                    self._all_tasks, self._rename_task_id, title=value
-                )
-                self._save()
-                self._refresh_list(select_task_id=self._rename_task_id)
-            self._rename_task_id = ""
-            self._cancel_input()
 
     def _cancel_input(self) -> None:
         vim = self.query_one("#vim-input", VimInput)
@@ -3691,13 +3702,14 @@ class GtdApp(App[None]):
         self._rename_task_id = task.id
         self._mode = "INSERT"
         self._input_stage = "task_rename"
-        inp = self.query_one("#task-input", Input)
-        inp.clear()
-        inp.insert_text_at_cursor(task.title)
-        inp.placeholder = "New title…"
-        inp.add_class("active")
-        inp.focus()
-        self._update_status("Rename: type new title, Enter to save, Esc to cancel")
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_value_cursor_end(task.title)
+        vim_input.set_placeholder("New title…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
+        self._update_status("Rename: Enter to save, Esc Esc to save (Esc → command mode)")
 
     def _paste_task_duplicate(self, position: str) -> None:
         """Paste a duplicate of the yanked task above or below the selection."""
@@ -4452,11 +4464,13 @@ class GtdApp(App[None]):
         current_name = folder.name if folder else ""
         self._mode = "INSERT"
         self._input_stage = "folder_rename"
-        inp = self.query_one("#task-input", Input)
-        inp.value = current_name
-        inp.placeholder = "Folder name..."
-        inp.add_class("active")
-        inp.focus()
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_value_cursor_end(current_name)
+        vim_input.set_placeholder("Folder name…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
         self._update_status()
 
     def _delete_selected_area(self) -> None:
@@ -4572,11 +4586,13 @@ class GtdApp(App[None]):
         self._rename_project_id = project_id
         self._mode = "INSERT"
         self._input_stage = "project_rename"
-        inp = self.query_one("#task-input", Input)
-        inp.value = project.title
-        inp.placeholder = "Project name..."
-        inp.add_class("active")
-        inp.focus()
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_value_cursor_end(project.title)
+        vim_input.set_placeholder("Project name…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
         self._update_status()
 
     def _delete_selected_project(self) -> None:
@@ -4655,11 +4671,13 @@ class GtdApp(App[None]):
         self._rename_area_id = area_id
         self._mode = "INSERT"
         self._input_stage = "area_rename"
-        inp = self.query_one("#task-input", Input)
-        inp.value = area.name
-        inp.placeholder = "Area name..."
-        inp.add_class("active")
-        inp.focus()
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_value_cursor_end(area.name)
+        vim_input.set_placeholder("Area name…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
         self._update_status()
 
     def _normalize_tag_order(self) -> None:
@@ -4923,8 +4941,8 @@ class GtdApp(App[None]):
 
     def _apply_history(
         self,
-        pop_from: list[tuple[list[Task], list[Folder], list[Project]]],
-        push_to: list[tuple[list[Task], list[Folder], list[Project]]],
+        pop_from: list[tuple[list[Task], list[Folder], list[Project], list[Area]]],
+        push_to: list[tuple[list[Task], list[Folder], list[Project], list[Area]]],
         empty_msg: str,
     ) -> None:
         if not pop_from:
@@ -4935,9 +4953,14 @@ class GtdApp(App[None]):
                 copy.deepcopy(self._all_tasks),
                 copy.deepcopy(self._all_folders),
                 copy.deepcopy(self._all_projects),
+                copy.deepcopy(self._all_areas),
             )
         )
-        self._all_tasks, self._all_folders, self._all_projects = pop_from.pop()
+        entry = pop_from.pop()
+        self._all_tasks = entry[0]
+        self._all_folders = entry[1]
+        self._all_projects = entry[2]
+        self._all_areas = entry[3] if len(entry) > 3 else self._all_areas
         self._save()
         self._rebuild_sidebar()
         self._refresh_list()
