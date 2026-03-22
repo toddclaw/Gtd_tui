@@ -134,3 +134,13 @@ def test_maybe_backup_disabled(tmp_path: Path) -> None:
     )
     assert t == 0.0
     assert not bdir.exists()
+
+
+def test_create_backup_rejects_tiny_source(tmp_path: Path) -> None:
+    """Tiny data files (likely corrupt/truncated) are not backed up."""
+    tiny = tmp_path / "data.json"
+    tiny.write_bytes(b"{}")  # 2 bytes, below minimum
+    bdir = tmp_path / "bk"
+    result = create_backup_copy(tiny, bdir, gzip_backups=False)
+    assert result is None
+    assert len(list(bdir.glob("*"))) == 0

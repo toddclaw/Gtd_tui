@@ -88,6 +88,28 @@ async def test_rename_task_from_list_enters_insert_mode(tmp_path: Path) -> None:
         assert app._input_stage == "task_rename"
 
 
+async def test_rename_uses_vim_input_not_plain_input(tmp_path: Path) -> None:
+    """Regression: rename (r) must use VimInput (#vim-input), not Input (#task-input).
+
+    VimInput provides Esc→command, 2nd Esc→save behavior like o/O.
+    """
+    tasks = add_task_to_folder([], "inbox", "Task")
+    data_file = _save_tasks_to(tmp_path, tasks)
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._current_view = "inbox"
+        app._refresh_list()
+        app.query_one("#task-list", ListView).focus()
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        focused = app.screen.focused
+        assert focused is not None
+        assert isinstance(focused, VimInput)
+        assert (focused.id or "") == "vim-input"
+
+
 async def test_rename_task_from_list_sets_rename_task_id(tmp_path: Path) -> None:
     """After pressing 'r', _rename_task_id is set to the focused task's id."""
     tasks = add_task_to_folder([], "inbox", "Task to rename")

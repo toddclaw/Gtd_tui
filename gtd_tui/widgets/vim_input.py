@@ -143,7 +143,12 @@ class VimInput(Widget, can_focus=True):
         self.refresh()
 
     def set_value_cursor_end(self, text: str) -> None:
-        """Set value and place cursor at end (for pre-filled rename fields)."""
+        """Set value and place cursor at end.
+
+        Use for pre-filled fields (rename, edit-in-place) where the user typically
+        appends or backspaces from the end. Unlike the `value` setter, this places
+        the cursor at len(text) so backspace works as expected.
+        """
         self._text = text
         self._cursor = len(text)
         self._update_scroll()

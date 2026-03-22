@@ -242,6 +242,11 @@ class HelpScreen(ModalScreen[None]):
   Enter        Save and exit
   Ctrl+c       Cancel without saving  (blank title also cancels)
 
+[bold]Renames (r on task / folder / project / area)[/bold]
+  Esc          Same as o/O: 1st Esc → COMMAND mode, 2nd Esc → save and exit
+  Enter        Save and exit
+  Ctrl+c       Cancel without saving
+
 [bold]Commands  (type : then the command)[/bold]
   :help / :h   Show this help screen
 
@@ -3709,7 +3714,9 @@ class GtdApp(App[None]):
         vim_input.add_class("active")
         vim_input.set_mode("insert")
         vim_input.focus()
-        self._update_status("Rename: Enter to save, Esc Esc to save (Esc → command mode)")
+        self._update_status(
+            "Rename: Enter to save, Esc Esc to save (Esc → command mode)"
+        )
 
     def _paste_task_duplicate(self, position: str) -> None:
         """Paste a duplicate of the yanked task above or below the selection."""

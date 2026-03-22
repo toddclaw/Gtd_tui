@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import gzip
+import json
 import re
 import shutil
 from dataclasses import dataclass
@@ -11,7 +12,10 @@ from pathlib import Path
 
 from platformdirs import user_data_dir
 
-from gtd_tui.storage.crypto import is_encrypted
+from gtd_tui.storage.crypto import MAGIC, is_encrypted
+
+# Minimum reasonable uncompressed size for a valid backup (guards against truncation)
+_MIN_VALID_JSON_BYTES = 20
 
 # Supports both uncompressed (.json, .enc) and gzipped (.json.gz, .enc.gz)
 _BACKUP_NAME_RE = re.compile(
@@ -123,17 +127,43 @@ def rotate_backups(
                 pass
 
 
+def _validate_backup(dest: Path, gzipped: bool, encrypted: bool) -> bool:
+    """Verify the backup is readable and has expected structure. Returns True if valid."""
+    try:
+        if gzipped:
+            with gzip.open(dest, "rb") as f:
+                raw = f.read()
+        else:
+            raw = dest.read_bytes()
+        if len(raw) < _MIN_VALID_JSON_BYTES:
+            return False
+        if encrypted:
+            return len(raw) >= 4 and raw[:4] == MAGIC
+        data = json.loads(raw.decode("utf-8"))
+        return isinstance(data, dict) and "tasks" in data
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return False
+
+
 def create_backup_copy(
     data_file: Path, backup_dir: Path, *, gzip_backups: bool = True
 ) -> Path | None:
-    """Copy *data_file* into *backup_dir* with a timestamped name. Returns new path."""
+    """Copy *data_file* into *backup_dir* with a timestamped name. Returns new path.
+
+    Validates the backup after writing; on validation failure, removes the backup
+    and returns None (avoids keeping truncated or corrupt backups).
+    """
     if not data_file.is_file():
         return None
     try:
-        head = data_file.read_bytes()[:4]
+        raw = data_file.read_bytes()
+        if len(raw) < _MIN_VALID_JSON_BYTES:
+            return None
+        head = raw[:4]
     except OSError:
         return None
-    ext = "enc" if is_encrypted(head) else "json"
+    encrypted = is_encrypted(head)
+    ext = "enc" if encrypted else "json"
     stamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
     backup_dir.mkdir(parents=True, exist_ok=True)
     dest = backup_dir / f"gtd_backup_{stamp}.{ext}"
@@ -146,7 +176,11 @@ def create_backup_copy(
         else:
             shutil.copyfile(data_file, dest)
         dest.chmod(0o600)
+        if not _validate_backup(dest, gzipped=gzip_backups, encrypted=encrypted):
+            dest.unlink(missing_ok=True)
+            return None
     except OSError:
+        dest.unlink(missing_ok=True)
         return None
     return dest
 
