@@ -8,6 +8,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ## [Unreleased]
 
 ### Added
+- **Rename (r) Esc behavior matches o/O**: First Esc enters COMMAND mode; second Esc saves and exits. Applies to task, folder, project, and area renames.
+- **Undo stack includes areas**: `u` after Area delete restores the area and folder/project membership; undo persists through quit and restart.
+- **Backup validation**: Backups are validated after creation (decompress + structure check); tiny or corrupt backups are rejected and removed instead of kept.
+- **Task creation (o/O) Esc behavior**: First Esc enters COMMAND mode; second Esc saves and exits. Enter saves and exits. Ctrl+C cancels (blank title also cancels).
+- **Backup gzip compression**: `[backup] gzip = true` (default) compresses backups to save space.
+- **Backup daily_slots_per_day**: `[backup] daily_slots_per_day` — keep multiple backups per calendar day (default 1).
+- **Single-instance lockfile**: Prevents two gtd-tui processes from opening the same database; prints "Another gtd-tui is already running." and exits when lockfile exists.
+- **Sidebar d on Area**: Delete Area with confirmation when it has folders/projects; [d] confirms, [Esc] cancels.
+- **GitHub `main` protection (docs)**: `CLAUDE.md` / `README.md` describe enabling rulesets / branch protection so changes go through pull requests.
+- **GitHub Release changelog order**: `scripts/reorder_changelog_section.py` reorders each version’s notes (Added → Changed → Fixed; major-style Added bullets first); release workflow uses it; documented in `CLAUDE.md`.
+- **Configurable rotating backups**: `[backup]` in `config.toml` — optional throttled copies after each save to `~/.local/share/gtd_tui/backups` (or `directory`), tiered rotation (`daily_keep`, `weekly_keep`, `monthly_keep`); encrypted databases copy as `.enc`.
+- **Optional spell check and capitalization**: `[text]` in `config.toml` — per-field toggles for English spell correction (`pyspellchecker`) and THe-style / sentence-case fixes on submit.
+- **Spell check as you type**: `spell_check_as_you_type = true` — correct the last word when pressing Space in INSERT mode (titles, notes, projects, areas, detail view).
+- **CLI `--backup-now`**: One-shot backup of the data file and exit; uses `[backup]` config for directory and rotation.
+- **README Configuration section**: Tables for `[backup]` and `[text]` options.
+- **`.gitignore`**: Narrowed `backup.*` to explicit `backup.json`, `backup.csv`, etc., so `gtd_tui/**/backup*.py` is not ignored.
 - **CLAUDE.md release process**: clarifies that merge ≠ shipped release (version bump + tag on `main` still required); `gh pr merge --auto` only after `pre_push_check` / full suite green.
 - **README.md**: Development section summarizes the same release and `--auto` rules for maintainers.
 

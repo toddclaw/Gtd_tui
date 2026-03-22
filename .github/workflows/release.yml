@@ -38,7 +38,7 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VERSION_NUM="${VERSION#v}"
           echo "body<<EOF" >> $GITHUB_OUTPUT
-          awk "/^## \[${VERSION_NUM}\]/{found=1; next} found && /^---/{exit} found && /^## \[/{exit} found{print}" CHANGELOG.md >> $GITHUB_OUTPUT
+          python scripts/reorder_changelog_section.py "$VERSION_NUM" CHANGELOG.md >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Release

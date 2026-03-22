@@ -10,4 +10,8 @@ build/
 .ruff_cache/
 .pytest_cache/
 data.json
-backup.*
+# User export files (gtd-tui --export -o backup.json etc); not gtd_tui/**/backup*.py
+backup.json
+backup.csv
+backup.txt
+backup.md

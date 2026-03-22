@@ -23,6 +23,11 @@ from gtd_tui.storage.crypto import (
 _DEFAULT_DATA_FILE = Path(user_data_dir("gtd_tui")) / "data.json"
 
 
+def default_data_file_path() -> Path:
+    """Default XDG path for the task database (`data.json`)."""
+    return _DEFAULT_DATA_FILE
+
+
 def _repeat_rule_to_dict(rule: RepeatRule) -> dict[str, Any]:
     return {
         "interval": rule.interval,
@@ -228,7 +233,7 @@ def load_folders(
 
 _UNDO_CAP = 20
 
-UndoStack = list[tuple[list[Task], list[Folder], list[Project]]]
+UndoStack = list[tuple[list[Task], list[Folder], list[Project], list[Area]]]
 
 
 def _undo_stack_to_list(stack: UndoStack) -> list[Any]:
@@ -237,8 +242,9 @@ def _undo_stack_to_list(stack: UndoStack) -> list[Any]:
             "tasks": [_task_to_dict(t) for t in tasks],
             "folders": [_folder_to_dict(f) for f in folders],
             "projects": [_project_to_dict(p) for p in projects],
+            "areas": [_area_to_dict(a) for a in areas],
         }
-        for tasks, folders, projects in stack
+        for tasks, folders, projects, areas in stack
     ]
 
 
@@ -246,15 +252,19 @@ def _undo_stack_from_list(raw: list[Any]) -> UndoStack:
     result: UndoStack = []
     for entry in raw:
         try:
-            # Skip entries from before projects were tracked in the undo stack
             if "projects" not in entry:
                 continue
             tasks = [_task_from_dict(t) for t in entry.get("tasks", [])]
             folders = [_folder_from_dict(f) for f in entry.get("folders", [])]
             projects = [_project_from_dict(p) for p in entry.get("projects", [])]
-            result.append((tasks, folders, projects))
+            areas = (
+                [_area_from_dict(a) for a in entry.get("areas", [])]
+                if "areas" in entry
+                else []
+            )
+            result.append((tasks, folders, projects, areas))
         except (KeyError, ValueError):
-            pass  # skip corrupt entries rather than failing the whole load
+            pass
     return result
 
 
@@ -413,6 +423,7 @@ folder_from_dict = _folder_from_dict
 
 __all__ = [
     "UndoStack",
+    "default_data_file_path",
     "folder_from_dict",
     "folder_to_dict",
     "load_areas",

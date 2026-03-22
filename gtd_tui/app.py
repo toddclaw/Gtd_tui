@@ -5,6 +5,7 @@ import os
 import signal
 import time
 import uuid
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 
@@ -45,6 +46,7 @@ from gtd_tui.gtd.operations import (
     clear_deadline,
     complete_task,
     deadline_status,
+    delete_area,
     delete_folder,
     delete_project,
     delete_task,
@@ -106,6 +108,7 @@ from gtd_tui.gtd.project import Project
 from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
 from gtd_tui.storage.file import (
     UndoStack,
+    default_data_file_path,
     load_areas,
     load_collapsed_areas,
     load_folders,
@@ -116,6 +119,8 @@ from gtd_tui.storage.file import (
     load_undo_stack,
     save_data,
 )
+from gtd_tui.storage.rotating_backup import maybe_backup_after_save
+from gtd_tui.text.processing import fix_capitalization, fix_spelling
 from gtd_tui.widgets.vim_input import VimInput
 
 
@@ -232,19 +237,28 @@ class HelpScreen(ModalScreen[None]):
                [d]elete all tasks  [k]eep tasks unlinked  [Esc] cancel
   Enter / l    Open project sub-task list
 
-[bold]INSERT Mode[/bold]
-  Esc          Return to COMMAND mode
-  Ctrl+c       Cancel new task without saving
+[bold]INSERT Mode (task creation o/O)[/bold]
+  Esc          Return to COMMAND mode (2nd Esc saves and exits)
+  Enter        Save and exit
+  Ctrl+c       Cancel without saving  (blank title also cancels)
+
+[bold]Renames (r on task / folder / project / area)[/bold]
+  Esc          Same as o/O: 1st Esc → COMMAND mode, 2nd Esc → save and exit
+  Enter        Save and exit
+  Ctrl+c       Cancel without saving
 
 [bold]Commands  (type : then the command)[/bold]
   :help / :h   Show this help screen
 
 [bold]CLI[/bold]
-  gtd-tui -s   Print today's tasks to stdout and exit
+  gtd-tui -s             Print today's tasks to stdout and exit
+  gtd-tui --backup-now   Create a one-shot backup of the data file and exit
 
 [bold]General[/bold]
   q            Quit
   Ctrl+Z       Suspend to background (resume with fg)
+  Config       ~/.config/gtd_tui/config.toml — [backup] rotating copies of data.json;
+               [text] optional spell check / capitalization on save (see comments in file)
 
   j / k to scroll  ·  Esc, Enter, or q to close\
 """
@@ -560,6 +574,16 @@ class TaskDetailScreen(
             )
 
     def on_mount(self) -> None:
+        app = self.app
+        if hasattr(app, "_spell_check_as_you_type_fn"):
+            for wid, field in [
+                ("#detail-title-input", "titles"),
+                ("#detail-notes-input", "notes"),
+            ]:
+                inp = self.query_one(wid, VimInput)
+                inp.set_spell_check_on_space(
+                    app._spell_check_as_you_type_fn(field)  # type: ignore[union-attr]
+                )
         self.query_one("#detail-title-input", VimInput).focus()
         self._render_checklist()
 
@@ -697,6 +721,9 @@ class TaskDetailScreen(
             self.action_save_and_close()
         elif event.vim_input.id == "detail-checklist-new":
             label = event.vim_input.value.strip()
+            app = self.app
+            if hasattr(app, "_normalize_user_text"):
+                label = app._normalize_user_text("checklist", label)  # type: ignore[union-attr]
             if self._renaming_checklist_item_id:
                 item_id = self._renaming_checklist_item_id
                 self._renaming_checklist_item_id = ""
@@ -1623,6 +1650,7 @@ class GtdApp(App[None]):
 
     BINDINGS = [
         Binding("escape", "cancel_insert_mode", priority=True, show=False),
+        Binding("ctrl+c", "cancel_task_input", priority=True, show=False),
     ]
 
     CSS = """
@@ -1774,6 +1802,8 @@ class GtdApp(App[None]):
         self._rename_area_id: str = ""
         # Delete project confirmation: non-empty ID means waiting for d/k/Esc
         self._delete_confirm_project_id: str = ""
+        # Delete area confirmation: non-empty ID means waiting for d/Esc
+        self._delete_confirm_area_id: str = ""
         # Task register: holds a yanked Task for duplication via p/P
         self._task_register: Task | None = None
         # Task rename from list: holds the task id being renamed
@@ -1797,6 +1827,42 @@ class GtdApp(App[None]):
         self._last_search_query: str = ""
         self._search_match_ids: list[str] = []
         self._search_match_idx: int = 0
+        self._last_backup_monotonic: float = 0.0
+
+    def _normalize_user_text(self, category: str, text: str) -> str:
+        """Apply configured capitalization and spell correction for *category* keys."""
+        if not text:
+            return text
+        t = self._config.text
+        cap = (
+            t.capitalization_fix_enabled
+            and bool(getattr(t, f"capitalization_fix_{category}", False))
+            and t.capitalization_fix_on_submit
+        )
+        spell = (
+            t.spell_check_enabled
+            and bool(getattr(t, f"spell_check_{category}", False))
+            and t.spell_check_on_submit
+        )
+        result = text
+        if cap:
+            result = fix_capitalization(
+                result, sentence_case=t.capitalization_sentence_case
+            )
+        if spell:
+            result = fix_spelling(result)
+        return result
+
+    def _spell_check_as_you_type_fn(self, category: str):
+        """Return spell-check callback for Space in INSERT, or None if disabled."""
+        t = self._config.text
+        if (
+            not t.spell_check_enabled
+            or not t.spell_check_as_you_type
+            or not bool(getattr(t, f"spell_check_{category}", False))
+        ):
+            return None
+        return fix_spelling
 
     @property
     def _sidebar_view_ids(self) -> list[str]:
@@ -2491,6 +2557,7 @@ class GtdApp(App[None]):
                 copy.deepcopy(self._all_tasks),
                 copy.deepcopy(self._all_folders),
                 copy.deepcopy(self._all_projects),
+                copy.deepcopy(self._all_areas),
             )
         )
         if len(self._undo_stack) > self._UNDO_CAP:
@@ -2530,6 +2597,21 @@ class GtdApp(App[None]):
             areas=self._all_areas,
             tag_order=self._tag_order,
             collapsed_areas=self._collapsed_areas,
+        )
+        data_path = self._data_file or default_data_file_path()
+        b = self._config.backup
+        self._last_backup_monotonic = maybe_backup_after_save(
+            data_path,
+            enabled=b.enabled,
+            backup_directory=b.directory,
+            daily_keep=b.daily_keep,
+            daily_slots_per_day=b.daily_slots_per_day,
+            weekly_keep=b.weekly_keep,
+            monthly_keep=b.monthly_keep,
+            throttle_minutes=b.throttle_minutes,
+            last_backup_monotonic=self._last_backup_monotonic,
+            now_monotonic=time.monotonic(),
+            gzip_backups=b.gzip,
         )
 
     def _task_to_yank_text(self, task: Task) -> str:
@@ -2585,9 +2667,12 @@ class GtdApp(App[None]):
         if self._delete_confirm_project_id:
             self._handle_delete_confirm_project_key(event)
             return
+        if self._delete_confirm_area_id:
+            self._handle_delete_confirm_area_key(event)
+            return
         if self._mode == "INSERT":
-            if event.key in ("escape", "ctrl+c"):
-                self._cancel_input()
+            # Escape and Ctrl+C handled by bindings (cancel_insert_mode, cancel_task_input)
+            pass
         elif self._visual_mode:
             self._handle_visual_key(event)
         elif self.query_one("#sidebar", ListView).has_focus:
@@ -2767,6 +2852,8 @@ class GtdApp(App[None]):
             )
             if current_sid.startswith("project:"):
                 self._delete_selected_project()
+            elif current_sid.startswith("area:"):
+                self._delete_selected_area()
             else:
                 self._delete_selected_folder()
         elif event.key == "i":
@@ -3095,6 +3182,7 @@ class GtdApp(App[None]):
         else:
             vim.set_placeholder("Task title...")
         vim.clear()
+        vim.set_spell_check_on_space(self._spell_check_as_you_type_fn("titles"))
         vim.set_mode("insert")  # creation always starts in INSERT
         vim.add_class("active")
         vim.focus()
@@ -3102,7 +3190,7 @@ class GtdApp(App[None]):
         self._refresh_list()  # show the placeholder row immediately
 
     def action_cancel_insert_mode(self) -> None:
-        """Priority Esc handler: cancel INSERT mode input before any widget sees the key."""
+        """Priority Esc handler: 2nd Esc=save during task creation; else cancel/close."""
         if len(self.screen_stack) > 1:
             # A modal is active.  If the focused widget is a VimInput in INSERT
             # sub-mode, let the VimInput handle Escape itself (it will switch to
@@ -3119,10 +3207,35 @@ class GtdApp(App[None]):
             else:
                 screen.dismiss()
             return
+        # Task creation (o/O) and renames (r): 1st Esc → COMMAND mode; 2nd Esc → save & exit
+        rename_stages = (
+            "area_rename",
+            "project_rename",
+            "folder_rename",
+            "task_rename",
+        )
+        if self._mode == "INSERT" and self._input_stage in (
+            "title",
+            "notes",
+            *rename_stages,
+        ):
+            focused = self.screen.focused
+            if isinstance(focused, VimInput) and (focused.id or "") == "vim-input":
+                if focused._vim_mode == "insert":
+                    focused.set_mode("command")
+                    return
+                if focused._vim_mode == "command":
+                    focused.post_message(VimInput.Submitted(focused, focused.value))
+                    return
         if self._mode == "INSERT":
             self._cancel_input()
         elif self._visual_mode:
             self._exit_visual_mode()
+
+    def action_cancel_task_input(self) -> None:
+        """Ctrl+C: cancel INSERT mode input (discard without saving)."""
+        if self._mode == "INSERT":
+            self._cancel_input()
 
     def _start_command(self) -> None:
         self._mode = "INSERT"
@@ -3138,6 +3251,7 @@ class GtdApp(App[None]):
         vim_input = self.query_one("#vim-input", VimInput)
         vim_input.clear()
         vim_input.set_placeholder("New project name…")
+        vim_input.set_spell_check_on_space(self._spell_check_as_you_type_fn("projects"))
         vim_input.add_class("active")
         vim_input.set_mode("insert")
         vim_input.focus()
@@ -3168,6 +3282,7 @@ class GtdApp(App[None]):
         vim_input = self.query_one("#vim-input", VimInput)
         vim_input.clear()
         vim_input.set_placeholder("New area name…")
+        vim_input.set_spell_check_on_space(self._spell_check_as_you_type_fn("areas"))
         vim_input.add_class("active")
         vim_input.set_mode("insert")
         vim_input.focus()
@@ -3242,17 +3357,64 @@ class GtdApp(App[None]):
             if not value:
                 self._cancel_input()
                 return
-            self._pending_title = value
+            self._pending_title = self._normalize_user_text("titles", value)
             self._save_new_task("")
 
         elif self._input_stage == "notes":
-            self._save_new_task(value)
+            self._save_new_task(self._normalize_user_text("notes", value))
 
         elif self._input_stage == "project_name":
-            self._finish_new_project(value)
+            self._finish_new_project(self._normalize_user_text("projects", value))
 
         elif self._input_stage == "area_name":
-            self._finish_new_area(value)
+            self._finish_new_area(self._normalize_user_text("areas", value))
+
+        elif self._input_stage == "folder_rename":
+            if value and self._rename_folder_id:
+                value = self._normalize_user_text("folders", value)
+                self._all_folders = rename_folder(
+                    self._all_folders, self._rename_folder_id, value
+                )
+                self._save()
+                self._rebuild_sidebar()
+                self._refresh_list()
+            self._rename_folder_id = ""
+            self._cancel_input()
+
+        elif self._input_stage == "project_rename":
+            if value and self._rename_project_id:
+                value = self._normalize_user_text("projects", value.strip())
+                self._all_projects = rename_project(
+                    self._all_projects, self._rename_project_id, value
+                )
+                self._save()
+                self._rebuild_sidebar()
+                self._refresh_list()
+            self._rename_project_id = ""
+            self._cancel_input()
+
+        elif self._input_stage == "area_rename":
+            if value and self._rename_area_id:
+                value = self._normalize_user_text("areas", value.strip())
+                self._all_areas = rename_area(
+                    self._all_areas, self._rename_area_id, value
+                )
+                self._save()
+                self._rebuild_sidebar()
+            self._rename_area_id = ""
+            self._cancel_input()
+
+        elif self._input_stage == "task_rename":
+            if value and self._rename_task_id:
+                value = self._normalize_user_text("titles", value.strip())
+                self._push_undo()
+                self._all_tasks = edit_task(
+                    self._all_tasks, self._rename_task_id, title=value
+                )
+                self._save()
+                self._refresh_list(select_task_id=self._rename_task_id)
+            self._rename_task_id = ""
+            self._cancel_input()
 
     def _save_new_task(self, notes: str) -> None:
         """Create the pending task with the given notes and clean up."""
@@ -3364,6 +3526,7 @@ class GtdApp(App[None]):
             self._sidebar_placeholder_insert = ""
             self._sidebar_placeholder_anchor_id = ""
             if value:
+                value = self._normalize_user_text("folders", value)
                 new_folder_id = str(uuid.uuid4())
                 self._all_folders = insert_folder(
                     self._all_folders,
@@ -3381,49 +3544,6 @@ class GtdApp(App[None]):
             else:
                 self._rebuild_sidebar()
                 self._cancel_input()
-
-        elif self._input_stage == "folder_rename":
-            if value and self._rename_folder_id:
-                self._all_folders = rename_folder(
-                    self._all_folders, self._rename_folder_id, value
-                )
-                self._save()
-                self._rebuild_sidebar()
-                self._refresh_list()
-            self._rename_folder_id = ""
-            self._cancel_input()
-
-        elif self._input_stage == "project_rename":
-            if value and self._rename_project_id:
-                self._all_projects = rename_project(
-                    self._all_projects, self._rename_project_id, value.strip()
-                )
-                self._save()
-                self._rebuild_sidebar()
-                self._refresh_list()
-            self._rename_project_id = ""
-            self._cancel_input()
-
-        elif self._input_stage == "area_rename":
-            if value and self._rename_area_id:
-                self._all_areas = rename_area(
-                    self._all_areas, self._rename_area_id, value.strip()
-                )
-                self._save()
-                self._rebuild_sidebar()
-            self._rename_area_id = ""
-            self._cancel_input()
-
-        elif self._input_stage == "task_rename":
-            if value and self._rename_task_id:
-                self._push_undo()
-                self._all_tasks = edit_task(
-                    self._all_tasks, self._rename_task_id, title=value.strip()
-                )
-                self._save()
-                self._refresh_list(select_task_id=self._rename_task_id)
-            self._rename_task_id = ""
-            self._cancel_input()
 
     def _cancel_input(self) -> None:
         vim = self.query_one("#vim-input", VimInput)
@@ -3587,13 +3707,16 @@ class GtdApp(App[None]):
         self._rename_task_id = task.id
         self._mode = "INSERT"
         self._input_stage = "task_rename"
-        inp = self.query_one("#task-input", Input)
-        inp.clear()
-        inp.insert_text_at_cursor(task.title)
-        inp.placeholder = "New title…"
-        inp.add_class("active")
-        inp.focus()
-        self._update_status("Rename: type new title, Enter to save, Esc to cancel")
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_value_cursor_end(task.title)
+        vim_input.set_placeholder("New title…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
+        self._update_status(
+            "Rename: Enter to save, Esc Esc to save (Esc → command mode)"
+        )
 
     def _paste_task_duplicate(self, position: str) -> None:
         """Paste a duplicate of the yanked task above or below the selection."""
@@ -3681,6 +3804,17 @@ class GtdApp(App[None]):
                 new_checklist,
             ) = result
 
+            new_title = self._normalize_user_text("titles", new_title)
+            new_notes = self._normalize_user_text("notes", new_notes)
+            new_checklist = [
+                ChecklistItem(
+                    id=it.id,
+                    label=self._normalize_user_text("checklist", it.label),
+                    checked=it.checked,
+                )
+                for it in new_checklist
+            ]
+
             # Parse date field.
             move_to_someday = date_text.strip().lower() == "someday"
             new_date = old_date
@@ -3748,7 +3882,11 @@ class GtdApp(App[None]):
                 new_deadline = old_deadline
 
             new_tags = (
-                [t.strip() for t in tags_raw.split(",") if t.strip()]
+                [
+                    self._normalize_user_text("tags", t.strip())
+                    for t in tags_raw.split(",")
+                    if t.strip()
+                ]
                 if tags_raw
                 else []
             )
@@ -4333,12 +4471,53 @@ class GtdApp(App[None]):
         current_name = folder.name if folder else ""
         self._mode = "INSERT"
         self._input_stage = "folder_rename"
-        inp = self.query_one("#task-input", Input)
-        inp.value = current_name
-        inp.placeholder = "Folder name..."
-        inp.add_class("active")
-        inp.focus()
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_value_cursor_end(current_name)
+        vim_input.set_placeholder("Folder name…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
         self._update_status()
+
+    def _delete_selected_area(self) -> None:
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index
+        view_ids = self._sidebar_view_ids
+        if idx is None or idx >= len(view_ids):
+            return
+        current_sid = view_ids[idx]
+        if not current_sid.startswith("area:"):
+            return
+        area_id = current_sid[5:]
+        area = next((a for a in self._all_areas if a.id == area_id), None)
+        if area is None:
+            return
+        folders_in_area = [f for f in self._all_folders if f.area_id == area_id]
+        projects_in_area = [p for p in self._all_projects if p.area_id == area_id]
+        if folders_in_area or projects_in_area:
+            n_f = len(folders_in_area)
+            n_p = len(projects_in_area)
+            parts = []
+            if n_f:
+                parts.append(f"{n_f} folder(s)")
+            if n_p:
+                parts.append(f"{n_p} project(s)")
+            self._delete_confirm_area_id = area_id
+            self._update_status(
+                f"'{area.name}' has {', '.join(parts)}. [d] delete area  [Esc] cancel"
+            )
+        else:
+            self._push_undo()
+            self._all_areas = delete_area(self._all_areas, area_id)
+            if self._current_view.startswith("area:") and area_id in self._current_view:
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
+            self._save()
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status()
 
     def _delete_selected_folder(self) -> None:
         sidebar = self.query_one("#sidebar", ListView)
@@ -4414,11 +4593,13 @@ class GtdApp(App[None]):
         self._rename_project_id = project_id
         self._mode = "INSERT"
         self._input_stage = "project_rename"
-        inp = self.query_one("#task-input", Input)
-        inp.value = project.title
-        inp.placeholder = "Project name..."
-        inp.add_class("active")
-        inp.focus()
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_value_cursor_end(project.title)
+        vim_input.set_placeholder("Project name…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
         self._update_status()
 
     def _delete_selected_project(self) -> None:
@@ -4497,11 +4678,13 @@ class GtdApp(App[None]):
         self._rename_area_id = area_id
         self._mode = "INSERT"
         self._input_stage = "area_rename"
-        inp = self.query_one("#task-input", Input)
-        inp.value = area.name
-        inp.placeholder = "Area name..."
-        inp.add_class("active")
-        inp.focus()
+        vim_input = self.query_one("#vim-input", VimInput)
+        vim_input.clear()
+        vim_input.set_value_cursor_end(area.name)
+        vim_input.set_placeholder("Area name…")
+        vim_input.add_class("active")
+        vim_input.set_mode("insert")
+        vim_input.focus()
         self._update_status()
 
     def _normalize_tag_order(self) -> None:
@@ -4653,6 +4836,36 @@ class GtdApp(App[None]):
             self._delete_confirm_project_id = ""
             self._update_status()
 
+    def _handle_delete_confirm_area_key(self, event: events.Key) -> None:
+        area_id = self._delete_confirm_area_id
+        sidebar = self.query_one("#sidebar", ListView)
+        idx = sidebar.index or 0
+        if event.key == "d":
+            event.prevent_default()
+            self._push_undo()
+            self._all_folders = [
+                replace(f, area_id=None) if f.area_id == area_id else f
+                for f in self._all_folders
+            ]
+            self._all_projects = [
+                replace(p, area_id=None) if p.area_id == area_id else p
+                for p in self._all_projects
+            ]
+            self._all_areas = delete_area(self._all_areas, area_id)
+            if self._current_view.startswith("area:") and area_id in self._current_view:
+                new_view_ids = self._sidebar_view_ids
+                new_idx = min(idx, len(new_view_ids) - 1)
+                self._current_view = new_view_ids[new_idx] if new_view_ids else "today"
+            self._save()
+            self._delete_confirm_area_id = ""
+            self._rebuild_sidebar()
+            self._refresh_list()
+            self._update_status()
+        elif event.key == "escape":
+            event.prevent_default()
+            self._delete_confirm_area_id = ""
+            self._update_status()
+
     # ------------------------------------------------------------------ #
     # Task completion                                                      #
     # ------------------------------------------------------------------ #
@@ -4735,8 +4948,8 @@ class GtdApp(App[None]):
 
     def _apply_history(
         self,
-        pop_from: list[tuple[list[Task], list[Folder], list[Project]]],
-        push_to: list[tuple[list[Task], list[Folder], list[Project]]],
+        pop_from: list[tuple[list[Task], list[Folder], list[Project], list[Area]]],
+        push_to: list[tuple[list[Task], list[Folder], list[Project], list[Area]]],
         empty_msg: str,
     ) -> None:
         if not pop_from:
@@ -4747,9 +4960,14 @@ class GtdApp(App[None]):
                 copy.deepcopy(self._all_tasks),
                 copy.deepcopy(self._all_folders),
                 copy.deepcopy(self._all_projects),
+                copy.deepcopy(self._all_areas),
             )
         )
-        self._all_tasks, self._all_folders, self._all_projects = pop_from.pop()
+        entry = pop_from.pop()
+        self._all_tasks = entry[0]
+        self._all_folders = entry[1]
+        self._all_projects = entry[2]
+        self._all_areas = entry[3] if len(entry) > 3 else self._all_areas
         self._save()
         self._rebuild_sidebar()
         self._refresh_list()

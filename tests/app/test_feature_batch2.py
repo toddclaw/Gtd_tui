@@ -12,6 +12,7 @@ from textual.widgets import ListView
 from gtd_tui.app import GtdApp, HelpScreen
 from gtd_tui.gtd.operations import add_project, add_task_to_folder, complete_project
 from gtd_tui.storage.file import save_data
+from gtd_tui.widgets.vim_input import VimInput
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -87,6 +88,28 @@ async def test_rename_task_from_list_enters_insert_mode(tmp_path: Path) -> None:
         assert app._input_stage == "task_rename"
 
 
+async def test_rename_uses_vim_input_not_plain_input(tmp_path: Path) -> None:
+    """Regression: rename (r) must use VimInput (#vim-input), not Input (#task-input).
+
+    VimInput provides Esc→command, 2nd Esc→save behavior like o/O.
+    """
+    tasks = add_task_to_folder([], "inbox", "Task")
+    data_file = _save_tasks_to(tmp_path, tasks)
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._current_view = "inbox"
+        app._refresh_list()
+        app.query_one("#task-list", ListView).focus()
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        focused = app.screen.focused
+        assert focused is not None
+        assert isinstance(focused, VimInput)
+        assert (focused.id or "") == "vim-input"
+
+
 async def test_rename_task_from_list_sets_rename_task_id(tmp_path: Path) -> None:
     """After pressing 'r', _rename_task_id is set to the focused task's id."""
     tasks = add_task_to_folder([], "inbox", "Task to rename")
@@ -105,9 +128,9 @@ async def test_rename_task_from_list_sets_rename_task_id(tmp_path: Path) -> None
         assert app._rename_task_id == tasks[0].id
 
 
-async def test_rename_escape_returns_to_normal_mode(tmp_path: Path) -> None:
-    """Pressing Escape during rename cancels and returns to NORMAL mode."""
-    tasks = add_task_to_folder([], "inbox", "Cancel me")
+async def test_rename_second_esc_saves(tmp_path: Path) -> None:
+    """r on task: 1st Esc=command mode, 2nd Esc=saves rename (like o/O)."""
+    tasks = add_task_to_folder([], "inbox", "Old title")
     data_file = _save_tasks_to(tmp_path, tasks)
     app = GtdApp(data_file=data_file)
     async with app.run_test() as pilot:
@@ -120,9 +143,39 @@ async def test_rename_escape_returns_to_normal_mode(tmp_path: Path) -> None:
         await pilot.press("r")
         await pilot.pause()
         assert app._mode == "INSERT"
+        assert app._input_stage == "task_rename"
+        for _ in range(len("Old title")):
+            await pilot.press("backspace")
+        for ch in "New title":
+            await pilot.press(ch)
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
         await pilot.press("escape")
         await pilot.pause()
         assert app._mode == "NORMAL"
+        assert any(t.title == "New title" for t in app._all_tasks)
+
+
+async def test_rename_ctrl_c_cancels(tmp_path: Path) -> None:
+    """Ctrl+C during rename cancels without saving."""
+    tasks = add_task_to_folder([], "inbox", "Original")
+    data_file = _save_tasks_to(tmp_path, tasks)
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._current_view = "inbox"
+        app._refresh_list()
+        await pilot.pause()
+        app.query_one("#task-list", ListView).focus()
+        await pilot.pause()
+        await pilot.press("r")
+        await pilot.pause()
+        await pilot.press("c", "h", "a", "n", "g", "e", "d")
+        await pilot.press("ctrl+c")
+        await pilot.pause()
+        assert app._mode == "NORMAL"
+        assert all(t.title != "changed" for t in app._all_tasks)
 
 
 # ---------------------------------------------------------------------------
@@ -194,12 +247,12 @@ async def test_paste_after_correct_position(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Regression: single Esc during rename returns to NORMAL (not double-Esc)
+# Regression: rename (r) Esc behavior matches o/O: 1st Esc→command, 2nd Esc→save
 # ---------------------------------------------------------------------------
 
 
-async def test_rename_single_esc_returns_to_normal(tmp_path: Path) -> None:
-    """A single Esc press during rename should return to NORMAL mode."""
+async def test_rename_single_esc_enters_command_mode(tmp_path: Path) -> None:
+    """Single Esc during rename switches to command mode; second Esc saves (like o/O)."""
     tasks = add_task_to_folder([], "inbox", "My Task With Long Title")
     data_file = _save_tasks_to(tmp_path, tasks)
     app = GtdApp(data_file=data_file)
@@ -213,10 +266,15 @@ async def test_rename_single_esc_returns_to_normal(tmp_path: Path) -> None:
         await pilot.press("r")  # enter rename mode
         await pilot.pause()
         assert app._mode == "INSERT"
-        await pilot.press("escape")  # single Esc
+        vim_input = app.query_one("#vim-input", VimInput)
+        assert vim_input._vim_mode == "insert"
+        await pilot.press("escape")  # first Esc → command mode
+        await pilot.pause()
+        assert app._mode == "INSERT"
+        assert vim_input._vim_mode == "command"
+        await pilot.press("escape")  # second Esc → save and return to NORMAL
         await pilot.pause()
         assert app._mode == "NORMAL"
-        # Original title should be unchanged
         assert pilot.app._all_tasks[0].title == "My Task With Long Title"
 
 

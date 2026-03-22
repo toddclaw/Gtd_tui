@@ -13,6 +13,7 @@ dependencies = [
     "platformdirs>=4.0",
     "cryptography>=41.0",
     "pyperclip>=1.8",
+    "pyspellchecker>=0.8.0",
 ]
 
 [project.optional-dependencies]

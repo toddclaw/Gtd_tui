@@ -114,8 +114,9 @@ Navigation within the detail view:
 |---|---|
 | `o` / `O` | Create new folder after / before selected |
 | `N` | Create new folder at end |
-| `r` | Rename selected folder |
-| `d` | Delete selected folder (prompts if non-empty) |
+| `A` | Create new Area of responsibility |
+| `r` | Rename selected folder, project, or Area |
+| `d` | Delete selected folder, project, or Area (prompts if has tasks/children) |
 
 ### CLI Summary
 
@@ -134,6 +135,43 @@ gtd-tui -s
 - All data is stored locally in `~/.local/share/gtd_tui/data.json`
 - Writes are atomic (temp-file rename) with `600` permissions — owner read/write only
 - No network access, no telemetry
+
+### Single Instance (Lockfile)
+
+Only one gtd-tui process can use the database at a time. On startup the app creates a lockfile (`.gtd_tui.lock`) in the data directory. If another instance is already running, you'll see "Another gtd-tui is already running." and the new process exits. **Stale lockfile:** If gtd-tui crashes or is killed, the lockfile may remain. Remove it manually to start a new session: `rm ~/.local/share/gtd_tui/.gtd_tui.lock`
+
+### Configuration
+
+Config file: `~/.config/gtd_tui/config.toml` (created on first run).
+
+**`[backup]` — Rotating copies of the data file**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `enabled` | `false` | Copy data file after each save (throttled) |
+| `directory` | `""` | Backup dir; empty = `~/.local/share/gtd_tui/backups` |
+| `daily_keep` | `7` | Days to retain |
+| `daily_slots_per_day` | `1` | Backups to keep per calendar day (1 = one per day; 7 = up to 7 per day) |
+| `weekly_keep` | `4` | Keep one per week for last N weeks |
+| `monthly_keep` | `12` | Keep one per month for last N months |
+| `throttle_minutes` | `60` | Min minutes between backups |
+| `gzip` | `true` | Compress backups to save space |
+
+CLI: `gtd-tui --backup-now` creates a one-shot backup and exits (useful for cron).
+
+**`[text]` — Spell check and capitalization (off by default)**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `spell_check_enabled` | `false` | Enable spell correction (English) |
+| `spell_check_titles` | `true` | Apply to task titles |
+| `spell_check_notes` | `true` | Apply to notes |
+| `spell_check_on_submit` | `true` | Fix on Enter/save |
+| `spell_check_as_you_type` | `false` | Fix last word on Space in INSERT |
+| `capitalization_fix_enabled` | `false` | Fix THe → The, etc. |
+| `capitalization_fix_titles` | `true` | Apply to titles |
+| `capitalization_fix_notes` | `true` | Apply to notes |
+| `capitalization_sentence_case` | `false` | Capitalize after `.` `!` `?` |
 
 ---
 
@@ -217,6 +255,6 @@ pre-commit run --all-files
 python scripts/pre_push_check.py
 ```
 
-See **CLAUDE.md → Git Workflow** for contributor workflow: **Before starting work (branch sanity)** (right branch, up to date with remote), **Pre-push checklist** (full tests before push), and **Closing a body of work** (reflection and optional follow-up improvements when working with an AI assistant).
+See **CLAUDE.md → Git Workflow** for contributor workflow: **Before starting work (branch sanity)** (right branch, up to date with remote), **Pre-push checklist** (full tests before push), **Protecting `main` on GitHub** (optional rulesets so changes go through PRs only), and **Closing a body of work** (reflection and optional follow-up improvements when working with an AI assistant).
 
 **Releases:** Merging a release PR into `main` is not the end — you still need to bump `pyproject.toml`, create the `vX.Y.Z` tag, and push `main` + the tag (see **CLAUDE.md → Release Process**). If you use **`gh pr merge --auto`**, enable it only after **`python scripts/pre_push_check.py`** (or an equivalent full test run) has passed.
