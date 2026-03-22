@@ -1400,3 +1400,594 @@ Rotating backups after save (`[backup]` in config), optional English spell check
 - [x] `scripts/reorder_changelog_section.py` + release workflow; `CLAUDE.md` documents both
 - [x] `README` / `CLAUDE.md` describe GitHub rulesets for `main`
 - [x] Tests for backup rotation, text processing, changelog script, config load
+
+---
+
+## Group: GTD methodology gaps
+
+### BACKLOG-73 — Guided GTD weekly review workflow
+
+**Story points:** 8
+
+**Description:**
+BACKLOG-19 added a weekly review screen that shows tasks completed in the last 7 days. A full GTD weekly review is a structured, multi-step process: clear the inbox, review all active projects, check the someday list, sweep each area, and record the review date. This feature adds a guided walkthrough mode distinct from the existing logbook-style completion list.
+
+- `W` (or a dedicated key from the sidebar) launches the guided review
+- Steps walk through: Inbox → Today → Projects (one at a time) → Someday → Waiting On
+- Each step prompts: "Is this still relevant? (y/n/s)" to complete, keep, or move to someday
+- Review date is recorded in `data.json`; a "Last reviewed: N days ago" badge appears in the sidebar
+
+**Acceptance criteria:**
+- [ ] Guided review mode is a distinct screen from the existing completed-tasks view
+- [ ] Steps cycle through Inbox, Today, each Project, Someday, Waiting On in order
+- [ ] At each step, `y` keeps the item, `n` deletes it, `s` moves it to Someday, `d` sets a deadline, `Esc` pauses the review
+- [ ] Review completion timestamp stored in `data.json`; sidebar shows "Last reviewed: N days ago"
+- [ ] Help text updated to document the review flow
+- [ ] Integration tests cover the step-cycle and the `y`/`n`/`s` actions
+
+---
+
+### BACKLOG-74 — Horizons of Focus: Goals and Vision levels
+
+**Story points:** 8
+
+**Description:**
+GTD defines six "horizons of focus" above Next Actions: Projects → Areas → Goals (1–2 yr) → Vision (3–5 yr) → Purpose/Principles. Areas (BACKLOG-32) implement the third horizon. This feature adds the fourth and fifth horizons as first-class objects that can be attached to Areas and Projects.
+
+- `Goal` dataclass: title, notes, optional target year, `area_id` (optional)
+- `Vision` dataclass: title, notes (long-form)
+- Sidebar section "Horizons" lists Goals and Visions, collapsible
+- Tasks and Projects can be linked to a Goal via `goal_id`
+
+**Acceptance criteria:**
+- [ ] `Goal` and `Vision` dataclasses with storage round-trip; old JSON files load without error
+- [ ] Sidebar "Horizons" section lists Goals (with linked area) and Visions
+- [ ] `N` while Horizons section is focused creates a new Goal or Vision (user selects type)
+- [ ] Task detail view has an optional "Goal" linkage field
+- [ ] Project sidebar entry shows linked Goal name as a dim suffix when set
+- [ ] Tests cover Goal/Vision CRUD, area linkage, and task-to-goal assignment
+
+---
+
+### BACKLOG-75 — Mind sweep guided capture mode
+
+**Story points:** 5
+
+**Description:**
+GTD's "mind sweep" is a facilitated capture exercise: a series of prompts ("What's on your mind about work? finances? relationships? health?") that surfaces items the user hasn't yet captured. Completing a mind sweep ensures the inbox is genuinely empty.
+
+- A dedicated mode (accessible via `:sweep` command or a keybinding) displays prompts one at a time
+- User types a response and presses Enter to capture it to Inbox, or Esc to skip
+- A configurable prompt list lives in `config.toml` under `[sweep]`
+- Progress shown: "Prompt 4 of 12"
+
+**Acceptance criteria:**
+- [ ] Mind sweep mode launches and cycles through prompts sequentially
+- [ ] Each response is captured as a new Inbox task
+- [ ] Skipped prompts are recorded; after all prompts, a summary screen shows how many items were captured
+- [ ] `[sweep]` section in `config.toml` allows customizing the prompt list
+- [ ] `save_default_config()` includes a sensible default prompt list
+- [ ] Tests cover prompt cycling, Inbox insertion, and skip behaviour
+
+---
+
+### BACKLOG-76 — Stale task surfacing / aging alerts
+
+**Story points:** 3
+
+**Description:**
+GTD systems rot when tasks are captured and then ignored. This feature flags tasks that have sat in Inbox or Anytime for more than a configurable number of days without being touched (scheduled, moved, completed, or edited).
+
+- `Task.last_touched_at: datetime` — updated on any mutation; existing tasks default to `created_at`
+- A "Stale" indicator (e.g., dim yellow `[stale]` suffix) appears on qualifying task rows
+- Configurable threshold: `[review] stale_threshold_days = 14` in `config.toml`
+- A `:stale` command (or sidebar filter) shows only stale tasks across all active folders
+
+**Acceptance criteria:**
+- [ ] `Task.last_touched_at` updated on edit, schedule, move, flag, tag change; old files default to `created_at`
+- [ ] Tasks older than `stale_threshold_days` in Inbox or Anytime show a visual indicator
+- [ ] `:stale` command (or dedicated view) filters to stale tasks only
+- [ ] Completing or rescheduling a task clears the stale state immediately
+- [ ] `[review] stale_threshold_days` in config with default 14; `save_default_config()` updated
+- [ ] Tests cover stale detection logic and the `:stale` filter
+
+---
+
+### BACKLOG-77 — Tickler file (date-triggered task surfacing)
+
+**Story points:** 5
+
+**Description:**
+The classic GTD tickler file (43 folders: 31 daily + 12 monthly) surfaces reference items or reminders on a specific calendar date. This is distinct from Upcoming (which shows tasks with a scheduled date to *do* something) — Tickler items appear as a reminder to *review or act on* a reference item.
+
+- A built-in "Tickler" folder where tasks have a required `tickle_date`
+- On `tickle_date`, the task surfaces in Today with a `[Tickler]` prefix; after that date it stays in Today until actioned
+- Tasks in Tickler are hidden from all views until their tickle date arrives
+
+**Acceptance criteria:**
+- [ ] Built-in Tickler folder (`folder_id = "tickler"`) in the sidebar
+- [ ] Tasks in Tickler require a date; `o`/`O` to create immediately prompts for date
+- [ ] On launch, tasks whose `tickle_date <= today` move to Today with a `[Tickler]` prefix
+- [ ] Tasks with a future tickle date are invisible in all smart views and search
+- [ ] Sidebar count shows only un-surfaced future tickle items
+- [ ] Tests cover date-triggered surfacing and the hidden-until-date behaviour
+
+---
+
+## Group: TUI / interface gaps
+
+### BACKLOG-78 — Side-by-side split view (task list + detail pane)
+
+**Story points:** 8
+
+**Description:**
+Currently the task detail screen is a modal overlay that replaces the task list. A split view shows the task list on the left and the detail pane on the right simultaneously, like a mail client (Mutt, Aerc). This reduces the friction of reviewing and editing tasks sequentially.
+
+- Toggled with a keybinding (e.g., `\` or a config option `split_view = true`)
+- Left pane: task list (same as today); right pane: detail of the currently selected task, auto-updating as the cursor moves
+- Editing in the right pane uses INSERT mode; `h`/`l` switches focus between panes
+
+**Acceptance criteria:**
+- [ ] `\` toggles between split view and the current full-screen layout
+- [ ] Right pane shows title, date, deadline, notes, checklist of the selected task
+- [ ] Moving `j`/`k` in the left pane updates the right pane immediately
+- [ ] `l` transfers focus to the right pane for editing; `h` returns to the task list
+- [ ] Edits in the right pane save on `Esc` or on `h` (leaving the pane)
+- [ ] Split ratio is configurable: `split_ratio = 0.4` (left width fraction) in `config.toml`
+- [ ] Tests cover pane switching, auto-update, and edit-save flow
+
+---
+
+### BACKLOG-79 — Fuzzy finder (fzf-style search across all tasks)
+
+**Story points:** 5
+
+**Description:**
+The existing `/` search does case-insensitive substring matching. A fuzzy finder (like `fzf` or Telescope in Neovim) ranks results by how closely they match the query characters in order, even non-contiguously. Type `bmlk` to match "Buy milk" by matching b-m-l-k.
+
+- Accessible via a distinct keybinding (e.g., `Ctrl+P` or `<leader>f`) separate from `/`
+- Results ranked by fuzzy score; top result highlighted
+- Filtering is real-time as the user types
+- Selecting a result navigates to the task
+
+**Acceptance criteria:**
+- [ ] `Ctrl+P` opens the fuzzy finder overlay
+- [ ] Results update in real-time ranked by fuzzy match score (title match weighted higher than notes)
+- [ ] Selecting a result closes the overlay and navigates to the task in its folder
+- [ ] `Esc` closes without navigation
+- [ ] `fuzzy_search_tasks()` domain function is unit-tested with known inputs and expected rankings
+- [ ] Integration test: `Ctrl+P` opens overlay; typing narrows results; Enter navigates
+
+---
+
+### BACKLOG-80 — Command palette / ex-mode colon commands
+
+**Story points:** 5
+
+**Description:**
+Power users expect a command line for actions that don't warrant a dedicated keybinding. Pressing `:` opens an ex-style input (like Vim's command mode) where the user can type commands such as `:sort deadline`, `:move inbox`, `:tag @work`, `:stale`, `:sweep`.
+
+- `:` enters command mode; status bar shows the command being typed
+- A small set of built-in commands; extensible without new keybindings
+- Tab completion for command names and argument values (folder names, tag names)
+- `Esc` cancels; Enter executes
+
+**Acceptance criteria:**
+- [ ] `:` in NORMAL mode (task list or sidebar) enters command mode; status bar shows `:`-prefixed input
+- [ ] Supported commands include: `:sort <field>`, `:move <folder>`, `:tag <tag>`, `:stale`, `:sweep`, `:help`
+- [ ] Tab completes command names and known arguments (folder/tag names)
+- [ ] Unknown command shows `"Unknown command: foo"` in status bar
+- [ ] `Esc` cancels without action
+- [ ] Unit tests for command dispatch; integration test for `:sort` and `:move`
+
+---
+
+### BACKLOG-81 — External editor for task notes ($EDITOR)
+
+**Story points:** 3
+
+**Description:**
+Long-form task notes are awkward to write in the inline VimInput widget. Pressing `E` (capital) in the task detail view opens the notes field in the user's `$EDITOR` (same pattern as `git commit`). On save-and-quit, the notes are updated in the task.
+
+- Suspends the Textual TUI, spawns `$EDITOR` with the notes in a temp file, resumes after the editor exits
+- Falls back to `nano` if `$EDITOR` is not set
+- Works only from the task detail view notes field
+
+**Acceptance criteria:**
+- [ ] `E` in the detail view notes field suspends TUI and opens `$EDITOR <tempfile>`
+- [ ] On editor exit, temp file contents replace the notes field value
+- [ ] If `$EDITOR` is unset, uses `nano`
+- [ ] If the editor exits with a non-zero code, notes are unchanged
+- [ ] TUI resumes cleanly after editor closes
+- [ ] Tests mock the subprocess call and verify notes are updated on success and unchanged on failure
+
+---
+
+### BACKLOG-82 — Markdown-rendered notes in detail view
+
+**Story points:** 5
+
+**Description:**
+Task notes are stored as plain text but many users naturally write Markdown (headings, bold, lists, links). Textual ships a `Markdown` widget that renders Markdown to styled text. This feature renders notes as Markdown in read mode and switches to the raw VimInput in edit mode.
+
+- Read mode (COMMAND focus on notes): Markdown rendered
+- Edit mode (INSERT focus): raw VimInput (existing behaviour)
+- Toggle with a keybinding or automatic on focus change
+
+**Acceptance criteria:**
+- [ ] Notes displayed using Textual's `Markdown` widget in read mode
+- [ ] Pressing `i`/`a`/`o` on the notes field switches to raw VimInput (INSERT mode)
+- [ ] `Esc` from INSERT mode returns to Markdown rendered view
+- [ ] Markdown rendering supports: headings, bold, italic, bullet lists, code blocks
+- [ ] Fallback: if notes contain no Markdown syntax, rendered output is visually identical to plain text
+- [ ] Tests: notes with Markdown syntax render without error; edit/save round-trip preserves raw text
+
+---
+
+### BACKLOG-83 — Multiple sort orders for task list
+
+**Story points:** 3
+
+**Description:**
+Tasks within a folder are currently displayed in manual (positional) order. Users should be able to sort by other criteria without permanently reordering their manual positions.
+
+- Sort orders: manual (default), by due date ascending, by deadline ascending, by creation date, by title (alphabetical)
+- Sort is a view-level setting, not stored in the data model; manual order is always preserved underneath
+- The current sort is shown in the status bar: `[sorted: deadline]`
+- `:sort <field>` command (BACKLOG-80) or a dedicated key (`S` cycles through sort orders)
+
+**Acceptance criteria:**
+- [ ] `S` in NORMAL mode cycles through: manual → due date → deadline → created → title → manual
+- [ ] Sort indicator shown in status bar when non-manual sort is active
+- [ ] Switching back to manual restores original positional order
+- [ ] Sort persists for the session but resets to manual on restart (or optionally saved to config)
+- [ ] Tests: each sort order produces correct task ordering given a known task list
+
+---
+
+### BACKLOG-84 — Vim marks (m{letter} / '{letter} task bookmarks)
+
+**Story points:** 3
+
+**Description:**
+Vim's mark system lets users bookmark positions and jump back. In gtd-tui, `m{a-z}` marks the currently selected task, and `'{letter}` jumps to the marked task (switching folders if needed).
+
+- Marks are session-scoped (not persisted to disk)
+- Jumping to a mark switches the sidebar to the task's folder and moves the cursor to that task
+- `''` (two apostrophes) jumps back to the position before the last mark-jump
+
+**Acceptance criteria:**
+- [ ] `m{a-z}` in NORMAL mode stores a reference to the selected task under that letter
+- [ ] `'{letter}` navigates to the marked task (switches folder view if the task is in a different folder)
+- [ ] `''` returns to the previous cursor position (before the most recent `'` jump)
+- [ ] Marking a deleted task: jumping to a deleted mark shows `"Mark '{letter}' is no longer valid"` in the status bar
+- [ ] Tests cover mark set, jump, cross-folder jump, and stale mark handling
+
+---
+
+### BACKLOG-85 — Column / table view
+
+**Story points:** 5
+
+**Description:**
+An optional table layout shows each task as a spreadsheet row with visible columns: title, due date, deadline, tags, and estimated duration. Useful for scanning and comparing task attributes across many tasks at once.
+
+- Toggled with `\` (if not used by split view) or a config option `default_view = "table"`
+- Column widths are fixed or proportional to the terminal width
+- All existing keybindings work identically in table view
+
+**Acceptance criteria:**
+- [ ] `Ctrl+T` (or config key) toggles between list view and table view
+- [ ] Table columns: Title, Date, Deadline, Tags, Est. — all truncated to fit terminal width
+- [ ] Columns with all-empty values are hidden automatically
+- [ ] `j`/`k` navigation, `x`, `d`, `m`, `s` all work identically to list view
+- [ ] `default_view = "list" | "table"` option in `config.toml`
+- [ ] Tests: table view renders correct column data; keybindings still function
+
+---
+
+## Group: General application gaps
+
+### BACKLOG-86 — Task templates
+
+**Story points:** 5
+
+**Description:**
+Frequently-repeated workflows (e.g. "Onboard new client", "Weekly release", "Travel packing") involve the same set of tasks every time. Task templates allow saving a task (or a project with subtasks/checklist items) as a reusable blueprint that can be instantiated with one command.
+
+- Templates stored in `~/.local/share/gtd_tui/templates.json`
+- `Ctrl+T` in the task list opens a template picker; selecting one creates the task(s) in the current folder
+- Templates can be saved from an existing task: `T` in detail view saves the task as a template
+
+**Acceptance criteria:**
+- [ ] `T` in task detail view saves the current task (title, notes, checklist, tags) as a named template
+- [ ] `Ctrl+T` in the task list (NORMAL mode) opens a template picker modal
+- [ ] Selecting a template instantiates the task(s) in the current folder with fresh IDs and `created_at`
+- [ ] Project templates create the project and all its sub-tasks in one step
+- [ ] Templates persist across restarts; storage round-trip tested
+- [ ] Tests: save template, list templates, instantiate template (task and project variants)
+
+---
+
+### BACKLOG-87 — Desktop notifications for due tasks
+
+**Story points:** 5
+
+**Description:**
+When the app is closed, there is no way to be reminded of tasks due today or tasks with approaching deadlines. A lightweight background checker (invoked via a systemd user timer or launchd plist) sends a desktop notification listing due tasks.
+
+- `gtd-tui --notify` checks for tasks due today and deadlines within 24 hours; sends a notification and exits
+- On Linux: uses `notify-send`; on macOS: uses `osascript`; on Windows: no-op with a warning
+- Notification body lists up to 5 task titles; if more, shows "…and N more"
+- CLAUDE.md / README documents how to set up the systemd timer
+
+**Acceptance criteria:**
+- [ ] `gtd-tui --notify` prints nothing to stdout and exits 0 if no due tasks; exits 0 with notification if tasks are due
+- [ ] `notify-send` called with title "gtd-tui" and body listing due-today tasks and near-deadline tasks
+- [ ] Falls back gracefully if `notify-send` / `osascript` is not installed (prints a warning to stderr, exits 0)
+- [ ] Works with encrypted databases (prompts for password via `getpass`)
+- [ ] README includes a systemd user timer unit file example
+- [ ] Tests mock `subprocess.run` and verify correct task list is passed to the notification command
+
+---
+
+### BACKLOG-88 — Quick-add CLI
+
+**Story points:** 3
+
+**Description:**
+Adding a task requires opening the full TUI. A `gtd add` subcommand lets users capture tasks from the shell without launching the UI — useful from shell aliases, scripts, or Alfred/Raycast.
+
+- `gtd-tui add "Buy milk" [--folder inbox] [--due tomorrow] [--tag @errands] [--project "Shopping"]`
+- Writes directly to `data.json` (or encrypted blob) and exits
+- Default folder is Inbox if `--folder` is not specified
+
+**Acceptance criteria:**
+- [ ] `gtd-tui add "title"` creates a task in Inbox and exits 0
+- [ ] `--folder`, `--due`, `--tag`, `--project` flags are all optional and functional
+- [ ] `--due` accepts the same natural-language formats as the TUI date field
+- [ ] Works with encrypted databases (prompts for password)
+- [ ] Prints `"Added: <title>"` to stdout on success
+- [ ] Tests cover each flag combination; integration test verifies the task appears in the data file
+
+---
+
+### BACKLOG-89 — Keyboard shortcut customization
+
+**Story points:** 5
+
+**Description:**
+All keybindings are currently hardcoded in `app.py`. Power users may want to remap keys (e.g., change `x` to Space-only, remap `w` to something else, add custom shortcuts). Allow overriding keybindings via `config.toml`.
+
+- `[keys]` section in `config.toml` maps action names to key sequences
+- A curated set of action names covers all major operations (complete, delete, schedule, move, etc.)
+- Conflicting or invalid key specs print a warning at startup and fall back to the default
+
+**Acceptance criteria:**
+- [ ] `[keys]` section in `config.toml`; `save_default_config()` includes commented-out defaults for all action names
+- [ ] At startup, custom key mappings override defaults; conflicts logged as warnings
+- [ ] At minimum, the following actions are remappable: `complete`, `delete`, `schedule`, `move`, `waiting_on`, `today`, `undo`, `redo`, `search`, `help`
+- [ ] `load_config()` validates key specs (rejects multi-char sequences where single-char is required)
+- [ ] Tests: load config with custom key, verify action fires on custom key and not on old key
+
+---
+
+### BACKLOG-90 — Undo history viewer
+
+**Story points:** 5
+
+**Description:**
+The undo stack (BACKLOG-41) persists up to 20 operations but is only accessible one step at a time with `u`. An undo history viewer shows the full list of undoable actions with descriptions, and allows jumping to any point in the stack.
+
+- Accessible via `:history` command or `Ctrl+U`
+- Each entry shows: action type, timestamp, affected tasks (title list)
+- Selecting an entry in the viewer undoes all operations back to that point (equivalent to pressing `u` N times)
+
+**Acceptance criteria:**
+- [ ] `Ctrl+U` opens the undo history modal
+- [ ] Modal lists up to 20 undo entries, most recent first, with action type and short description
+- [ ] Selecting an entry undoes back to that state (all intermediate steps applied)
+- [ ] `Esc` closes without any undo
+- [ ] Tests: viewer lists correct entries; selecting entry N undoes correctly
+
+---
+
+## Group: Project management gaps
+
+### BACKLOG-91 — Task dependencies (blocked-by relationships)
+
+**Story points:** 8
+
+**Description:**
+In complex projects, some tasks cannot start until another is complete. A `blocked_by` field links tasks, and blocked tasks are visually dimmed and excluded from the Today smart view until their blockers are complete.
+
+- `Task.blocked_by: list[str]` — list of task UUIDs this task is waiting on
+- In the task list, blocked tasks show a `[blocked]` indicator and are dimmed
+- Today view excludes blocked tasks; Upcoming view also excludes them
+- When all blockers complete, the task automatically becomes unblocked
+
+**Acceptance criteria:**
+- [ ] `Task.blocked_by: list[str]` (default `[]`); old JSON files load without error
+- [ ] Task detail view has a "Blocked by" field listing linked tasks (by title), editable
+- [ ] `B` in NORMAL mode opens a task picker to add a blocker to the selected task
+- [ ] Blocked tasks are visually dimmed in the task list with a `[blocked]` suffix
+- [ ] Today and Upcoming smart views exclude blocked tasks
+- [ ] Completing the last blocker task automatically removes its ID from all `blocked_by` lists
+- [ ] Tests cover blocking, unblocking on completion, and Today/Upcoming exclusion
+
+---
+
+### BACKLOG-92 — Time tracking (start/stop timer per task)
+
+**Story points:** 8
+
+**Description:**
+For users who need to track time spent on tasks (for billing, retrospectives, or focus), a lightweight start/stop timer can be attached to any task. The elapsed time is displayed in the task row and in the detail view, and can be exported.
+
+- `Task.time_log: list[tuple[datetime, datetime | None]]` — list of (start, stop) pairs; `None` stop means currently running
+- `T` in NORMAL mode starts/stops the timer on the selected task
+- Status bar shows "Timer running: Buy milk [0:23]" when a timer is active
+- `--export=csv` / `--export=json` includes accumulated time
+
+**Acceptance criteria:**
+- [ ] `Task.time_log` field; old JSON files load without error
+- [ ] `T` starts the timer (sets a new open-ended entry); `T` again stops it (fills in the stop time)
+- [ ] Only one task can have a running timer at a time; starting a new timer auto-stops any running one
+- [ ] Task rows show total logged time as a dim suffix: `(1h 23m)`
+- [ ] Detail view shows full time log (start, stop, duration per entry)
+- [ ] Export formats include time data
+- [ ] Tests: start/stop round-trip, auto-stop on new start, total duration calculation
+
+---
+
+### BACKLOG-93 — Sub-projects (nested projects)
+
+**Story points:** 8
+
+**Description:**
+Complex outcomes ("Launch v2") often decompose into meaningful sub-outcomes ("Build auth", "Write docs", "Set up CI") that themselves contain tasks. Nested projects model this hierarchy.
+
+- `Project.parent_id: str | None` — references another project
+- Sub-projects appear indented under their parent in the sidebar
+- A parent project's progress bar aggregates sub-project completion as well as direct tasks
+- Maximum nesting depth: 2 (parent → sub-project → tasks); deeper nesting is rejected with an error
+
+**Acceptance criteria:**
+- [ ] `Project.parent_id: str | None` (default `None`); old JSON files load without error
+- [ ] `N` while a project is selected in the sidebar offers "New sub-project" as an option
+- [ ] Sub-projects appear indented under their parent in the sidebar with a `│ ◆` prefix
+- [ ] Parent project progress includes all direct tasks plus all sub-project tasks
+- [ ] Attempting to nest more than 2 levels shows an error: `"Max nesting depth (2) reached"`
+- [ ] Deleting a parent project prompts: delete sub-projects too, or unlink them
+- [ ] Tests cover creation, progress rollup, depth limit, and parent deletion options
+
+---
+
+## Group: Outside-the-box features
+
+### BACKLOG-94 — AI task breakdown (Claude API integration)
+
+**Story points:** 5
+
+**Description:**
+When a task title is vague ("Refactor auth", "Plan holiday"), it can be hard to know the next concrete action. Pressing `?` on a task sends the title (and optional notes) to the Claude API, which returns 4–6 concrete next-action suggestions. The user picks which to add as checklist items or sub-tasks.
+
+- Opt-in: requires `[ai] api_key = "..."` in `config.toml`; no calls made without a key
+- `?` in NORMAL mode (task list) sends the task to the API and opens a picker with the suggestions
+- Each suggestion can be accepted (added as a checklist item), rejected, or edited before adding
+- No task data is sent if `[ai] enabled = false` (default)
+
+**Acceptance criteria:**
+- [ ] `[ai] enabled = false` and `[ai] api_key = ""` in default config; feature is off by default
+- [ ] `?` with a valid API key calls the Claude API with the task title and notes
+- [ ] Response is parsed into a list of action suggestions; displayed in a picker modal
+- [ ] Each suggestion has `[a]ccept`, `[e]dit`, `[s]kip` options; accepted items added as checklist items
+- [ ] Network errors or invalid API key show a user-friendly error in the status bar; no crash
+- [ ] Task data is never sent when `enabled = false`
+- [ ] Tests mock the API call and verify suggestion parsing, checklist insertion, and error handling
+
+---
+
+### BACKLOG-95 — Focus / distraction-free mode
+
+**Story points:** 2
+
+**Description:**
+A full-screen, decoration-free view showing only today's tasks. Hides the sidebar, status bar decorations, and border. Useful when actually doing work and wanting to see only the current task list with minimal chrome.
+
+- `F` toggles focus mode on/off
+- In focus mode: sidebar is hidden, border is hidden, header shows only "Today" or current folder name
+- All keybindings continue to work normally; `F` restores the full layout
+
+**Acceptance criteria:**
+- [ ] `F` hides the sidebar and all decorative elements; `F` again restores them
+- [ ] Task list expands to fill the full terminal width in focus mode
+- [ ] Status bar remains visible (needed for INSERT mode indicator)
+- [ ] `focus_mode_on_launch = false` config option in `[ui]`
+- [ ] Tests: `F` toggles sidebar visibility; task list width changes
+
+---
+
+### BACKLOG-96 — Pomodoro timer
+
+**Story points:** 5
+
+**Description:**
+A built-in 25-minute work timer with a 5-minute break timer. The timer is linked to the currently selected task and shown in the status bar. When the timer expires, a desktop notification fires (if available) and the status bar updates.
+
+- `P` in NORMAL mode starts a Pomodoro on the selected task; `P` again pauses/resumes; Esc cancels
+- Status bar shows `🍅 Buy milk [18:42]` while running
+- After 25 min, a break timer (5 min) starts automatically
+- Pomodoro count per task stored in `Task.pomodoro_count: int`
+
+**Acceptance criteria:**
+- [ ] `P` starts a 25-minute countdown linked to the selected task
+- [ ] Status bar shows task name and remaining time, updated every second
+- [ ] On expiry, a notification fires (if `notify-send` / `osascript` is available) and break mode starts
+- [ ] `Task.pomodoro_count` incremented on each completed Pomodoro; shown as `🍅 ×3` in the task list
+- [ ] `[pomodoro] work_minutes`, `break_minutes`, `long_break_minutes`, `sessions_before_long_break` configurable in `config.toml`
+- [ ] Tests: timer state transitions (start → running → expired → break); count increment
+
+---
+
+### BACKLOG-97 — Task aging visualization
+
+**Story points:** 3
+
+**Description:**
+Tasks that have been sitting in Inbox or Anytime for a long time are visually highlighted to signal they need attention. The color of the task title fades from normal to yellow to orange to red based on days since `created_at` or `last_touched_at`.
+
+- Age thresholds configurable: `[review] age_yellow_days = 7`, `age_orange_days = 14`, `age_red_days = 30`
+- Only applies in Inbox and Anytime folders (not Today, Waiting On, Someday, Projects)
+- Aging indicator is purely visual; no data model changes required beyond BACKLOG-76's `last_touched_at`
+
+**Acceptance criteria:**
+- [ ] Task titles in Inbox/Anytime folders render in yellow when age ≥ `age_yellow_days`
+- [ ] Orange when age ≥ `age_orange_days`; red when age ≥ `age_red_days`
+- [ ] Age is based on `last_touched_at` if BACKLOG-76 is implemented, otherwise `created_at`
+- [ ] Other folders are unaffected
+- [ ] Thresholds are configurable in `config.toml`; `save_default_config()` includes them
+- [ ] Tests: task age → expected color mapping for each threshold
+
+---
+
+### BACKLOG-98 — Git-based sync across machines
+
+**Story points:** 8
+
+**Description:**
+Many users work across multiple machines (desktop + laptop) and want their tasks synced without a cloud service. Git provides a zero-infrastructure sync mechanism: auto-commit `data.json` to a private repo on each save, and pull on each launch.
+
+- `[sync] git_repo = "git@github.com:user/private-tasks.git"` in `config.toml`
+- On save: `git add data.json && git commit -m "gtd-tui auto-sync" && git push` (async, non-blocking)
+- On launch: `git pull --rebase` before reading `data.json`
+- Conflict on pull: merge conflicts in JSON are detected; user is prompted to resolve or use local/remote version
+
+**Acceptance criteria:**
+- [ ] `[sync]` section in `config.toml`; sync is disabled by default
+- [ ] When enabled and git is available, a pull is attempted on launch before loading data
+- [ ] After each save, a non-blocking background push is initiated
+- [ ] If push fails (network unavailable), a dim status bar message appears: `"Sync pending"`; retry on next save
+- [ ] Merge conflict on pull: user is prompted with `[L]ocal / [R]emote / [C]ancel`
+- [ ] Tests mock `subprocess.run` for git commands; verify pull-before-load and push-after-save sequence
+
+---
+
+### BACKLOG-99 — Daily session log
+
+**Story points:** 3
+
+**Description:**
+At the end of each session (on graceful exit), append a one-line summary to a plain text log file: date, tasks completed, tasks created, and the active folder at exit. Simple productivity journaling without a separate app.
+
+- Log file: `~/.local/share/gtd_tui/session.log` (configurable)
+- Format: `2026-03-21 09:34 | completed: 7 | created: 3 | active: Today`
+- Opt-in: `[log] session_log = true` in `config.toml`
+
+**Acceptance criteria:**
+- [ ] `[log] session_log = false` in default config (opt-in)
+- [ ] `[log] session_log_path` configurable; defaults to `~/.local/share/gtd_tui/session.log`
+- [ ] On clean exit, one line is appended in the documented format
+- [ ] Completed count = tasks completed during the session; created count = tasks created during the session
+- [ ] Log file is created if it doesn't exist; never truncated
+- [ ] Tests: mock exit, verify appended line format and counts
