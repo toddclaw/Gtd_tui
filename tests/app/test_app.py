@@ -16,6 +16,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from textual.pilot import Pilot
 from textual.widgets import Label, ListView
 
 from gtd_tui.app import GtdApp, SearchScreen, TaskDetailScreen
@@ -38,6 +39,19 @@ def _app(data_file: Path) -> GtdApp:
     """Create app with task list focused on startup (for tests)."""
     cfg = replace(load_config(), startup_focus_sidebar=False)
     return GtdApp(data_file=data_file, config=cfg)
+
+
+async def _open_detail(pilot: Pilot, app: GtdApp) -> TaskDetailScreen:
+    """Open the task detail screen for the currently selected task.
+
+    Handles the initial render pause so callers don't need to remember it.
+    Asserts that the detail screen is now active and returns it.
+    """
+    await pilot.pause()
+    await pilot.press("enter")
+    await pilot.pause()
+    assert isinstance(app.screen, TaskDetailScreen)
+    return app.screen  # type: ignore[return-value]
 
 
 def _prepopulate(tmp_path: Path, *titles: str) -> Path:
@@ -274,20 +288,14 @@ async def test_enter_opens_task_detail_screen(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Plan sprint")
     app = _app(data_file)
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause()
-        assert isinstance(app.screen, TaskDetailScreen)
+        await _open_detail(pilot, app)
 
 
 async def test_escape_closes_task_detail_screen(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "Plan sprint")
     app = _app(data_file)
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause()
-        assert isinstance(app.screen, TaskDetailScreen)
+        await _open_detail(pilot, app)
         await pilot.press("escape")
         await pilot.pause()
         assert not isinstance(app.screen, TaskDetailScreen)
@@ -305,12 +313,8 @@ async def test_edit_task_title_and_notes(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "foo")
     app = _app(data_file)
     async with app.run_test() as pilot:
-        await pilot.pause()
-
         # Open detail view — title VimInput pre-filled with "foo", COMMAND mode
-        await pilot.press("enter")
-        await pilot.pause()
-        assert isinstance(app.screen, TaskDetailScreen)
+        await _open_detail(pilot, app)
 
         # 'A' → insert mode at end of "foo", then type " bar"
         await pilot.press("A")
@@ -362,10 +366,7 @@ async def test_detail_fields_normalised_on_focus_advance(tmp_path: Path) -> None
     data_file = _prepopulate(tmp_path, "Buy milk")
     app = _app(data_file)
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("enter")  # open detail view
-        await pilot.pause()
-        assert isinstance(app.screen, TaskDetailScreen)
+        await _open_detail(pilot, app)
 
         # Advance from Title to Date field
         await pilot.press("enter")
@@ -405,10 +406,7 @@ async def test_detail_date_someday_moves_task_to_someday_folder(tmp_path: Path) 
     data_file = _prepopulate(tmp_path, "Read a book")
     app = _app(data_file)
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("enter")  # open detail view
-        await pilot.pause()
-        assert isinstance(app.screen, TaskDetailScreen)
+        await _open_detail(pilot, app)
 
         # Navigate from title (COMMAND mode) → Date field
         await pilot.press("enter")
@@ -435,12 +433,8 @@ async def test_set_repeat_rule_moves_task_to_upcoming(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "foo")
     app = _app(data_file)
     async with app.run_test() as pilot:
-        await pilot.pause()
-
         # Open detail view — title input focused
-        await pilot.press("enter")
-        await pilot.pause()
-        assert isinstance(app.screen, TaskDetailScreen)
+        await _open_detail(pilot, app)
 
         # Advance: title → date (Enter), date → deadline (Enter), deadline → notes (Enter),
         # notes → checklist-list (Tab), checklist-list → checklist-new (Tab),
@@ -490,10 +484,7 @@ async def test_set_date_via_detail_screen(tmp_path: Path) -> None:
     data_file = _prepopulate(tmp_path, "foo")
     app = _app(data_file)
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("enter")  # open detail
-        await pilot.pause()
-        assert isinstance(app.screen, TaskDetailScreen)
+        await _open_detail(pilot, app)
 
         # Skip title (command mode, Enter → date field)
         await pilot.press("enter")
@@ -518,10 +509,7 @@ async def test_j_navigates_to_next_field_in_detail_screen(tmp_path: Path) -> Non
     data_file = _prepopulate(tmp_path, "foo")
     app = _app(data_file)
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("enter")  # open detail — title focused
-        await pilot.pause()
-        assert isinstance(app.screen, TaskDetailScreen)
+        await _open_detail(pilot, app)
 
         # Press j in command mode — focus should move from title to date
         await pilot.press("j")
@@ -1254,12 +1242,7 @@ async def test_external_editor_noop_when_not_notes_focused(tmp_path: Path):
     data_file = _prepopulate(tmp_path, "My task")
     app = _app(data_file)
     async with app.run_test() as pilot:
-        await pilot.pause()
-        # Open task detail
-        await pilot.press("enter")
-        await pilot.pause()
-        screen = app.screen
-        assert isinstance(screen, TaskDetailScreen)
+        screen = await _open_detail(pilot, app)
         title_inp = screen.query_one("#detail-title-input", VimInput)
         # Title field should be focused by default
         assert screen.focused is title_inp
@@ -1293,11 +1276,7 @@ async def test_external_editor_updates_notes_on_success(tmp_path: Path):
         yield
 
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause()
-        screen = app.screen
-        assert isinstance(screen, TaskDetailScreen)
+        screen = await _open_detail(pilot, app)
 
         # Focus the notes field directly
         notes_inp = screen.query_one("#detail-notes-input", VimInput)
@@ -1333,11 +1312,7 @@ async def test_external_editor_preserves_notes_on_failure(tmp_path: Path):
         yield
 
     async with app.run_test() as pilot:
-        await pilot.pause()
-        await pilot.press("enter")
-        await pilot.pause()
-        screen = app.screen
-        assert isinstance(screen, TaskDetailScreen)
+        screen = await _open_detail(pilot, app)
 
         notes_inp = screen.query_one("#detail-notes-input", VimInput)
         notes_inp.value = "Original notes"

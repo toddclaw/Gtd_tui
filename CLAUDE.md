@@ -539,6 +539,8 @@ See [BACKLOG.md](BACKLOG.md) for the full feature backlog.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.
 - The UI should be modeled after the **Things iPhone app** — reference its information architecture (Inbox, Today, Upcoming, Anytime, Someday, Projects, Areas, Logbook) when making design decisions.
 - **Vi keybindings are a first-class requirement.** All navigation and editing actions must be reachable via vi-style keys. Implement modal state (NORMAL/INSERT) from the start — do not retrofit it later.
+- **New key binding in TaskDetailScreen?** Check `gtd_tui/widgets/vim_input.py`'s `on_key` handler first for conflicts. VimInput calls `event.stop()` on keys it handles (e.g. `ctrl+e` for end-of-line, `E` for end-of-WORD), so they will not bubble. Use `priority=True` on the `Binding` only when the screen-level action must override VimInput's behaviour.
+- **`App.suspend()` is synchronous.** Use `with self.app.suspend():` (not `async with`). It is decorated with `@contextmanager`, not `@asynccontextmanager`. In tests, patch it with `side_effect=lambda: my_context_manager()`.
 - Storage format decisions (JSON vs SQLite) should be confirmed with the user before implementation, as they affect migration complexity later.
 - Default data directory should follow XDG conventions (`~/.local/share/gtd_tui/` on Linux) using the `platformdirs` package.
 - Follow the security rules in the Security section — especially: no network calls, atomic file writes, `600` permissions on the data file, no `shell=True`.
