@@ -3,6 +3,9 @@ from datetime import date, timedelta
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, REFERENCE_FOLDER_ID
 from gtd_tui.gtd.operations import (
     InvalidRepeatError,
+    ParsedRepeat,
+    _next_date_in_days_of_week,
+    _nth_weekday_of_month,
     add_task,
     add_task_to_folder,
     add_waiting_on_task,
@@ -10,6 +13,9 @@ from gtd_tui.gtd.operations import (
     delete_task,
     edit_task,
     folder_tasks,
+    format_parsed_repeat,
+    format_recur_rule,
+    format_repeat_rule,
     insert_folder_task_after,
     insert_folder_task_before,
     insert_task_after,
@@ -17,6 +23,7 @@ from gtd_tui.gtd.operations import (
     insert_waiting_on_task_after,
     insert_waiting_on_task_before,
     logbook_tasks,
+    make_repeat_rule_from_parsed,
     move_block_down,
     move_block_up,
     move_task_down,
@@ -916,39 +923,68 @@ def test_someday_tasks_with_date_not_in_upcoming():
 
 
 def test_parse_repeat_input_days():
-    assert parse_repeat_input("7 days") == (7, "days")
+    r = parse_repeat_input("7 days")
+    assert r is not None
+    assert r.interval == 7
+    assert r.unit == "days"
+    assert r.days_of_week == []
+    assert r.nth_weekday is None
 
 
 def test_parse_repeat_input_day_singular():
-    assert parse_repeat_input("1 day") == (1, "days")
+    r = parse_repeat_input("1 day")
+    assert r is not None
+    assert r.interval == 1
+    assert r.unit == "days"
 
 
 def test_parse_repeat_input_abbreviation_d():
-    assert parse_repeat_input("7d") == (7, "days")
+    r = parse_repeat_input("7d")
+    assert r is not None
+    assert r.interval == 7
+    assert r.unit == "days"
 
 
 def test_parse_repeat_input_weeks():
-    assert parse_repeat_input("2 weeks") == (2, "weeks")
+    r = parse_repeat_input("2 weeks")
+    assert r is not None
+    assert r.interval == 2
+    assert r.unit == "weeks"
 
 
 def test_parse_repeat_input_abbreviation_w():
-    assert parse_repeat_input("2w") == (2, "weeks")
+    r = parse_repeat_input("2w")
+    assert r is not None
+    assert r.interval == 2
+    assert r.unit == "weeks"
 
 
 def test_parse_repeat_input_months():
-    assert parse_repeat_input("1 month") == (1, "months")
+    r = parse_repeat_input("1 month")
+    assert r is not None
+    assert r.interval == 1
+    assert r.unit == "months"
 
 
 def test_parse_repeat_input_abbreviation_m():
-    assert parse_repeat_input("3m") == (3, "months")
+    r = parse_repeat_input("3m")
+    assert r is not None
+    assert r.interval == 3
+    assert r.unit == "months"
 
 
 def test_parse_repeat_input_years():
-    assert parse_repeat_input("1 year") == (1, "years")
+    r = parse_repeat_input("1 year")
+    assert r is not None
+    assert r.interval == 1
+    assert r.unit == "years"
 
 
 def test_parse_repeat_input_abbreviation_y():
-    assert parse_repeat_input("2y") == (2, "years")
+    r = parse_repeat_input("2y")
+    assert r is not None
+    assert r.interval == 2
+    assert r.unit == "years"
 
 
 def test_parse_repeat_input_empty_returns_none():
@@ -1467,3 +1503,376 @@ def test_reference_folder_id_constant() -> None:
 
 def test_reference_in_builtin_folder_ids() -> None:
     assert "reference" in BUILTIN_FOLDER_IDS
+
+
+# ------------------------------------------------------------------ #
+# BACKLOG-100: parse_repeat_input — advanced patterns                 #
+# ------------------------------------------------------------------ #
+
+
+def test_parse_repeat_monthly_alias():
+    r = parse_repeat_input("monthly")
+    assert r == ParsedRepeat(1, "months", [], None)
+
+
+def test_parse_repeat_quarterly_alias():
+    r = parse_repeat_input("quarterly")
+    assert r == ParsedRepeat(3, "months", [], None)
+
+
+def test_parse_repeat_annually_alias():
+    r = parse_repeat_input("annually")
+    assert r == ParsedRepeat(1, "years", [], None)
+
+
+def test_parse_repeat_yearly_alias():
+    r = parse_repeat_input("yearly")
+    assert r == ParsedRepeat(1, "years", [], None)
+
+
+def test_parse_repeat_mf():
+    r = parse_repeat_input("M-F")
+    assert r is not None
+    assert sorted(r.days_of_week) == [0, 1, 2, 3, 4]
+    assert r.nth_weekday is None
+
+
+def test_parse_repeat_weekdays():
+    r = parse_repeat_input("weekdays")
+    assert r is not None
+    assert sorted(r.days_of_week) == [0, 1, 2, 3, 4]
+
+
+def test_parse_repeat_weekends():
+    r = parse_repeat_input("weekends")
+    assert r is not None
+    assert sorted(r.days_of_week) == [5, 6]
+
+
+def test_parse_repeat_mwf():
+    r = parse_repeat_input("MWF")
+    assert r is not None
+    assert sorted(r.days_of_week) == [0, 2, 4]
+
+
+def test_parse_repeat_tr():
+    r = parse_repeat_input("TR")
+    assert r is not None
+    assert sorted(r.days_of_week) == [1, 3]
+
+
+def test_parse_repeat_every_monday():
+    r = parse_repeat_input("every monday")
+    assert r is not None
+    assert r.days_of_week == [0]
+    assert r.interval == 1
+    assert r.nth_weekday is None
+
+
+def test_parse_repeat_every_friday():
+    r = parse_repeat_input("every fri")
+    assert r is not None
+    assert r.days_of_week == [4]
+
+
+def test_parse_repeat_every_other_tuesday():
+    r = parse_repeat_input("every other tuesday")
+    assert r is not None
+    assert r.days_of_week == [1]
+    assert r.interval == 2
+    assert r.nth_weekday is None
+
+
+def test_parse_repeat_fourth_thursday():
+    r = parse_repeat_input("4th thursday")
+    assert r is not None
+    assert r.nth_weekday == (4, 3)
+    assert r.days_of_week == []
+
+
+def test_parse_repeat_fourth_thursday_word():
+    r = parse_repeat_input("fourth thursday")
+    assert r is not None
+    assert r.nth_weekday == (4, 3)
+
+
+def test_parse_repeat_first_monday():
+    r = parse_repeat_input("1st monday")
+    assert r is not None
+    assert r.nth_weekday == (1, 0)
+
+
+def test_parse_repeat_invalid_raises():
+    import pytest
+
+    with pytest.raises(InvalidRepeatError):
+        parse_repeat_input("every garbage")
+    with pytest.raises(InvalidRepeatError):
+        parse_repeat_input("foobar")
+
+
+def test_parse_repeat_empty_returns_none():
+    assert parse_repeat_input("") is None
+    assert parse_repeat_input("  ") is None
+
+
+# ------------------------------------------------------------------ #
+# format_repeat_rule / format_recur_rule / format_parsed_repeat        #
+# ------------------------------------------------------------------ #
+
+
+def test_format_mf():
+    r = parse_repeat_input("M-F")
+    assert r is not None
+    assert format_parsed_repeat(r) == "M-F"
+
+
+def test_format_weekends():
+    r = parse_repeat_input("weekends")
+    assert r is not None
+    assert format_parsed_repeat(r) == "weekends"
+
+
+def test_format_mwf():
+    assert format_parsed_repeat(parse_repeat_input("MWF")) == "MWF"  # type: ignore[arg-type]
+
+
+def test_format_tr():
+    assert format_parsed_repeat(parse_repeat_input("TR")) == "TR"  # type: ignore[arg-type]
+
+
+def test_format_every_monday():
+    r = parse_repeat_input("every monday")
+    assert r is not None
+    assert format_parsed_repeat(r) == "every Mon"
+
+
+def test_format_every_other_tuesday():
+    r = parse_repeat_input("every other tuesday")
+    assert r is not None
+    assert format_parsed_repeat(r) == "every other Tue"
+
+
+def test_format_4th_thursday():
+    r = parse_repeat_input("fourth thursday")
+    assert r is not None
+    assert format_parsed_repeat(r) == "4th Thu"
+
+
+def test_format_simple_interval():
+    r = parse_repeat_input("7 days")
+    assert r is not None
+    assert format_parsed_repeat(r) == "7 days"
+
+
+def test_format_repeat_rule_object():
+    rule = RepeatRule(interval=7, unit="days", next_due=date(2026, 4, 1))
+    assert format_repeat_rule(rule) == "7 days"
+
+
+def test_format_recur_rule_object():
+    rule = RecurRule(interval=1, unit="weeks", days_of_week=[0, 1, 2, 3, 4])
+    assert format_recur_rule(rule) == "M-F"
+
+
+# ------------------------------------------------------------------ #
+# _next_date_in_days_of_week helper                                    #
+# ------------------------------------------------------------------ #
+
+# 2026-03-23 is a Monday (weekday=0)
+_MON = date(2026, 3, 23)
+_TUE = date(2026, 3, 24)
+_WED = date(2026, 3, 25)
+_THU = date(2026, 3, 26)
+_FRI = date(2026, 3, 27)
+_SAT = date(2026, 3, 28)
+_SUN = date(2026, 3, 29)
+
+
+def test_next_mf_from_monday():
+    # Monday → next weekday is Tuesday
+    result = _next_date_in_days_of_week(_MON, [0, 1, 2, 3, 4])
+    assert result == _TUE
+
+
+def test_next_mf_from_friday():
+    # Friday → next weekday is Monday
+    result = _next_date_in_days_of_week(_FRI, [0, 1, 2, 3, 4])
+    assert result == _MON + timedelta(days=7)  # next Monday
+
+
+def test_next_mwf_from_monday():
+    # Monday → next MWF is Wednesday
+    result = _next_date_in_days_of_week(_MON, [0, 2, 4])
+    assert result == _WED
+
+
+def test_next_mwf_from_wednesday():
+    # Wednesday → next MWF is Friday
+    result = _next_date_in_days_of_week(_WED, [0, 2, 4])
+    assert result == _FRI
+
+
+def test_next_mwf_from_friday():
+    # Friday → next MWF is Monday
+    result = _next_date_in_days_of_week(_FRI, [0, 2, 4])
+    assert result == _MON + timedelta(days=7)
+
+
+def test_next_tr_from_tuesday():
+    # Tuesday → next TR is Thursday
+    result = _next_date_in_days_of_week(_TUE, [1, 3])
+    assert result == _THU
+
+
+def test_next_tr_from_thursday():
+    # Thursday → next TR is Tuesday (next week)
+    result = _next_date_in_days_of_week(_THU, [1, 3])
+    assert result == _TUE + timedelta(days=7)
+
+
+def test_next_biweekly_tuesday():
+    # Biweekly: from Tuesday, stride=2 weeks → 2 weeks later on Tuesday
+    result = _next_date_in_days_of_week(_TUE, [1], week_stride=2)
+    assert result == _TUE + timedelta(weeks=2)
+
+
+# ------------------------------------------------------------------ #
+# _nth_weekday_of_month helper                                         #
+# ------------------------------------------------------------------ #
+
+
+def test_nth_weekday_4th_thursday_march():
+    # After 2026-03-15, 4th Thursday of April 2026
+    # April 1 = Wednesday (wd=2); first Thursday = April 2; 4th Thursday = April 23
+    result = _nth_weekday_of_month(4, 3, date(2026, 3, 15))
+    assert result.weekday() == 3  # Thursday
+    assert result.month == 4
+    assert result == date(2026, 4, 23)
+
+
+def test_nth_weekday_1st_monday():
+    # After 2026-03-23, 1st Monday of April 2026
+    # April 1 = Wednesday; first Monday = April 6
+    result = _nth_weekday_of_month(1, 0, date(2026, 3, 23))
+    assert result == date(2026, 4, 6)
+
+
+def test_nth_weekday_december_wraps_to_january():
+    # After any December date, returns a January date
+    result = _nth_weekday_of_month(1, 0, date(2026, 12, 1))
+    assert result.year == 2027
+    assert result.month == 1
+    assert result.weekday() == 0
+
+
+# ------------------------------------------------------------------ #
+# spawn_repeating_tasks with weekday patterns                          #
+# ------------------------------------------------------------------ #
+
+
+def _task_with_weekday_rule(
+    title: str, days: list[int], next_due: date, interval: int = 1
+) -> list:
+    """Create a repeating task with a days_of_week pattern."""
+    tasks = add_task_to_folder([], "projects", title)
+    rule = RepeatRule(
+        interval=interval, unit="weeks", next_due=next_due, days_of_week=days
+    )
+    return set_repeat_rule(tasks, tasks[0].id, rule)
+
+
+def test_spawn_weekday_mf_rule():
+    # MF rule due on a Tuesday; spawns copy
+    tasks = _task_with_weekday_rule("Standup", [0, 1, 2, 3, 4], _TUE)
+    result = spawn_repeating_tasks(tasks, as_of=_TUE)
+    copies = [t for t in result if t.title == "Standup" and t.folder_id == "today"]
+    assert len(copies) == 1
+
+
+def test_spawn_weekday_rule_advances_to_next_matching_day():
+    # MF rule; next_due = Tuesday; after spawn, next_due should be Wednesday
+    tasks = _task_with_weekday_rule("Standup", [0, 1, 2, 3, 4], _TUE)
+    original_id = tasks[0].id
+    result = spawn_repeating_tasks(tasks, as_of=_TUE)
+    original = next(t for t in result if t.id == original_id)
+    assert original.repeat_rule is not None
+    assert original.repeat_rule.next_due == _WED
+
+
+def test_spawn_nth_weekday_rule():
+    # 4th Thursday rule; next_due is 4th Thu of April 2026 = April 23
+    tasks = add_task_to_folder([], "projects", "Monthly meeting")
+    fourth_thu = date(2026, 4, 23)
+    rule = RepeatRule(
+        interval=1, unit="months", next_due=fourth_thu, nth_weekday=(4, 3)
+    )
+    tasks = set_repeat_rule(tasks, tasks[0].id, rule)
+    result = spawn_repeating_tasks(tasks, as_of=fourth_thu)
+    copies = [
+        t for t in result if t.title == "Monthly meeting" and t.folder_id == "today"
+    ]
+    assert len(copies) == 1
+    # Original next_due should advance to 4th Thursday of May 2026 = May 28
+    original_id = tasks[0].id
+    original = next(t for t in result if t.id == original_id)
+    assert original.repeat_rule is not None
+    assert original.repeat_rule.next_due.weekday() == 3  # Thursday
+    assert original.repeat_rule.next_due.month == 5
+
+
+# ------------------------------------------------------------------ #
+# complete_task with weekday recur patterns                            #
+# ------------------------------------------------------------------ #
+
+
+def test_complete_task_mf_recur_rule():
+    # MF recur rule; completing on Monday → next appears on Tuesday
+    tasks = add_task([], "Daily review")
+    task_id = tasks[0].id
+    rule = RecurRule(interval=1, unit="weeks", days_of_week=[0, 1, 2, 3, 4])
+    tasks = set_recur_rule(tasks, task_id, rule)
+    result = complete_task(tasks, task_id)
+    spawned = [
+        t for t in result if t.folder_id == "today" and t.scheduled_date is not None
+    ]
+    assert len(spawned) == 1
+    # Next scheduled date should be a weekday
+    assert spawned[0].scheduled_date.weekday() in [0, 1, 2, 3, 4]  # type: ignore[union-attr]
+
+
+def test_complete_task_nth_weekday_recur_rule():
+    # 4th Thu recur rule; after completion → next is 4th Thu of next month
+    tasks = add_task([], "Monthly review")
+    task_id = tasks[0].id
+    rule = RecurRule(interval=1, unit="months", nth_weekday=(4, 3))
+    tasks = set_recur_rule(tasks, task_id, rule)
+    result = complete_task(tasks, task_id)
+    spawned = [
+        t for t in result if t.folder_id == "today" and t.scheduled_date is not None
+    ]
+    assert len(spawned) == 1
+    assert (
+        spawned[0].scheduled_date.weekday() == 3
+    )  # Thursday  # type: ignore[union-attr]
+
+
+# ------------------------------------------------------------------ #
+# make_repeat_rule_from_parsed                                         #
+# ------------------------------------------------------------------ #
+
+
+def test_make_repeat_rule_from_parsed_mf():
+    parsed = parse_repeat_input("M-F")
+    assert parsed is not None
+    rule = make_repeat_rule_from_parsed(parsed, from_date=_MON)
+    assert rule.days_of_week == [0, 1, 2, 3, 4]
+    assert rule.next_due == _TUE  # next weekday after Monday
+
+
+def test_make_repeat_rule_from_parsed_nth_weekday():
+    parsed = parse_repeat_input("4th thursday")
+    assert parsed is not None
+    rule = make_repeat_rule_from_parsed(parsed, from_date=date(2026, 3, 23))
+    assert rule.nth_weekday == (4, 3)
+    assert rule.next_due.weekday() == 3  # Thursday

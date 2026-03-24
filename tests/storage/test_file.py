@@ -440,3 +440,120 @@ def test_undo_stack_persists_through_encrypted_file(tmp_path: Path) -> None:
     loaded = load_undo_stack(data_file=data_file, password="pw")
     assert len(loaded) == 1
     assert loaded[0][0][0].title == "Encrypted undo state"
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-100: advanced recurrence — storage round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_repeat_rule_days_of_week_roundtrip(tmp_path: Path) -> None:
+    """RepeatRule with days_of_week survives a save/load cycle."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Standup")
+    rule = RepeatRule(
+        interval=1,
+        unit="weeks",
+        next_due=date(2026, 3, 24),
+        days_of_week=[0, 1, 2, 3, 4],
+    )
+    tasks = set_repeat_rule(tasks, tasks[0].id, rule)
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    loaded_rule = loaded[0].repeat_rule
+    assert loaded_rule is not None
+    assert loaded_rule.days_of_week == [0, 1, 2, 3, 4]
+    assert loaded_rule.next_due == date(2026, 3, 24)
+    assert loaded_rule.nth_weekday is None
+
+
+def test_repeat_rule_nth_weekday_roundtrip(tmp_path: Path) -> None:
+    """RepeatRule with nth_weekday survives a save/load cycle."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Monthly meeting")
+    rule = RepeatRule(
+        interval=1,
+        unit="months",
+        next_due=date(2026, 4, 23),
+        nth_weekday=(4, 3),
+    )
+    tasks = set_repeat_rule(tasks, tasks[0].id, rule)
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    loaded_rule = loaded[0].repeat_rule
+    assert loaded_rule is not None
+    assert loaded_rule.nth_weekday == (4, 3)
+    assert loaded_rule.days_of_week == []
+
+
+def test_recur_rule_days_of_week_roundtrip(tmp_path: Path) -> None:
+    """RecurRule with days_of_week survives a save/load cycle."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Daily review")
+    rule = RecurRule(interval=1, unit="weeks", days_of_week=[0, 2, 4])
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    loaded_rule = loaded[0].recur_rule
+    assert loaded_rule is not None
+    assert loaded_rule.days_of_week == [0, 2, 4]
+    assert loaded_rule.nth_weekday is None
+
+
+def test_recur_rule_nth_weekday_roundtrip(tmp_path: Path) -> None:
+    """RecurRule with nth_weekday survives a save/load cycle."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Monthly 1-on-1")
+    rule = RecurRule(interval=1, unit="months", nth_weekday=(1, 0))
+    tasks = set_recur_rule(tasks, tasks[0].id, rule)
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    loaded_rule = loaded[0].recur_rule
+    assert loaded_rule is not None
+    assert loaded_rule.nth_weekday == (1, 0)
+
+
+def test_repeat_rule_legacy_no_advanced_fields(tmp_path: Path) -> None:
+    """Old JSON without days_of_week/nth_weekday loads with correct defaults."""
+    import json
+
+    data_file = tmp_path / "data.json"
+    legacy = {
+        "tasks": [
+            {
+                "id": "abc",
+                "title": "Legacy",
+                "notes": "",
+                "folder_id": "today",
+                "position": 0,
+                "completed_at": None,
+                "scheduled_date": None,
+                "deadline": None,
+                "repeat_rule": {
+                    "interval": 7,
+                    "unit": "days",
+                    "next_due": "2026-04-01",
+                    # No days_of_week or nth_weekday
+                },
+                "recur_rule": None,
+                "created_at": None,
+                "is_deleted": False,
+                "tags": [],
+                "project_id": None,
+                "checklist": [],
+                "blocked_by": [],
+            }
+        ],
+        "folders": [],
+        "projects": [],
+        "areas": [],
+        "undo_stack": [],
+        "redo_stack": [],
+        "tag_order": [],
+        "collapsed_areas": [],
+    }
+    data_file.write_text(json.dumps(legacy))
+    tasks = load_tasks(data_file=data_file)
+    assert tasks[0].repeat_rule is not None
+    assert tasks[0].repeat_rule.days_of_week == []
+    assert tasks[0].repeat_rule.nth_weekday is None

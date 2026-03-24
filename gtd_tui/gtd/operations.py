@@ -4,7 +4,7 @@ import calendar
 import re
 from dataclasses import replace
 from datetime import date, datetime, timedelta
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from gtd_tui.gtd.area import Area
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, Folder
@@ -132,8 +132,9 @@ def complete_task(tasks: list[Task], task_id: str) -> list[Task]:
             task.complete()
             if task.recur_rule is not None:
                 rule = task.recur_rule
-                new_date = _advance_date(
-                    task.completed_at.date(), rule.interval, rule.unit  # type: ignore[union-attr]
+                new_date = _advance_recur_next_date(
+                    task.completed_at.date(),  # type: ignore[union-attr]
+                    rule,
                 )
                 spawned.append(
                     Task(
@@ -147,23 +148,16 @@ def complete_task(tasks: list[Task], task_id: str) -> list[Task]:
             elif task.repeat_rule is not None:
                 # Advance next_due to be strictly in the future so the new
                 # template only appears in Upcoming, not in Today's active list.
-                next_due = task.repeat_rule.next_due
-                while next_due <= ref:
-                    next_due = _advance_date(
-                        next_due, task.repeat_rule.interval, task.repeat_rule.unit
-                    )
-                new_rule = RepeatRule(
-                    interval=task.repeat_rule.interval,
-                    unit=task.repeat_rule.unit,
-                    next_due=next_due,
-                )
+                rule_copy = replace(task.repeat_rule)  # shallow copy
+                while rule_copy.next_due <= ref:
+                    rule_copy.next_due = _advance_repeat_rule_next_due(rule_copy)
                 spawned.append(
                     Task(
                         title=task.title,
                         notes=task.notes,
                         folder_id=original_folder_id,
-                        scheduled_date=next_due,
-                        repeat_rule=new_rule,
+                        scheduled_date=rule_copy.next_due,
+                        repeat_rule=rule_copy,
                     )
                 )
     return tasks + spawned
@@ -984,7 +978,7 @@ def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
 
 
 # ---------------------------------------------------------------------------
-# Repeat rule parsing
+# Repeat rule parsing and formatting
 # ---------------------------------------------------------------------------
 
 _UNIT_ALIASES: dict[str, _UnitLiteral] = {
@@ -1002,37 +996,301 @@ _UNIT_ALIASES: dict[str, _UnitLiteral] = {
     "years": "years",
 }
 
+# Weekday display names (Mon=0..Sun=6)
+_WEEKDAY_SHORT: list[str] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+# Weekday name → int for parsing
+_WEEKDAY_PARSE: dict[str, int] = {
+    "monday": 0,
+    "mon": 0,
+    "tuesday": 1,
+    "tue": 1,
+    "wednesday": 2,
+    "wed": 2,
+    "thursday": 3,
+    "thu": 3,
+    "friday": 4,
+    "fri": 4,
+    "saturday": 5,
+    "sat": 5,
+    "sunday": 6,
+    "sun": 6,
+}
+
+# Ordinal words → integer
+_ORDINAL_WORDS: dict[str, int] = {
+    "first": 1,
+    "second": 2,
+    "third": 3,
+    "fourth": 4,
+    "fifth": 5,
+    "1st": 1,
+    "2nd": 2,
+    "3rd": 3,
+    "4th": 4,
+    "5th": 5,
+}
+_ORDINAL_DISPLAY: dict[int, str] = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
+
+# Known multi-day-of-week patterns → canonical display string
+_DOW_PATTERNS: dict[tuple[int, ...], str] = {
+    (0, 1, 2, 3, 4): "M-F",
+    (5, 6): "weekends",
+    (0, 2, 4): "MWF",
+    (1, 3): "TR",
+}
+
 
 class InvalidRepeatError(ValueError):
     """Raised when a repeat input string cannot be parsed."""
 
 
-def parse_repeat_input(text: str) -> tuple[int, _UnitLiteral] | None:
-    """Parse a repeat interval string into (interval, unit).
+class ParsedRepeat(NamedTuple):
+    """Result of parse_repeat_input — all fields needed to build a rule."""
 
-    Accepted formats: '7 days', '7d', '2 weeks', '2w', '1 month', '1 year'.
+    interval: int
+    unit: _UnitLiteral
+    days_of_week: list[int]
+    nth_weekday: tuple[int, int] | None
+
+
+def _format_repeat_spec(
+    interval: int,
+    unit: _UnitLiteral,
+    days_of_week: list[int],
+    nth_weekday: tuple[int, int] | None,
+) -> str:
+    """Canonical human-readable string for a repeat/recur specification."""
+    if nth_weekday is not None:
+        nth, wd = nth_weekday
+        return f"{_ORDINAL_DISPLAY[nth]} {_WEEKDAY_SHORT[wd]}"
+    if days_of_week:
+        key = tuple(sorted(days_of_week))
+        if key in _DOW_PATTERNS:
+            return _DOW_PATTERNS[key]
+        if len(days_of_week) == 1:
+            day_name = _WEEKDAY_SHORT[days_of_week[0]]
+            if interval == 2:
+                return f"every other {day_name}"
+            return f"every {day_name}"
+        # Unusual multi-day combo — list them
+        return "every " + "/".join(_WEEKDAY_SHORT[d] for d in sorted(days_of_week))
+    display_unit = unit if interval != 1 else unit.rstrip("s")
+    return f"{interval} {display_unit}"
+
+
+def format_repeat_rule(rule: RepeatRule) -> str:
+    """Human-readable description of a RepeatRule (calendar-fixed)."""
+    return _format_repeat_spec(
+        rule.interval, rule.unit, rule.days_of_week, rule.nth_weekday
+    )
+
+
+def format_recur_rule(rule: RecurRule) -> str:
+    """Human-readable description of a RecurRule (completion-relative)."""
+    return _format_repeat_spec(
+        rule.interval, rule.unit, rule.days_of_week, rule.nth_weekday
+    )
+
+
+def format_parsed_repeat(parsed: ParsedRepeat) -> str:
+    """Human-readable description of a ParsedRepeat."""
+    return _format_repeat_spec(
+        parsed.interval, parsed.unit, parsed.days_of_week, parsed.nth_weekday
+    )
+
+
+def parse_repeat_input(text: str) -> ParsedRepeat | None:
+    """Parse a repeat/recur input string into a ParsedRepeat.
+
     Returns None for empty input.  Raises InvalidRepeatError for bad input.
+
+    Simple intervals (unchanged):
+        '7 days', '7d', '2 weeks', '2w', '1 month', '1m', '1 year', '1y'
+
+    Convenience aliases:
+        'monthly'               → 1 month
+        'quarterly'             → 3 months
+        'annually' / 'yearly'   → 1 year
+
+    Day-of-week sets (fires on matching weekdays):
+        'M-F' / 'weekdays'                  → Mon–Fri
+        'weekends'                           → Sat+Sun
+        'MWF'                               → Mon, Wed, Fri
+        'TR'                                → Tue, Thu
+        'every monday' (or any weekday)     → weekly on that day
+        'every other tuesday'               → biweekly on that day
+
+    Nth weekday of month:
+        '4th thursday' / 'fourth thursday'  → 4th Thursday of each month
+        '1st monday' / 'first monday'       → 1st Monday of each month
     """
-    text = text.strip().lower()
-    if not text:
+    raw = text.strip()
+    if not raw:
         return None
-    m = re.match(r"^(\d+)\s*([a-z]+)$", text)
-    if not m:
-        raise InvalidRepeatError(f"Cannot parse repeat: {text!r}")
-    interval = int(m.group(1))
-    unit = _UNIT_ALIASES.get(m.group(2))
-    if unit is None or interval <= 0:
-        raise InvalidRepeatError(f"Cannot parse repeat: {text!r}")
-    return interval, unit
+    lower = raw.lower()
+
+    # --- Convenience aliases ---
+    if lower == "monthly":
+        return ParsedRepeat(1, "months", [], None)
+    if lower == "quarterly":
+        return ParsedRepeat(3, "months", [], None)
+    if lower in ("annually", "yearly"):
+        return ParsedRepeat(1, "years", [], None)
+
+    # --- Named day-of-week sets ---
+    if lower in ("m-f", "weekdays", "mon-fri"):
+        return ParsedRepeat(1, "weeks", [0, 1, 2, 3, 4], None)
+    if lower in ("weekends", "sat-sun"):
+        return ParsedRepeat(1, "weeks", [5, 6], None)
+    if lower == "mwf":
+        return ParsedRepeat(1, "weeks", [0, 2, 4], None)
+    if lower in ("tr", "t/r", "tue/thu"):
+        return ParsedRepeat(1, "weeks", [1, 3], None)
+
+    # --- "every other <weekday>" (biweekly single day) ---
+    m_every_other = re.fullmatch(r"every\s+other\s+(\w+)", lower)
+    if m_every_other:
+        wd = _WEEKDAY_PARSE.get(m_every_other.group(1))
+        if wd is None:
+            raise InvalidRepeatError(f"Cannot parse repeat: {raw!r}")
+        return ParsedRepeat(2, "weeks", [wd], None)
+
+    # --- "every <weekday>" (weekly single day) ---
+    m_every = re.fullmatch(r"every\s+(\w+)", lower)
+    if m_every:
+        wd = _WEEKDAY_PARSE.get(m_every.group(1))
+        if wd is None:
+            raise InvalidRepeatError(f"Cannot parse repeat: {raw!r}")
+        return ParsedRepeat(1, "weeks", [wd], None)
+
+    # --- "<ordinal> <weekday>" (nth weekday of month) ---
+    m_nth = re.fullmatch(r"(\w+)\s+(\w+)", lower)
+    if m_nth:
+        nth = _ORDINAL_WORDS.get(m_nth.group(1))
+        wd = _WEEKDAY_PARSE.get(m_nth.group(2))
+        if nth is not None and wd is not None:
+            if nth < 1 or nth > 5:
+                raise InvalidRepeatError(f"Cannot parse repeat: {raw!r}")
+            return ParsedRepeat(1, "months", [], (nth, wd))
+
+    # --- Simple "N unit" or "Nu" ---
+    m_simple = re.match(r"^(\d+)\s*([a-z]+)$", lower)
+    if m_simple:
+        interval = int(m_simple.group(1))
+        unit = _UNIT_ALIASES.get(m_simple.group(2))
+        if unit is None or interval <= 0:
+            raise InvalidRepeatError(f"Cannot parse repeat: {raw!r}")
+        return ParsedRepeat(interval, unit, [], None)
+
+    raise InvalidRepeatError(f"Cannot parse repeat: {raw!r}")
+
+
+# ---------------------------------------------------------------------------
+# Repeat rule advancement helpers
+# ---------------------------------------------------------------------------
+
+
+def _next_date_in_days_of_week(
+    from_date: date, days: list[int], week_stride: int = 1
+) -> date:
+    """Return the next date strictly after from_date whose weekday is in days.
+
+    week_stride > 1 is used for biweekly patterns: advance by that many weeks
+    first, then snap to the nearest matching weekday on or after that point.
+    """
+    if week_stride > 1:
+        candidate = from_date + timedelta(weeks=week_stride)
+    else:
+        candidate = from_date + timedelta(days=1)
+    days_set = set(days)
+    for _ in range(14):  # at most 2 weeks of searching
+        if candidate.weekday() in days_set:
+            return candidate
+        candidate += timedelta(days=1)
+    # Should never happen for valid days_of_week
+    raise InvalidRepeatError(f"Cannot find next date in days {days} after {from_date}")
+
+
+def _nth_weekday_of_month(nth: int, wd: int, after: date) -> date:
+    """Return the nth occurrence of weekday wd (Mon=0) in the month after after.
+
+    If the nth occurrence does not exist in that month (rare for nth ≤ 4),
+    advances to the following month.
+    """
+    # Start from first day of next month
+    if after.month == 12:
+        first = date(after.year + 1, 1, 1)
+    else:
+        first = date(after.year, after.month + 1, 1)
+
+    days_until = (wd - first.weekday()) % 7
+    first_occurrence = first + timedelta(days=days_until)
+    target = first_occurrence + timedelta(weeks=nth - 1)
+
+    if target.month != first.month:
+        # nth occurrence spills into the next month; recurse one month later
+        return _nth_weekday_of_month(nth, wd, first)
+    return target
+
+
+def _advance_repeat_rule_next_due(rule: RepeatRule) -> date:
+    """Compute the next next_due for rule after its current next_due."""
+    if rule.nth_weekday is not None:
+        return _nth_weekday_of_month(
+            rule.nth_weekday[0], rule.nth_weekday[1], rule.next_due
+        )
+    if rule.days_of_week:
+        return _next_date_in_days_of_week(
+            rule.next_due, rule.days_of_week, rule.interval
+        )
+    return _advance_date(rule.next_due, rule.interval, rule.unit)
+
+
+def _advance_recur_next_date(completion_date: date, rule: RecurRule) -> date:
+    """Compute the next scheduled_date for a recur rule after completion_date."""
+    if rule.nth_weekday is not None:
+        return _nth_weekday_of_month(
+            rule.nth_weekday[0], rule.nth_weekday[1], completion_date
+        )
+    if rule.days_of_week:
+        return _next_date_in_days_of_week(
+            completion_date, rule.days_of_week, rule.interval
+        )
+    return _advance_date(completion_date, rule.interval, rule.unit)
 
 
 def make_repeat_rule(
-    interval: int, unit: _UnitLiteral, from_date: date | None = None
+    interval: int,
+    unit: _UnitLiteral,
+    from_date: date | None = None,
+    days_of_week: list[int] | None = None,
+    nth_weekday: tuple[int, int] | None = None,
 ) -> RepeatRule:
     """Create a RepeatRule whose next_due is one interval after from_date (default: today)."""
     base = from_date or date.today()
-    return RepeatRule(
-        interval=interval, unit=unit, next_due=_advance_date(base, interval, unit)
+    dow = days_of_week or []
+    rule = RepeatRule(
+        interval=interval,
+        unit=unit,
+        next_due=base,  # temporary; will be advanced below
+        days_of_week=dow,
+        nth_weekday=nth_weekday,
+    )
+    rule.next_due = _advance_repeat_rule_next_due(rule)
+    return rule
+
+
+def make_repeat_rule_from_parsed(
+    parsed: ParsedRepeat, from_date: date | None = None
+) -> RepeatRule:
+    """Build a RepeatRule from a ParsedRepeat."""
+    return make_repeat_rule(
+        parsed.interval,
+        parsed.unit,
+        from_date=from_date,
+        days_of_week=parsed.days_of_week,
+        nth_weekday=parsed.nth_weekday,
     )
 
 
@@ -1080,7 +1338,7 @@ def spawn_repeating_tasks(tasks: list[Task], as_of: date | None = None) -> list[
         rule = task.repeat_rule
         spawned.append(Task(title=task.title, notes=task.notes, folder_id="today"))
         while rule.next_due <= ref:
-            rule.next_due = _advance_date(rule.next_due, rule.interval, rule.unit)
+            rule.next_due = _advance_repeat_rule_next_due(rule)
         # If the original lives in Today, give it a future scheduled_date equal to
         # next_due so it no longer appears in Today's active list — only in Upcoming.
         # This prevents the user from accidentally completing the template instead of

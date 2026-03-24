@@ -1,5 +1,8 @@
 """TUI integration tests for GtdApp.
 
+BACKLOG-81 (external editor) and BACKLOG-100 (advanced recurrence) tests are
+included at the bottom of this file.
+
 Uses Textual's headless `run_test()` / Pilot API to drive the app through key
 events and inspect the resulting DOM and app state.  No real terminal or
 subprocess is needed.  Each test uses a `tmp_path`-backed data file so the
@@ -10,6 +13,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 from textual.widgets import Label, ListView
@@ -1238,3 +1242,116 @@ async def test_spawn_repeating_tasks_fires_on_launch(tmp_path: Path) -> None:
             and t.repeat_rule is None
         ]
         assert len(today_copies) == 1
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-81: External editor (Ctrl+E) — unit tests for action logic
+# ---------------------------------------------------------------------------
+
+
+async def test_external_editor_noop_when_not_notes_focused(tmp_path: Path):
+    """Ctrl+E when title field is focused should do nothing."""
+    data_file = _prepopulate(tmp_path, "My task")
+    app = _app(data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # Open task detail
+        await pilot.press("enter")
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, TaskDetailScreen)
+        title_inp = screen.query_one("#detail-title-input", VimInput)
+        # Title field should be focused by default
+        assert screen.focused is title_inp
+        # Pressing Ctrl+E on title field should be a no-op
+        # (action fires but exits early; notes field unchanged)
+        notes_inp = screen.query_one("#detail-notes-input", VimInput)
+        original_notes = notes_inp.value
+        await pilot.press("ctrl+e")
+        await pilot.pause()
+        assert notes_inp.value == original_notes  # unchanged
+
+
+async def test_external_editor_updates_notes_on_success(tmp_path: Path):
+    """When $EDITOR exits 0, notes field is updated with temp file contents."""
+    from contextlib import contextmanager
+
+    data_file = _prepopulate(tmp_path, "My task")
+    app = _app(data_file)
+
+    new_content = "Updated notes from editor\nLine two"
+
+    def fake_run(cmd, **kwargs):
+        # Write new content to the temp file (cmd[-1] is the tmp path)
+        Path(cmd[-1]).write_text(new_content + "\n", encoding="utf-8")
+        result = MagicMock()
+        result.returncode = 0
+        return result
+
+    @contextmanager
+    def _fake_suspend_ctx():
+        yield
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, TaskDetailScreen)
+
+        # Focus the notes field directly
+        notes_inp = screen.query_one("#detail-notes-input", VimInput)
+        notes_inp.focus()
+        await pilot.pause()
+        assert screen.focused is notes_inp
+
+        # Patch subprocess.run and app.suspend
+        with (
+            patch("gtd_tui.app.subprocess.run", side_effect=fake_run),
+            patch.object(app, "suspend", side_effect=lambda: _fake_suspend_ctx()),
+        ):
+            await pilot.press("ctrl+e")
+            await pilot.pause()
+
+        assert notes_inp.value == new_content
+
+
+async def test_external_editor_preserves_notes_on_failure(tmp_path: Path):
+    """When $EDITOR exits non-zero, notes field is unchanged."""
+    from contextlib import contextmanager
+
+    data_file = _prepopulate(tmp_path, "My task")
+    app = _app(data_file)
+
+    def fake_run_fail(cmd, **kwargs):
+        result = MagicMock()
+        result.returncode = 1
+        return result
+
+    @contextmanager
+    def _fake_suspend_ctx():
+        yield
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        screen = app.screen
+        assert isinstance(screen, TaskDetailScreen)
+
+        notes_inp = screen.query_one("#detail-notes-input", VimInput)
+        notes_inp.value = "Original notes"
+
+        # Focus the notes field directly
+        notes_inp.focus()
+        await pilot.pause()
+        assert screen.focused is notes_inp
+
+        with (
+            patch("gtd_tui.app.subprocess.run", side_effect=fake_run_fail),
+            patch.object(app, "suspend", side_effect=lambda: _fake_suspend_ctx()),
+        ):
+            await pilot.press("ctrl+e")
+            await pilot.pause()
+
+        assert notes_inp.value == "Original notes"

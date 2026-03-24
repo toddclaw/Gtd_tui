@@ -20,11 +20,20 @@ class RepeatRule:
     On each launch, when next_due <= today a new copy of the task is spawned
     in Today and next_due is advanced by the interval.  The repeat is
     independent of whether previous copies were completed.
+
+    Advanced scheduling (mutually exclusive with simple interval):
+      days_of_week  — non-empty list of weekday ints (Mon=0..Sun=6).
+                      interval acts as a week-stride multiplier (1=weekly,
+                      2=biweekly).  E.g. MWF = [0,2,4] with interval=1.
+      nth_weekday   — (nth, weekday) pair, e.g. (4, 3) = 4th Thursday.
+                      Fires on that occurrence in the next calendar month.
     """
 
     interval: int
     unit: Literal["days", "weeks", "months", "years"]
     next_due: date
+    days_of_week: list[int] = field(default_factory=list)
+    nth_weekday: Optional[tuple[int, int]] = None
 
 
 @dataclass
@@ -32,15 +41,21 @@ class RecurRule:
     """Completion-relative recurrence attached to a task.
 
     When the task is marked complete, a new copy is spawned in Today with
-    scheduled_date = completion_date + interval.  The new copy carries the
-    same RecurRule so the pattern continues indefinitely.
+    scheduled_date computed from the completion date.  The new copy carries
+    the same RecurRule so the pattern continues indefinitely.
 
     Unlike RepeatRule, the next date floats relative to when the task was
     actually done — a missed week does not pile up extra instances.
+
+    Advanced scheduling fields mirror RepeatRule: days_of_week and
+    nth_weekday work identically but are applied relative to the completion
+    date rather than a fixed calendar.
     """
 
     interval: int
     unit: Literal["days", "weeks", "months", "years"]
+    days_of_week: list[int] = field(default_factory=list)
+    nth_weekday: Optional[tuple[int, int]] = None
 
 
 @dataclass

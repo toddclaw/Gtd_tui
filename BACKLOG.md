@@ -1582,7 +1582,7 @@ Power users expect a command line for actions that don't warrant a dedicated key
 
 ---
 
-### BACKLOG-81 — External editor for task notes ($EDITOR)
+### BACKLOG-81 — External editor for task notes ($EDITOR) ✅ DONE
 
 **Story points:** 3
 
@@ -1594,12 +1594,12 @@ Long-form task notes are awkward to write in the inline VimInput widget. Pressin
 - Works only from the task detail view notes field
 
 **Acceptance criteria:**
-- [ ] `E` in the detail view notes field suspends TUI and opens `$EDITOR <tempfile>`
-- [ ] On editor exit, temp file contents replace the notes field value
-- [ ] If `$EDITOR` is unset, uses `nano`
-- [ ] If the editor exits with a non-zero code, notes are unchanged
-- [ ] TUI resumes cleanly after editor closes
-- [ ] Tests mock the subprocess call and verify notes are updated on success and unchanged on failure
+- [x] `Ctrl+E` in the detail view notes field suspends TUI and opens `$EDITOR <tempfile>`
+- [x] On editor exit, temp file contents replace the notes field value
+- [x] If `$EDITOR` is unset, uses `nano`
+- [x] If the editor exits with a non-zero code, notes are unchanged
+- [x] TUI resumes cleanly after editor closes
+- [x] Tests mock the subprocess call and verify notes are updated on success and unchanged on failure
 
 ---
 
@@ -1991,3 +1991,75 @@ At the end of each session (on graceful exit), append a one-line summary to a pl
 - [ ] Completed count = tasks completed during the session; created count = tasks created during the session
 - [ ] Log file is created if it doesn't exist; never truncated
 - [ ] Tests: mock exit, verify appended line format and counts
+
+---
+
+### BACKLOG-100 — Advanced recurrence patterns (M-F, weekends, MWF, TR, nth weekday, etc.) ✅ DONE
+
+**Story points:** 13 — New schedule fields on RepeatRule and RecurRule, new advance algorithms, extended parser, serialisation, display changes.
+
+**Description:**
+The existing repeat/recur system only supports simple N-days/weeks/months/years intervals. This feature adds rich schedule patterns to both `RepeatRule` (calendar-fixed) and `RecurRule` (completion-relative):
+
+- **Day-of-week sets:** M-F (weekdays), weekends, MWF, TR, any single day (every Monday), biweekly single day (every other Tuesday)
+- **Nth weekday of month:** 4th Thursday, 1st Monday, 3rd Wednesday, etc.
+- **Convenience aliases:** `monthly` (= 1 month), `quarterly` (= 3 months), `annually`/`yearly` (= 1 year)
+
+**Data model additions:**
+```python
+@dataclass
+class RepeatRule:
+    interval: int
+    unit: Literal["days", "weeks", "months", "years"]
+    next_due: date
+    days_of_week: list[int] = []   # Mon=0..Sun=6; empty = use interval/unit
+    nth_weekday: tuple[int, int] | None = None  # (nth, weekday) e.g. (4, 3) = 4th Thursday
+
+@dataclass
+class RecurRule:  # same new fields
+    interval: int
+    unit: Literal["days", "weeks", "months", "years"]
+    days_of_week: list[int] = []
+    nth_weekday: tuple[int, int] | None = None
+```
+
+**Accepted input strings (Repeat and Recurring fields):**
+
+| Input | Pattern |
+|---|---|
+| `M-F`, `weekdays` | Mon–Fri daily |
+| `weekends` | Sat+Sun |
+| `MWF` | Mon, Wed, Fri |
+| `TR` | Tue, Thu |
+| `every monday` (or any weekday name) | Weekly on that day |
+| `every other tuesday` | Biweekly on that day |
+| `4th thursday`, `fourth thursday` | 4th Thursday of each month |
+| `monthly` | Every 1 month (alias) |
+| `quarterly` | Every 3 months (alias) |
+| `annually`, `yearly` | Every 1 year (alias) |
+| `7 days`, `2 weeks`, `1 month` | Existing simple intervals (unchanged) |
+
+**Task list display (short codes after ↻):**
+
+| Pattern | Display |
+|---|---|
+| M-F | ↻ M-F |
+| weekends | ↻ weekends |
+| MWF | ↻ MWF |
+| TR | ↻ TR |
+| every Mon | ↻ every Mon |
+| every other Tue | ↻ every other Tue |
+| 4th Thu | ↻ 4th Thu |
+| Simple intervals | ↻ (unchanged, no suffix) |
+
+**Acceptance criteria:**
+- [x] `RepeatRule.days_of_week` and `RepeatRule.nth_weekday` fields; old JSON without them loads cleanly (default to empty/None)
+- [x] Same fields on `RecurRule`; same backward-compatibility
+- [x] `parse_repeat_input` parses all new patterns; raises `InvalidRepeatError` for unrecognised input; returns `ParsedRepeat` (NamedTuple with `interval`, `unit`, `days_of_week`, `nth_weekday`)
+- [x] `spawn_repeating_tasks` advances M-F / MWF / TR / weekend / nth-weekday repeat rules correctly
+- [x] `complete_task` advances completion-relative recur rules with the same logic
+- [x] Task list row shows `↻ M-F` etc. for named patterns; simple intervals keep bare `↻`
+- [x] Detail screen Repeat/Recurring fields normalise to the canonical short form on submit
+- [x] Storage round-trip for all new fields (`days_of_week`, `nth_weekday`) in both RepeatRule and RecurRule
+- [x] Unit tests for: parser (all new patterns), advance functions (weekday cycle, nth-weekday roll-over to next month), `spawn_repeating_tasks` with a weekday rule, `complete_task` with a weekday recur rule
+- [x] All existing repeat/recur tests still pass

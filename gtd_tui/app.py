@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import os
 import signal
+import subprocess
 import time
 import uuid
 from dataclasses import replace
@@ -52,6 +53,9 @@ from gtd_tui.gtd.operations import (
     delete_task,
     edit_task,
     folder_tasks,
+    format_parsed_repeat,
+    format_recur_rule,
+    format_repeat_rule,
     inbox_tasks,
     insert_folder,
     insert_folder_task_after,
@@ -62,7 +66,7 @@ from gtd_tui.gtd.operations import (
     insert_waiting_on_task_before,
     is_divider_task,
     logbook_tasks,
-    make_repeat_rule,
+    make_repeat_rule_from_parsed,
     move_area_down,
     move_area_up,
     move_block_down,
@@ -213,6 +217,7 @@ class HelpScreen(ModalScreen[None]):
   o / O        Edit field from end / start (single-line)
               or open new line below / above (notes)
   Enter        Confirm and advance to next field
+  Ctrl+E       Open notes field in $EDITOR (nano if unset) — notes field must be focused
   Esc          Save and close
   Deadline     Hard due date — [bold red]red[/bold red] if overdue, [yellow]yellow[/yellow] if ≤3 days
   y            Yank current line to clipboard and internal register
@@ -358,6 +363,8 @@ class TaskDetailScreen(
         # mode it lets Esc bubble here so we can save and close.
         Binding("escape", "save_and_close", show=False),
         Binding("ctrl+c", "save_and_close", show=False),
+        # priority=True so it fires before VimInput's ctrl+e end-of-line handler.
+        Binding("ctrl+e", "open_external_editor", show=False, priority=True),
     ]
 
     CSS = """
@@ -456,23 +463,14 @@ class TaskDetailScreen(
         # Non-empty item id when user is renaming a checklist item
         self._renaming_checklist_item_id: str = ""
 
-    @staticmethod
-    def _interval_to_str(interval: int, unit: str) -> str:
-        display_unit = unit if interval != 1 else unit.rstrip("s")
-        return f"{interval} {display_unit}"
-
     def compose(self) -> ComposeResult:
         repeat_val = (
-            self._interval_to_str(
-                self._gtd_task.repeat_rule.interval, self._gtd_task.repeat_rule.unit
-            )
+            format_repeat_rule(self._gtd_task.repeat_rule)
             if self._gtd_task.repeat_rule
             else ""
         )
         recur_val = (
-            self._interval_to_str(
-                self._gtd_task.recur_rule.interval, self._gtd_task.recur_rule.unit
-            )
+            format_recur_rule(self._gtd_task.recur_rule)
             if self._gtd_task.recur_rule
             else ""
         )
@@ -512,7 +510,10 @@ class TaskDetailScreen(
                 start_mode="command",
                 id="detail-deadline-input",
             )
-            yield Label("Notes  (Enter = newline)", classes="field-label")
+            yield Label(
+                "Notes  (Enter = newline  Ctrl+E = open in $EDITOR)",
+                classes="field-label",
+            )
             yield VimInput(
                 value=self._gtd_task.notes,
                 placeholder="(optional)",
@@ -534,7 +535,7 @@ class TaskDetailScreen(
                 id="detail-checklist-new",
             )
             yield Label(
-                "Repeat  (calendar-fixed — e.g. 7 days, 2 weeks — empty to clear)",
+                "Repeat  (calendar-fixed — e.g. 7 days, M-F, MWF, TR, weekends, every Mon, every other Tue, 4th Thu, monthly, quarterly — empty to clear)",
                 classes="field-label",
             )
             yield VimInput(
@@ -544,7 +545,7 @@ class TaskDetailScreen(
                 id="detail-repeat-input",
             )
             yield Label(
-                "Recurring  (after completion — e.g. 1 day, 3 weeks — empty to clear)",
+                "Recurring  (after completion — e.g. 1 day, M-F, MWF, TR, every Mon, every other Tue, 4th Thu — empty to clear)",
                 classes="field-label",
             )
             yield VimInput(
@@ -569,7 +570,7 @@ class TaskDetailScreen(
                     id="detail-created",
                 )
             yield Label(
-                "j/k: next/prev field  Enter on checklist: edit items  Esc: save & close",
+                "j/k: next/prev field  Ctrl+E on notes: open $EDITOR  Enter on checklist: edit items  Esc: save & close",
                 id="detail-status",
             )
 
@@ -673,12 +674,39 @@ class TaskDetailScreen(
                 if parsed_repeat is None:
                     inp.value = ""
                 else:
-                    interval, unit = parsed_repeat
-                    display_unit = unit if interval != 1 else unit.rstrip("s")
-                    inp.value = f"{interval} {display_unit}"
+                    inp.value = format_parsed_repeat(parsed_repeat)
             except InvalidRepeatError:
                 inp.value = "(invalid)"
         inp.set_mode("command")
+
+    async def action_open_external_editor(self) -> None:
+        """Open the notes field in $EDITOR (Ctrl+E).  Only acts when notes is focused."""
+        import tempfile
+
+        notes_input = self.query_one("#detail-notes-input", VimInput)
+        if self.focused is not notes_input:
+            return
+
+        editor = os.environ.get("EDITOR", "nano")
+        current_notes = notes_input.value
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".txt", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(current_notes)
+            tmp_path = f.name
+
+        try:
+            with self.app.suspend():
+                result = subprocess.run([editor, tmp_path])  # noqa: S603
+            if result.returncode == 0:
+                with open(tmp_path, encoding="utf-8") as f:
+                    notes_input.value = f.read().rstrip("\n")
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
     def action_save_and_close(self) -> None:
         title = self.query_one("#detail-title-input", VimInput).value.strip()
@@ -2229,7 +2257,18 @@ class GtdApp(App[None]):
         if is_divider_task(task):
             char = "─" if task.title.strip() == "-" else "═"
             return f"[dim]{char * 60}[/dim]"
-        marker = " ↻" if (task.repeat_rule or task.recur_rule) else ""
+        rule = task.repeat_rule or task.recur_rule
+        if rule is not None and (rule.days_of_week or rule.nth_weekday is not None):
+            short = (
+                format_repeat_rule(rule)
+                if isinstance(rule, RepeatRule)
+                else format_recur_rule(rule)
+            )
+            marker = f" ↻ {short}"
+        elif rule is not None:
+            marker = " ↻"
+        else:
+            marker = ""
         dl = deadline_status(task)
         if dl is None:
             dl_suffix = ""
@@ -3833,16 +3872,16 @@ class GtdApp(App[None]):
                 parsed = parse_repeat_input(repeat_text)
                 if parsed is None:
                     new_repeat = None
+                elif (
+                    old_repeat is not None
+                    and old_repeat.interval == parsed.interval
+                    and old_repeat.unit == parsed.unit
+                    and old_repeat.days_of_week == parsed.days_of_week
+                    and old_repeat.nth_weekday == parsed.nth_weekday
+                ):
+                    new_repeat = old_repeat  # preserve next_due unchanged
                 else:
-                    interval, unit = parsed
-                    if (
-                        old_repeat
-                        and old_repeat.interval == interval
-                        and old_repeat.unit == unit
-                    ):
-                        new_repeat = old_repeat  # preserve next_due unchanged
-                    else:
-                        new_repeat = make_repeat_rule(interval, unit)
+                    new_repeat = make_repeat_rule_from_parsed(parsed)
             except InvalidRepeatError:
                 self._update_status(
                     "(invalid repeat — changes saved, repeat unchanged)"
@@ -3856,8 +3895,12 @@ class GtdApp(App[None]):
                 if parsed_recur is None:
                     new_recur = None
                 else:
-                    interval_r, unit_r = parsed_recur
-                    new_recur = RecurRule(interval=interval_r, unit=unit_r)
+                    new_recur = RecurRule(
+                        interval=parsed_recur.interval,
+                        unit=parsed_recur.unit,
+                        days_of_week=parsed_recur.days_of_week,
+                        nth_weekday=parsed_recur.nth_weekday,
+                    )
             except InvalidRepeatError:
                 self._update_status(
                     "(invalid recurring — changes saved, recurring unchanged)"
