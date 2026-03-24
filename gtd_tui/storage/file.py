@@ -29,27 +29,46 @@ def default_data_file_path() -> Path:
 
 
 def _repeat_rule_to_dict(rule: RepeatRule) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "interval": rule.interval,
         "unit": rule.unit,
         "next_due": rule.next_due.isoformat(),
     }
+    if rule.days_of_week:
+        d["days_of_week"] = rule.days_of_week
+    if rule.nth_weekday is not None:
+        d["nth_weekday"] = list(rule.nth_weekday)
+    return d
 
 
 def _repeat_rule_from_dict(data: dict[str, Any]) -> RepeatRule:
+    nth_raw = data.get("nth_weekday")
     return RepeatRule(
         interval=data["interval"],
         unit=data["unit"],
         next_due=date.fromisoformat(data["next_due"]),
+        days_of_week=data.get("days_of_week", []),
+        nth_weekday=tuple(nth_raw) if nth_raw else None,  # type: ignore[arg-type]
     )
 
 
 def _recur_rule_to_dict(rule: RecurRule) -> dict[str, Any]:
-    return {"interval": rule.interval, "unit": rule.unit}
+    d: dict[str, Any] = {"interval": rule.interval, "unit": rule.unit}
+    if rule.days_of_week:
+        d["days_of_week"] = rule.days_of_week
+    if rule.nth_weekday is not None:
+        d["nth_weekday"] = list(rule.nth_weekday)
+    return d
 
 
 def _recur_rule_from_dict(data: dict[str, Any]) -> RecurRule:
-    return RecurRule(interval=data["interval"], unit=data["unit"])
+    nth_raw = data.get("nth_weekday")
+    return RecurRule(
+        interval=data["interval"],
+        unit=data["unit"],
+        days_of_week=data.get("days_of_week", []),
+        nth_weekday=tuple(nth_raw) if nth_raw else None,  # type: ignore[arg-type]
+    )
 
 
 def _checklist_item_to_dict(item: ChecklistItem) -> dict[str, Any]:

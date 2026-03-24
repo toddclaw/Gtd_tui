@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **BACKLOG-81 — External editor for task notes (`Ctrl+E`)**: While the notes field in the task detail view is focused, `Ctrl+E` suspends the TUI and opens the notes in `$EDITOR` (falls back to `nano`). On exit code 0 the notes field is updated; on non-zero, notes are preserved. Temp file is cleaned up automatically.
+- **BACKLOG-100 — Advanced recurrence patterns**: Both `RepeatRule` (calendar-fixed) and `RecurRule` (completion-relative) now support day-of-week sets (`M-F`, `weekends`, `MWF`, `TR`, `every Mon`, `every other Tue`) and nth-weekday-of-month patterns (`4th Thu`, `1st Mon`, etc.). Convenience aliases `monthly`, `quarterly`, `annually`/`yearly` are also accepted. Task list shows short codes (`↻ M-F`, `↻ 4th Thu`) for named patterns. Old JSON files without the new fields load cleanly.
+
 ---
 
 ## [1.8.0] — 2026-03-21
