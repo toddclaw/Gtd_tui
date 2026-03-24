@@ -1516,7 +1516,7 @@ The classic GTD tickler file (43 folders: 31 daily + 12 monthly) surfaces refere
 
 ## Group: TUI / interface gaps
 
-### BACKLOG-78 — Side-by-side split view (task list + detail pane)
+### BACKLOG-78 — Side-by-side split view (task list + detail pane) ✅ DONE
 
 **Story points:** 8
 
@@ -1528,13 +1528,13 @@ Currently the task detail screen is a modal overlay that replaces the task list.
 - Editing in the right pane uses INSERT mode; `h`/`l` switches focus between panes
 
 **Acceptance criteria:**
-- [ ] `\` toggles between split view and the current full-screen layout
-- [ ] Right pane shows title, date, deadline, notes, checklist of the selected task
-- [ ] Moving `j`/`k` in the left pane updates the right pane immediately
-- [ ] `l` transfers focus to the right pane for editing; `h` returns to the task list
-- [ ] Edits in the right pane save on `Esc` or on `h` (leaving the pane)
-- [ ] Split ratio is configurable: `split_ratio = 0.4` (left width fraction) in `config.toml`
-- [ ] Tests cover pane switching, auto-update, and edit-save flow
+- [x] `\` toggles between split view and the current full-screen layout
+- [x] Right pane shows title, date, deadline, notes, checklist of the selected task
+- [x] Moving `j`/`k` in the left pane updates the right pane immediately
+- [x] `l` transfers focus to the right pane for editing; `h` returns to the task list
+- [x] Edits in the right pane save on `Esc` or on `h` (leaving the pane)
+- [x] Split ratio is configurable: `split_ratio = 0.6` (left width fraction) in `config.toml`
+- [x] Tests cover pane switching, auto-update, and edit-save flow
 
 ---
 
@@ -1603,7 +1603,7 @@ Long-form task notes are awkward to write in the inline VimInput widget. Pressin
 
 ---
 
-### BACKLOG-82 — Markdown-rendered notes in detail view
+### BACKLOG-82 — Markdown-rendered notes in detail view ✅ DONE
 
 **Story points:** 5
 
@@ -1615,12 +1615,12 @@ Task notes are stored as plain text but many users naturally write Markdown (hea
 - Toggle with a keybinding or automatic on focus change
 
 **Acceptance criteria:**
-- [ ] Notes displayed using Textual's `Markdown` widget in read mode
-- [ ] Pressing `i`/`a`/`o` on the notes field switches to raw VimInput (INSERT mode)
-- [ ] `Esc` from INSERT mode returns to Markdown rendered view
-- [ ] Markdown rendering supports: headings, bold, italic, bullet lists, code blocks
-- [ ] Fallback: if notes contain no Markdown syntax, rendered output is visually identical to plain text
-- [ ] Tests: notes with Markdown syntax render without error; edit/save round-trip preserves raw text
+- [x] Notes displayed using Textual's `Markdown` widget in read mode
+- [x] Pressing `i`/`a`/`o` on the notes field switches to raw VimInput (INSERT mode)
+- [x] `Esc` from INSERT mode returns to Markdown rendered view
+- [x] Markdown rendering supports: headings, bold, italic, bullet lists, code blocks
+- [x] Fallback: if notes contain no Markdown syntax, rendered output is visually identical to plain text
+- [x] Tests: notes with Markdown syntax render without error; edit/save round-trip preserves raw text
 
 ---
 

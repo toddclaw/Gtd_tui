@@ -34,6 +34,7 @@ class SidebarCountsConfig:
 
     inbox: bool = True
     today: bool = True
+    anytime: bool = True
     upcoming: bool = True
     waiting_on: bool = True
     someday: bool = True
@@ -112,6 +113,7 @@ class Config:
     border_style: str = "none"
     border_block_size: int = 3
     border_text: str = ""
+    split_ratio: float = 0.6
     counts: SidebarCountsConfig = field(default_factory=SidebarCountsConfig)
     backup: BackupConfig = field(default_factory=BackupConfig)
     text: TextEditConfig = field(default_factory=TextEditConfig)
@@ -163,6 +165,8 @@ def _ensure_config_defaults(path: Path, raw: dict) -> None:
         ui_lines.append("border_block_size = 3\n")
     if not _has_key("border_text"):
         ui_lines.append('border_text = ""\n')
+    if not _has_key("split_ratio"):
+        ui_lines.append("# split_ratio = 0.6\n")
     if ui_lines:
         if "ui" not in raw:
             missing.append("\n[ui]\n")
@@ -172,6 +176,7 @@ def _ensure_config_defaults(path: Path, raw: dict) -> None:
     count_keys = [
         "inbox",
         "today",
+        "anytime",
         "upcoming",
         "waiting_on",
         "someday",
@@ -273,6 +278,7 @@ def load_config(path: Path | None = None) -> Config:
     counts = SidebarCountsConfig(
         inbox=bool(counts_section.get("inbox", _def_counts.inbox)),
         today=bool(counts_section.get("today", _def_counts.today)),
+        anytime=bool(counts_section.get("anytime", _def_counts.anytime)),
         upcoming=bool(counts_section.get("upcoming", _def_counts.upcoming)),
         waiting_on=bool(counts_section.get("waiting_on", _def_counts.waiting_on)),
         someday=bool(counts_section.get("someday", _def_counts.someday)),
@@ -402,6 +408,7 @@ def load_config(path: Path | None = None) -> Config:
             ui_section.get("border_block_size", Config.border_block_size)
         ),
         border_text=str(ui_section.get("border_text", Config.border_text)),
+        split_ratio=float(ui_section.get("split_ratio", Config.split_ratio)),
         counts=counts,
         backup=backup,
         text=text,
@@ -446,10 +453,14 @@ border_block_size = 3
 # Optional text label rendered inside the screen border.
 border_text = ""
 
+# Left-pane width fraction when split view is toggled with \\.
+# split_ratio = 0.6
+
 [sidebar_counts]
 # Set any entry to false to hide counts for that section.
 inbox = true
 today = true
+anytime = true
 upcoming = true
 waiting_on = true
 someday = true
