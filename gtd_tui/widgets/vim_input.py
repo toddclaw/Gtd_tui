@@ -54,6 +54,15 @@ class VimInput(Widget, can_focus=True):
             self.vim_input = vim_input
             self.value = value
 
+    class ModeChanged(Message):
+        """Posted when the VimInput mode transitions between 'command' and 'insert'."""
+
+        def __init__(self, vim_input: "VimInput", old_mode: str, new_mode: str) -> None:
+            super().__init__()
+            self.vim_input = vim_input
+            self.old_mode = old_mode
+            self.new_mode = new_mode
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -200,6 +209,7 @@ class VimInput(Widget, can_focus=True):
         elif mode == "insert":
             # Entering INSERT → start a fresh recording.
             self._last_insert = ""
+        old_mode = self._vim_mode
         self._vim_mode = mode
         self._pending = ""
         if mode == "command":
@@ -209,6 +219,8 @@ class VimInput(Widget, can_focus=True):
             self.add_class("vim-insert-mode")
         self._update_scroll()
         self.refresh()
+        if old_mode != mode:
+            self.post_message(self.ModeChanged(self, old_mode, mode))
 
     # ------------------------------------------------------------------
     # Cursor helpers

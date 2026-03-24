@@ -6,7 +6,16 @@ from dataclasses import dataclass, field
 REFERENCE_FOLDER_ID: str = "reference"
 
 BUILTIN_FOLDER_IDS: frozenset[str] = frozenset(
-    {"inbox", "today", "upcoming", "waiting_on", "someday", "logbook", "reference"}
+    {
+        "inbox",
+        "today",
+        "anytime",
+        "upcoming",
+        "waiting_on",
+        "someday",
+        "logbook",
+        "reference",
+    }
 )
 
 

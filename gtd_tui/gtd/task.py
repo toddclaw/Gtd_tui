@@ -76,6 +76,7 @@ class Task:
     is_deleted: bool = False
     tags: list[str] = field(default_factory=list)
     project_id: Optional[str] = None
+    snoozed_until: Optional[datetime] = None
 
     @property
     def is_complete(self) -> bool:

@@ -292,8 +292,8 @@ async def test_bulk_t_moves_selected_to_today(tmp_path: Path) -> None:
     app = GtdApp(data_file=data_file, config=CFG_TASK_LIST_FOCUS)
     async with app.run_test() as pilot:
         await pilot.pause()
-        # Navigate to Waiting On view (Inbox=0, Today=1, Upcoming=2, WaitingOn=3)
-        await pilot.press("3")
+        # Navigate to Waiting On view (Inbox=0, Today=1, Anytime=2, Upcoming=3, WaitingOn=4)
+        await pilot.press("4")
         await pilot.pause()
         await pilot.press("v", "j")
         await pilot.pause()
@@ -347,8 +347,8 @@ async def test_bulk_m_moves_selected_to_chosen_folder(tmp_path: Path) -> None:
         await pilot.press("m")  # open action picker (bulk)
         await pilot.pause()
         # Picker starts at Inbox. Navigate to "Work" user folder:
-        # Inbox → Today → Waiting On → Someday → Reference → Work = 5 j's
-        await pilot.press("j", "j", "j", "j", "j")
+        # Inbox → Today → Anytime → Waiting On → Someday → Reference → Work = 6 j's
+        await pilot.press("j", "j", "j", "j", "j", "j")
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
@@ -376,8 +376,8 @@ async def test_bulk_m_preserves_order(tmp_path: Path) -> None:
         await pilot.press("m")
         await pilot.pause()
         await pilot.press(
-            "j", "j", "j", "j", "j"
-        )  # Inbox→Today→WaitingOn→Someday→Reference→Work
+            "j", "j", "j", "j", "j", "j"
+        )  # Inbox→Today→Anytime→WaitingOn→Someday→Reference→Work
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()

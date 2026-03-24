@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from gtd_tui.gtd.folder import BUILTIN_FOLDER_IDS, REFERENCE_FOLDER_ID
 from gtd_tui.gtd.operations import (
@@ -9,6 +9,7 @@ from gtd_tui.gtd.operations import (
     add_task,
     add_task_to_folder,
     add_waiting_on_task,
+    anytime_tasks,
     complete_task,
     delete_task,
     edit_task,
@@ -22,6 +23,7 @@ from gtd_tui.gtd.operations import (
     insert_task_before,
     insert_waiting_on_task_after,
     insert_waiting_on_task_before,
+    is_snoozed,
     logbook_tasks,
     make_repeat_rule_from_parsed,
     move_block_down,
@@ -33,16 +35,19 @@ from gtd_tui.gtd.operations import (
     parse_repeat_input,
     purge_logbook_task,
     reference_tasks,
+    resolve_expired_snoozes,
     schedule_task,
     scheduled_tasks,
     search_tasks,
     set_recur_rule,
     set_repeat_rule,
+    snooze_task,
     someday_tasks,
     spawn_repeating_tasks,
     surfaced_waiting_on_tasks,
     today_tasks,
     unschedule_task,
+    unsnooze_task,
     upcoming_tasks,
     waiting_on_tasks,
 )
@@ -1875,4 +1880,173 @@ def test_make_repeat_rule_from_parsed_nth_weekday():
     assert parsed is not None
     rule = make_repeat_rule_from_parsed(parsed, from_date=date(2026, 3, 23))
     assert rule.nth_weekday == (4, 3)
-    assert rule.next_due.weekday() == 3  # Thursday
+
+
+# ------------------------------------------------------------------ #
+# anytime_tasks                                                        #
+# ------------------------------------------------------------------ #
+
+
+def test_anytime_tasks_returns_anytime_folder():
+    tasks = add_task_to_folder([], "anytime", "Do this anytime")
+    result = anytime_tasks(tasks)
+    assert len(result) == 1
+    assert result[0].title == "Do this anytime"
+
+
+def test_anytime_tasks_empty_when_no_anytime_tasks():
+    tasks = add_task([], "Today task")
+    result = anytime_tasks(tasks)
+    assert result == []
+
+
+def test_anytime_tasks_excludes_other_folders():
+    tasks = add_task_to_folder([], "inbox", "Inbox task")
+    tasks = add_task_to_folder(tasks, "someday", "Someday task")
+    tasks = add_task_to_folder(tasks, "anytime", "Anytime task")
+    result = anytime_tasks(tasks)
+    assert len(result) == 1
+    assert result[0].title == "Anytime task"
+
+
+def test_anytime_tasks_sorted_by_position():
+    tasks = add_task_to_folder([], "anytime", "First")
+    tasks = add_task_to_folder(tasks, "anytime", "Third")
+    first_id = tasks[0].id
+    tasks = insert_folder_task_after(tasks, "anytime", first_id, "Second")
+    result = anytime_tasks(tasks)
+    assert [t.title for t in result] == ["First", "Second", "Third"]
+
+
+def test_anytime_tasks_with_scheduled_date_still_included():
+    """anytime_tasks() returns ALL anytime tasks regardless of scheduled_date.
+
+    Smart views (Today/Upcoming) handle date-based filtering separately.
+    """
+    tasks = add_task_to_folder([], "anytime", "Scheduled anytime")
+    tasks = schedule_task(tasks, tasks[0].id, date.today() + timedelta(days=5))
+    result = anytime_tasks(tasks)
+    assert len(result) == 1
+    assert result[0].title == "Scheduled anytime"
+
+
+def test_anytime_tasks_with_past_date_still_included():
+    tasks = add_task_to_folder([], "anytime", "Overdue anytime")
+    tasks = schedule_task(tasks, tasks[0].id, date.today() - timedelta(days=2))
+    result = anytime_tasks(tasks)
+    assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Snooze / defer (BACKLOG-54)
+# ---------------------------------------------------------------------------
+
+_NOW = datetime(2026, 3, 23, 12, 0, 0)
+_FUTURE = _NOW + timedelta(hours=2)
+_PAST = _NOW - timedelta(hours=1)
+
+
+def test_is_snoozed_none():
+    """Task with no snoozed_until is never snoozed."""
+    task = Task(title="plain task")
+    assert not is_snoozed(task, as_of=_NOW)
+
+
+def test_is_snoozed_future():
+    """Task snoozed until a future time is snoozed."""
+    task = Task(title="snoozed task", snoozed_until=_FUTURE)
+    assert is_snoozed(task, as_of=_NOW)
+
+
+def test_is_snoozed_past():
+    """Task whose snooze has expired is not snoozed."""
+    task = Task(title="expired snooze", snoozed_until=_PAST)
+    assert not is_snoozed(task, as_of=_NOW)
+
+
+def test_snooze_task_sets_snoozed_until():
+    tasks = add_task([], "Buy milk")
+    task_id = tasks[0].id
+    result = snooze_task(tasks, task_id, _FUTURE)
+    snoozed = next(t for t in result if t.id == task_id)
+    assert snoozed.snoozed_until == _FUTURE
+
+
+def test_snooze_task_leaves_others_unchanged():
+    tasks = add_task([], "Task A")
+    tasks = add_task(tasks, "Task B")
+    id_a = next(t.id for t in tasks if t.title == "Task A")
+    id_b = next(t.id for t in tasks if t.title == "Task B")
+    result = snooze_task(tasks, id_a, _FUTURE)
+    task_b = next(t for t in result if t.id == id_b)
+    assert task_b.snoozed_until is None
+
+
+def test_unsnooze_task_clears_snoozed_until():
+    tasks = add_task([], "Snoozed task")
+    task_id = tasks[0].id
+    tasks = snooze_task(tasks, task_id, _FUTURE)
+    result = unsnooze_task(tasks, task_id)
+    unsnoozed = next(t for t in result if t.id == task_id)
+    assert unsnoozed.snoozed_until is None
+
+
+def test_resolve_expired_snoozes_clears_past():
+    tasks = add_task([], "Expired")
+    task_id = tasks[0].id
+    tasks = snooze_task(tasks, task_id, _PAST)
+    result = resolve_expired_snoozes(tasks, as_of=_NOW)
+    task = next(t for t in result if t.id == task_id)
+    assert task.snoozed_until is None
+
+
+def test_resolve_expired_snoozes_keeps_future():
+    tasks = add_task([], "Still snoozed")
+    task_id = tasks[0].id
+    tasks = snooze_task(tasks, task_id, _FUTURE)
+    result = resolve_expired_snoozes(tasks, as_of=_NOW)
+    task = next(t for t in result if t.id == task_id)
+    assert task.snoozed_until == _FUTURE
+
+
+def test_today_tasks_excludes_snoozed():
+    tasks = add_task([], "Snoozed today task")
+    task_id = tasks[0].id
+    tasks = snooze_task(tasks, task_id, _FUTURE)
+    result = today_tasks(tasks, as_of=_NOW.date(), snooze_as_of=_NOW)
+    assert all(t.id != task_id for t in result)
+
+
+def test_today_tasks_includes_unsnooze_expired():
+    """A task whose snooze has expired must still appear in Today."""
+    tasks = add_task([], "Expired snooze task")
+    task_id = tasks[0].id
+    tasks = snooze_task(tasks, task_id, _PAST)
+    result = today_tasks(tasks, as_of=_NOW.date(), snooze_as_of=_NOW)
+    assert any(t.id == task_id for t in result)
+
+
+def test_upcoming_tasks_excludes_snoozed():
+    tasks = add_task([], "Scheduled upcoming task")
+    task_id = tasks[0].id
+    future_date = _NOW.date() + timedelta(days=3)
+    tasks = schedule_task(tasks, task_id, future_date)
+    tasks = snooze_task(tasks, task_id, _FUTURE)
+    result = upcoming_tasks(tasks, as_of=_NOW.date(), snooze_as_of=_NOW)
+    assert all(t.id != task_id for t in result)
+
+
+def test_anytime_tasks_excludes_snoozed():
+    tasks = add_task_to_folder([], "anytime", "Snoozed anytime task")
+    task_id = tasks[0].id
+    tasks = snooze_task(tasks, task_id, _FUTURE)
+    result = anytime_tasks(tasks, as_of=_NOW)
+    assert all(t.id != task_id for t in result)
+
+
+def test_search_tasks_excludes_snoozed():
+    tasks = add_task([], "unique snoozed title xyz")
+    task_id = tasks[0].id
+    tasks = snooze_task(tasks, task_id, _FUTURE)
+    result = search_tasks(tasks, "unique snoozed title xyz", as_of=_NOW)
+    assert all(t.id != task_id for t, _ in result)

@@ -325,9 +325,9 @@ async def test_assign_to_project_removes_from_folder(tmp_path: Path) -> None:
         # Picker is open (screen_stack has 2 entries)
         assert len(pilot.app.screen_stack) == 2
         # Picker starts on Inbox (first selectable). Navigate to My Project:
-        # Inbox → Today → WaitingOn → Someday → Reference → [header skipped] → My Project
-        # That is 5 j presses (headers are skipped automatically).
-        for _ in range(5):
+        # Inbox → Today → Anytime → WaitingOn → Someday → Reference → [header skipped] → My Project
+        # That is 6 j presses (headers are skipped automatically).
+        for _ in range(6):
             await pilot.press("j")
             await pilot.pause()
         await pilot.press("enter")

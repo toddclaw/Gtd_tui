@@ -253,7 +253,7 @@ async def test_project_creation_via_sidebar_keyboard(tmp_path: Path) -> None:
     """Creating a project via N key while the sidebar cursor is on the projects section.
 
     Flow: pre-populate one project so the header appears → start app →
-    h (focus sidebar) → j×3 (today→upcoming→waiting_on→__projects_header__)
+    h (focus sidebar) → j×4 (today→anytime→upcoming→waiting_on→__projects_header__)
     → N → type name → Enter → project appears in _all_projects.
     """
     # Pre-populate one project so __projects_header__ appears in sidebar
@@ -269,8 +269,8 @@ async def test_project_creation_via_sidebar_keyboard(tmp_path: Path) -> None:
         await pilot.press("h")
         await pilot.pause()
 
-        # Navigate: today → upcoming → waiting_on → __projects_header__
-        for _ in range(3):
+        # Navigate: today → anytime → upcoming → waiting_on → __projects_header__
+        for _ in range(4):
             await pilot.press("j")
             await pilot.pause()
 
@@ -309,7 +309,8 @@ async def test_project_view_shown_after_creation(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("h")
         await pilot.pause()
-        for _ in range(3):
+        # Navigate: today → anytime → upcoming → waiting_on → __projects_header__
+        for _ in range(4):
             await pilot.press("j")
             await pilot.pause()
         await pilot.press("N")

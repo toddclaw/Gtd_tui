@@ -7,7 +7,7 @@ import subprocess
 import time
 import uuid
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pyperclip
@@ -17,9 +17,11 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.message import Message
 from textual.screen import ModalScreen
 from textual.theme import Theme
-from textual.widgets import Input, Label, ListItem, ListView, Static
+from textual.widget import Widget
+from textual.widgets import Input, Label, ListItem, ListView, Markdown, Static
 
 from gtd_tui.config import Config, default_config_path, load_config, save_default_config
 from gtd_tui.gtd.area import Area
@@ -40,6 +42,7 @@ from gtd_tui.gtd.operations import (
     add_task_to_project,
     add_waiting_on_task,
     all_tags,
+    anytime_tasks,
     assign_folder_to_area,
     assign_project_to_area,
     assign_task_to_project,
@@ -92,12 +95,14 @@ from gtd_tui.gtd.operations import (
     rename_area,
     rename_folder,
     rename_project,
+    resolve_expired_snoozes,
     schedule_task,
     search_tasks,
     set_deadline,
     set_recur_rule,
     set_repeat_rule,
     set_tags,
+    snooze_task,
     someday_tasks,
     spawn_repeating_tasks,
     tasks_with_tag,
@@ -169,7 +174,8 @@ class HelpScreen(ModalScreen[None]):
   G            Jump to bottom of list
   Ctrl+d       Half-page down
   Ctrl+u       Half-page up
-  h / l        Focus sidebar / task list
+  h / l        Focus sidebar / task list (or split pane when split view is active)
+  \\           Toggle split view (right-side task detail pane)
   i            Jump to Inbox
   0            Jump to sidebar item 0 (Inbox) — use h then j/k for other views
 
@@ -187,6 +193,7 @@ class HelpScreen(ModalScreen[None]):
   t            Move to Today (Waiting On / Inbox) or schedule for today (user folders)
   y            Yank task to clipboard AND to internal register
   p / P        Paste a duplicate of yanked task below / above current position
+  z            Snooze selected task (hide from smart views until timer expires)
   u            Undo last action
   Ctrl+R       Redo last undone action
   /            Global search  (plain → auto-detect regex; //pat → case-sensitive regex)
@@ -217,7 +224,9 @@ class HelpScreen(ModalScreen[None]):
   o / O        Edit field from end / start (single-line)
               or open new line below / above (notes)
   Enter        Confirm and advance to next field
-  Ctrl+E       Open notes field in $EDITOR (nano if unset) — notes field must be focused
+  i / a / o    On notes (read view): switch to edit mode (INSERT)
+  Esc          In notes edit mode: return to Markdown read view
+  Ctrl+E       Open notes field in $EDITOR (nano if unset) — notes edit mode must be active
   Esc          Save and close
   Deadline     Hard due date — [bold red]red[/bold red] if overdue, [yellow]yellow[/yellow] if ≤3 days
   y            Yank current line to clipboard and internal register
@@ -341,6 +350,43 @@ class WeeklyReviewScreen(ModalScreen[None]):
             self.dismiss()
 
 
+class MarkdownNotesProxy(Widget, can_focus=True):
+    """Focusable Markdown viewer used for the notes field in COMMAND mode.
+
+    Shows rendered Markdown.  Pressing i/a/A/o/O posts EditRequested so the
+    parent can switch to the raw VimInput for editing.
+    """
+
+    class EditRequested(Message):
+        """Posted when the user presses an insert-mode key."""
+
+        pass
+
+    DEFAULT_CSS = """
+    MarkdownNotesProxy {
+        height: 7;
+        border: none;
+    }
+    MarkdownNotesProxy > Markdown {
+        height: 1fr;
+        margin: 0;
+        padding: 0;
+    }
+    """
+
+    def compose(self) -> ComposeResult:
+        yield Markdown("")
+
+    def update_content(self, text: str) -> None:
+        """Update the displayed Markdown content."""
+        self.query_one(Markdown).update(text if text else "**(no notes)**")
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key in ("i", "a", "A", "o", "O"):
+            event.stop()
+            self.post_message(self.EditRequested())
+
+
 class TaskDetailScreen(
     ModalScreen[tuple[str, str, str, str, str, str, str, list[ChecklistItem]] | None]
 ):
@@ -400,6 +446,11 @@ class TaskDetailScreen(
     }
 
     #detail-deadline-input {
+        margin-bottom: 1;
+    }
+
+    #detail-notes-proxy {
+        height: 7;
         margin-bottom: 1;
     }
 
@@ -511,9 +562,10 @@ class TaskDetailScreen(
                 id="detail-deadline-input",
             )
             yield Label(
-                "Notes  (Enter = newline  Ctrl+E = open in $EDITOR)",
+                "Notes  (Enter = newline  Ctrl+E = open in $EDITOR  i = edit)",
                 classes="field-label",
             )
+            yield MarkdownNotesProxy(id="detail-notes-proxy")
             yield VimInput(
                 value=self._gtd_task.notes,
                 placeholder="(optional)",
@@ -570,11 +622,21 @@ class TaskDetailScreen(
                     id="detail-created",
                 )
             yield Label(
-                "j/k: next/prev field  Ctrl+E on notes: open $EDITOR  Enter on checklist: edit items  Esc: save & close",
+                "j/k: next/prev field  i on notes: edit  Ctrl+E on notes: open $EDITOR  Enter on checklist: edit items  Esc: save & close",
                 id="detail-status",
             )
 
     def on_mount(self) -> None:
+        # Toggle initial visibility of notes proxy vs VimInput.
+        notes = self._gtd_task.notes
+        proxy = self.query_one("#detail-notes-proxy", MarkdownNotesProxy)
+        vim_inp = self.query_one("#detail-notes-input", VimInput)
+        if notes:
+            proxy.update_content(notes)
+            vim_inp.display = False
+        else:
+            proxy.display = False
+
         app = self.app
         if hasattr(app, "_spell_check_as_you_type_fn"):
             for wid, field in [
@@ -777,6 +839,29 @@ class TaskDetailScreen(
                     self._render_checklist()
                 event.vim_input.value = ""
                 event.vim_input.set_mode("insert")  # stay ready for the next item
+
+    def on_markdown_notes_proxy_edit_requested(
+        self, event: MarkdownNotesProxy.EditRequested
+    ) -> None:
+        """Switch notes field from Markdown view to VimInput edit mode."""
+        proxy = self.query_one("#detail-notes-proxy", MarkdownNotesProxy)
+        vim_inp = self.query_one("#detail-notes-input", VimInput)
+        proxy.display = False
+        vim_inp.display = True
+        vim_inp.focus()
+        vim_inp.set_mode("insert")
+
+    def on_vim_input_mode_changed(self, event: VimInput.ModeChanged) -> None:
+        """When notes VimInput returns to command mode, switch back to Markdown view."""
+        if event.vim_input.id != "detail-notes-input":
+            return
+        if event.new_mode == "command":
+            vim_inp = event.vim_input
+            proxy = self.query_one("#detail-notes-proxy", MarkdownNotesProxy)
+            proxy.update_content(vim_inp.value)
+            vim_inp.display = False
+            proxy.display = True
+            proxy.focus()
 
     def on_key(self, event: events.Key) -> None:
         focused = self.focused
@@ -1078,6 +1163,7 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
         def _folder_tag(task: Task) -> str:
             folder_map = {
                 "today": "Today",
+                "anytime": "Anytime",
                 "waiting_on": "WO",
                 "someday": "Someday",
                 "upcoming": "Upcoming",
@@ -1362,7 +1448,6 @@ class CalendarScreen(ModalScreen["date | None"]):
 
     def on_key(self, event: events.Key) -> None:
         import calendar as _cal
-        from datetime import timedelta
 
         year, month = self._month_year
         sel = self._selected
@@ -1414,6 +1499,199 @@ _BORDER_COLORS: dict[str, tuple[str, str]] = {
 }
 
 _BLOCK_CHAR = "█"
+
+
+class TaskSplitPane(Widget):
+    """Right-hand pane for split view.
+
+    Shows the selected task's title, metadata, notes (Markdown read view or
+    editable VimInput), and checklist summary.  Notes can be edited in-place;
+    saving is triggered by Esc (returning to COMMAND mode inside the pane) or
+    by the `h` key which also returns focus to the task list.
+    """
+
+    BINDINGS = [
+        # Priority binding: intercept h before VimInput's command-mode handler.
+        # When VimInput is in INSERT mode, the binding should not fire — but
+        # Textual fires priority bindings regardless.  We gate the actual
+        # action on the VimInput mode inside action_return_to_task_list.
+        Binding("h", "return_to_task_list", priority=True, show=False),
+    ]
+
+    class NotesSaved(Message):
+        """Posted when the user edits notes and leaves the pane."""
+
+        def __init__(self, task_id: str, notes: str) -> None:
+            super().__init__()
+            self.task_id = task_id
+            self.notes = notes
+
+    class ReturnFocus(Message):
+        """Posted when the pane wants to give focus back to the task list."""
+
+        pass
+
+    DEFAULT_CSS = """
+    TaskSplitPane {
+        display: none;
+        border-left: solid $panel;
+        padding: 0 1;
+        overflow-y: auto;
+    }
+    TaskSplitPane #split-title {
+        text-style: bold;
+        color: $primary;
+        margin-bottom: 0;
+    }
+    TaskSplitPane #split-meta {
+        color: $text-muted;
+        margin-bottom: 1;
+    }
+    TaskSplitPane .field-label {
+        color: $text-muted;
+        margin-bottom: 0;
+    }
+    TaskSplitPane #split-notes-proxy {
+        height: 8;
+        margin-bottom: 1;
+    }
+    TaskSplitPane #split-notes-input {
+        height: 8;
+        margin-bottom: 1;
+    }
+    TaskSplitPane #split-checklist {
+        color: $text-muted;
+    }
+    """
+
+    def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        super().__init__(**kwargs)
+        self._task_id: str | None = None
+
+    def compose(self) -> ComposeResult:
+        yield Label("", id="split-title")
+        yield Label("", id="split-meta")
+        yield Static("Notes", classes="field-label")
+        yield MarkdownNotesProxy(id="split-notes-proxy")
+        yield VimInput(multiline=True, start_mode="command", id="split-notes-input")
+        yield Label("", id="split-checklist")
+
+    def load_task(self, task: Task | None) -> None:
+        """Populate pane with task data."""
+        self._task_id = task.id if task else None
+        title_lbl = self.query_one("#split-title", Label)
+        meta_lbl = self.query_one("#split-meta", Label)
+        checklist_lbl = self.query_one("#split-checklist", Label)
+        proxy = self.query_one("#split-notes-proxy", MarkdownNotesProxy)
+        vim_inp = self.query_one("#split-notes-input", VimInput)
+
+        if task is None:
+            title_lbl.update("")
+            meta_lbl.update("")
+            checklist_lbl.update("")
+            proxy.update_content("")
+            vim_inp.value = ""
+            return
+
+        title_lbl.update(task.title)
+
+        # Build metadata string
+        parts = []
+        if task.scheduled_date:
+            parts.append(f"Scheduled: {task.scheduled_date.strftime('%b %d')}")
+        if task.deadline:
+            parts.append(f"Deadline: {task.deadline.strftime('%b %d')}")
+        meta_lbl.update("  |  ".join(parts))
+
+        # Checklist summary
+        if task.checklist:
+            checked = sum(1 for item in task.checklist if item.checked)
+            checklist_lbl.update(f"Checklist: {checked}/{len(task.checklist)}")
+        else:
+            checklist_lbl.update("")
+
+        # Notes display: proxy in read mode when notes exist, VimInput otherwise
+        notes = task.notes or ""
+        if notes:
+            proxy.update_content(notes)
+            proxy.display = True
+            vim_inp.display = False
+        else:
+            proxy.display = False
+            vim_inp.value = ""
+            vim_inp.display = True
+        vim_inp.set_value_cursor_end(notes)
+        vim_inp.set_mode("command")
+
+    def action_return_to_task_list(self) -> None:
+        """Return focus to the task list (h key in COMMAND mode)."""
+        vim_inp = self.query_one("#split-notes-input", VimInput)
+        if vim_inp._vim_mode == "insert":
+            # In INSERT mode, pass h through to the VimInput instead.
+            # We do this by forwarding a synthetic key press — but that's complex.
+            # Simpler: do nothing and let the binding be "ignored" by returning early.
+            # The VimInput won't receive h because the binding consumed the event.
+            # Solution: insert h character manually when in INSERT mode.
+            vim_inp._text = (
+                vim_inp._text[: vim_inp._cursor]
+                + "h"
+                + vim_inp._text[vim_inp._cursor :]
+            )
+            vim_inp._cursor += 1
+            vim_inp._update_scroll()
+            vim_inp.refresh()
+            return
+        self.save_notes()
+        self.post_message(self.ReturnFocus())
+
+    def save_notes(self) -> None:
+        """Emit NotesSaved with the current notes text if a task is loaded."""
+        if self._task_id is None:
+            return
+        vim_inp = self.query_one("#split-notes-input", VimInput)
+        self.post_message(self.NotesSaved(self._task_id, vim_inp.value))
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle pane-specific keys."""
+        vim_inp = self.query_one("#split-notes-input", VimInput)
+        vim_in_insert = vim_inp._vim_mode == "insert"
+
+        if event.key == "i":
+            # Switch to edit mode only when not already in INSERT
+            if not vim_in_insert:
+                event.prevent_default()
+                event.stop()
+                proxy = self.query_one("#split-notes-proxy", MarkdownNotesProxy)
+                proxy.display = False
+                vim_inp.display = True
+                vim_inp.focus()
+                vim_inp.set_mode("insert")
+
+    def on_markdown_notes_proxy_edit_requested(
+        self, event: MarkdownNotesProxy.EditRequested
+    ) -> None:
+        """Switch notes from Markdown view to editable VimInput."""
+        proxy = self.query_one("#split-notes-proxy", MarkdownNotesProxy)
+        vim_inp = self.query_one("#split-notes-input", VimInput)
+        proxy.display = False
+        vim_inp.display = True
+        vim_inp.focus()
+        vim_inp.set_mode("insert")
+
+    def on_vim_input_mode_changed(self, event: VimInput.ModeChanged) -> None:
+        """When notes VimInput returns to command mode, switch back to Markdown view."""
+        if event.vim_input.id != "split-notes-input":
+            return
+        if event.new_mode == "command":
+            vim_inp = event.vim_input
+            proxy = self.query_one("#split-notes-proxy", MarkdownNotesProxy)
+            notes = vim_inp.value
+            if notes:
+                proxy.update_content(notes)
+                proxy.display = True
+                vim_inp.display = False
+            # Save notes whenever we return to command mode
+            self.save_notes()
 
 
 class _FocusableEmptyHint(Label):
@@ -1650,6 +1928,7 @@ def _build_action_picker_entries(
     builtin_folders = [
         ("Inbox", "inbox"),
         ("Today", "today"),
+        ("Anytime", "anytime"),
         ("Waiting On", "waiting_on"),
         ("Someday", "someday"),
         ("Reference", REFERENCE_FOLDER_ID),
@@ -1673,12 +1952,68 @@ def _build_action_picker_entries(
     return entries
 
 
+class SnoozePickerScreen(ModalScreen["datetime | None"]):
+    """Modal picker for selecting a snooze duration."""
+
+    CSS = """
+    SnoozePickerScreen {
+        align: center middle;
+    }
+
+    .picker-dialog {
+        width: 36;
+        height: auto;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    .picker-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "dismiss_none", show=False)]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._options: list[tuple[str, datetime]] = []
+
+    def compose(self) -> ComposeResult:
+        now = datetime.now()
+        tomorrow_9am = (now + timedelta(days=1)).replace(
+            hour=9, minute=0, second=0, microsecond=0
+        )
+        self._options = [
+            ("1 hour", now + timedelta(hours=1)),
+            ("3 hours", now + timedelta(hours=3)),
+            ("Tomorrow 9 am", tomorrow_9am),
+            ("1 week", now + timedelta(weeks=1)),
+        ]
+        with Vertical(classes="picker-dialog"):
+            yield Label("Snooze until…", classes="picker-title")
+            yield ListView(
+                *[ListItem(Label(label)) for label, _ in self._options],
+                id="snooze-list",
+            )
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        idx = event.list_view.index
+        if idx is not None and 0 <= idx < len(self._options):
+            self.dismiss(self._options[idx][1])
+
+    def action_dismiss_none(self) -> None:
+        self.dismiss(None)
+
+
 class GtdApp(App[None]):
     ESCAPE_TO_MINIMIZE = False  # prevent Textual's minimize-on-Esc delay
 
     BINDINGS = [
         Binding("escape", "cancel_insert_mode", priority=True, show=False),
         Binding("ctrl+c", "cancel_task_input", priority=True, show=False),
+        Binding("backslash", "toggle_split_view", priority=True, show=False),
     ]
 
     CSS = """
@@ -1701,6 +2036,10 @@ class GtdApp(App[None]):
     #sidebar {
         width: 18;
         border-right: solid $panel;
+    }
+
+    #content-area {
+        width: 1fr;
     }
 
     #content {
@@ -1856,6 +2195,8 @@ class GtdApp(App[None]):
         self._search_match_ids: list[str] = []
         self._search_match_idx: int = 0
         self._last_backup_monotonic: float = 0.0
+        # Split view state
+        self._split_active: bool = False
 
     def _normalize_user_text(self, category: str, text: str) -> str:
         """Apply configured capitalization and spell correction for *category* keys."""
@@ -1900,7 +2241,7 @@ class GtdApp(App[None]):
         at the position where the placeholder row appears.
         """
         user_folders = sorted(self._all_folders, key=lambda f: f.position)
-        ids: list[str] = ["inbox", "today", "upcoming", "waiting_on"]
+        ids: list[str] = ["inbox", "today", "anytime", "upcoming", "waiting_on"]
 
         # Sort areas, all user folders, and active projects by position
         areas_sorted = sorted(self._all_areas, key=lambda a: a.position)
@@ -1972,6 +2313,8 @@ class GtdApp(App[None]):
             return "Inbox"
         if view_id == "today":
             return "Today"
+        if view_id == "anytime":
+            return "Anytime"
         if view_id == "upcoming":
             return "Upcoming"
         if view_id == "waiting_on":
@@ -2018,13 +2361,15 @@ class GtdApp(App[None]):
         yield Label("Today", id="header")
         with Horizontal(id="main-area"):
             yield ListView(id="sidebar")
-            with Vertical(id="content"):
-                yield VimInput(placeholder="Task title...", id="vim-input")
-                yield Input(placeholder="Task title...", id="task-input")
-                yield ListView(id="task-list")
-                yield _FocusableEmptyHint(
-                    "No tasks — press o to add one", id="empty-hint"
-                )
+            with Horizontal(id="content-area"):
+                with Vertical(id="content"):
+                    yield VimInput(placeholder="Task title...", id="vim-input")
+                    yield Input(placeholder="Task title...", id="task-input")
+                    yield ListView(id="task-list")
+                    yield _FocusableEmptyHint(
+                        "No tasks — press o to add one", id="empty-hint"
+                    )
+                yield TaskSplitPane(id="split-detail-pane")
         yield Label("NORMAL  |  Today", id="status")
 
     def compose(self) -> ComposeResult:
@@ -2050,6 +2395,7 @@ class GtdApp(App[None]):
             except OSError:
                 pass
         self._normalize_folder_positions()
+        self._all_tasks = resolve_expired_snoozes(self._all_tasks)
         old_len = len(self._all_tasks)
         self._all_tasks = spawn_repeating_tasks(self._all_tasks)
         if len(self._all_tasks) != old_len:
@@ -2126,6 +2472,11 @@ class GtdApp(App[None]):
             elif view_id == "today":
                 suffix = _n(len(today_tasks(self._all_tasks))) if counts.today else ""
                 sidebar.append(ListItem(Label(f"Today{suffix}")))
+            elif view_id == "anytime":
+                suffix = (
+                    _n(len(anytime_tasks(self._all_tasks))) if counts.anytime else ""
+                )
+                sidebar.append(ListItem(Label(f"Anytime{suffix}")))
             elif view_id == "upcoming":
                 suffix = (
                     _n(len(upcoming_tasks(self._all_tasks))) if counts.upcoming else ""
@@ -2287,7 +2638,11 @@ class GtdApp(App[None]):
         if task.checklist:
             done = sum(1 for i in task.checklist if i.checked)
             checklist_suffix = f"  [dim][{done}/{len(task.checklist)}][/dim]"
-        return f"{markup_escape(task.title)}{marker}{tag_suffix}{checklist_suffix}{dl_suffix}"
+        snooze_suffix = ""
+        if task.snoozed_until is not None:
+            until_str = task.snoozed_until.strftime("%a %b %-d %-I%p").lower()
+            snooze_suffix = f"  [dim][snoozed until {until_str}][/dim]"
+        return f"{markup_escape(task.title)}{marker}{tag_suffix}{checklist_suffix}{dl_suffix}{snooze_suffix}"
 
     def _refresh_list(self, select_task_id: str | None = None) -> None:
         list_view = self.query_one("#task-list", ListView)
@@ -2301,6 +2656,8 @@ class GtdApp(App[None]):
             self._render_inbox_view(list_view)
         elif self._current_view == "today":
             self._render_today_view(list_view)
+        elif self._current_view == "anytime":
+            self._render_anytime_view(list_view)
         elif self._current_view == "upcoming":
             self._render_upcoming_view(list_view)
         elif self._current_view == "waiting_on":
@@ -2456,6 +2813,11 @@ class GtdApp(App[None]):
     def _render_inbox_view(self, list_view: ListView) -> None:
         tasks = inbox_tasks(self._all_tasks)
         self.query_one("#header", Label).update(f"Inbox ({len(tasks)})")
+        self._render_simple_list(list_view, tasks, self._task_label)
+
+    def _render_anytime_view(self, list_view: ListView) -> None:
+        tasks = anytime_tasks(self._all_tasks)
+        self.query_one("#header", Label).update(f"Anytime ({len(tasks)})")
         self._render_simple_list(list_view, tasks, self._task_label)
 
     def _render_someday_view(self, list_view: ListView) -> None:
@@ -2688,6 +3050,19 @@ class GtdApp(App[None]):
     # Key handling                                                         #
     # ------------------------------------------------------------------ #
 
+    def _focus_in_split_pane(self) -> bool:
+        """Return True when the currently focused widget is inside the split pane."""
+        if not self._split_active:
+            return False
+        focused = self.focused
+        if focused is None:
+            return False
+        try:
+            pane = self.query_one("#split-detail-pane", TaskSplitPane)
+        except Exception:
+            return False
+        return focused is pane or focused in pane.query("*")
+
     def on_key(self, event: events.Key) -> None:
         # Track activity for the inactivity timeout.
         self._last_activity = time.monotonic()
@@ -2698,6 +3073,18 @@ class GtdApp(App[None]):
         if event.key == "ctrl+z":
             event.prevent_default()
             os.kill(os.getpid(), signal.SIGTSTP)
+            return
+        # When focus is inside the split pane, most keys are handled by the pane's
+        # child widgets (VimInput, MarkdownNotesProxy) or the pane's own BINDINGS.
+        # We only need to gate the delete confirm flow here.
+        if self._focus_in_split_pane():
+            # Allow delete confirmations even from the split pane
+            if self._delete_confirm_folder_id:
+                self._handle_delete_confirm_key(event)
+            elif self._delete_confirm_project_id:
+                self._handle_delete_confirm_project_key(event)
+            elif self._delete_confirm_area_id:
+                self._handle_delete_confirm_area_key(event)
             return
         # Delete confirmations take priority
         if self._delete_confirm_folder_id:
@@ -2933,6 +3320,9 @@ class GtdApp(App[None]):
         elif event.key == "ctrl+c":
             event.prevent_default()
             # no-op in sidebar NORMAL mode; here for completeness
+        elif event.key == "backslash":
+            event.prevent_default()
+            self.action_toggle_split_view()
         elif event.key == "q":
             event.prevent_default()
             self.exit()
@@ -3038,6 +3428,13 @@ class GtdApp(App[None]):
         elif event.key == "h":
             event.prevent_default()
             self.query_one("#sidebar", ListView).focus()
+        elif event.key == "l":
+            if self._split_active:
+                event.prevent_default()
+                self._focus_split_pane()
+        elif event.key == "backslash":
+            event.prevent_default()
+            self.action_toggle_split_view()
         elif event.key == "i":
             event.prevent_default()
             self._jump_to_view_id("inbox")
@@ -3076,6 +3473,7 @@ class GtdApp(App[None]):
         elif event.key == "w" and (
             self._current_view == "today"
             or self._current_view == "inbox"
+            or self._current_view == "anytime"
             or (
                 self._current_view not in BUILTIN_FOLDER_IDS
                 and self._current_view != REFERENCE_FOLDER_ID
@@ -3107,6 +3505,9 @@ class GtdApp(App[None]):
             if task is not None:
                 self._task_register = task
             self._yank_task()
+        elif event.key == "z":
+            event.prevent_default()
+            self._snooze_selected()
         elif event.key == "p":
             event.prevent_default()
             self._paste_task_duplicate("after")
@@ -3133,7 +3534,17 @@ class GtdApp(App[None]):
             self.exit()
 
     def on_list_view_highlighted(self, event: ListView.Highlighted) -> None:
-        """Update the current view when the sidebar selection changes."""
+        """Update the current view when the sidebar selection changes.
+
+        Also updates the split pane when the task-list selection changes.
+        """
+        if event.list_view.id == "task-list":
+            if self._split_active:
+                pane = self.query_one("#split-detail-pane", TaskSplitPane)
+                pane.save_notes()
+                pane.load_task(self._selected_task())
+            return
+
         if event.list_view.id != "sidebar":
             return
         if self._rebuilding_sidebar or self._move_mode:
@@ -3212,6 +3623,8 @@ class GtdApp(App[None]):
             vim.set_placeholder("Waiting On task title...")
         elif self._current_view == "someday":
             vim.set_placeholder("Someday task title...")
+        elif self._current_view == "anytime":
+            vim.set_placeholder("Anytime task title...")
         elif self._current_view == "inbox":
             vim.set_placeholder("Inbox task title...")
         elif self._current_view.startswith("project:"):
@@ -3230,6 +3643,13 @@ class GtdApp(App[None]):
 
     def action_cancel_insert_mode(self) -> None:
         """Priority Esc handler: 2nd Esc=save during task creation; else cancel/close."""
+        # When focus is in the split pane VimInput in INSERT mode, let it handle Escape.
+        if self._focus_in_split_pane():
+            focused = self.screen.focused
+            if isinstance(focused, VimInput) and focused._vim_mode == "insert":
+                focused.set_mode("command")
+            return
+
         if len(self.screen_stack) > 1:
             # A modal is active.  If the focused widget is a VimInput in INSERT
             # sub-mode, let the VimInput handle Escape itself (it will switch to
@@ -3489,7 +3909,7 @@ class GtdApp(App[None]):
                     self._all_tasks, self._pending_title, notes=notes, task_id=new_id
                 )
         elif (
-            self._current_view in ("inbox", "someday", REFERENCE_FOLDER_ID)
+            self._current_view in ("inbox", "anytime", "someday", REFERENCE_FOLDER_ID)
             or self._current_view not in BUILTIN_FOLDER_IDS
         ):
             if self._pending_anchor_id:
@@ -3768,7 +4188,6 @@ class GtdApp(App[None]):
 
         import uuid as _uuid
         from dataclasses import replace as _replace
-        from datetime import datetime as _dt
 
         # The duplicate lands in the anchor's folder (current view), not src's folder.
         target_folder = (
@@ -3804,7 +4223,7 @@ class GtdApp(App[None]):
         dup = _replace(
             src,
             id=new_id,
-            created_at=_dt.now(),
+            created_at=datetime.now(),
             is_deleted=False,
             completed_at=None,
             folder_id=target_folder,
@@ -4465,7 +4884,7 @@ class GtdApp(App[None]):
 
     # Builtin folders that appear in the sidebar above the user-folder section.
     _BEFORE_USER_FOLDERS: frozenset[str] = frozenset(
-        {"inbox", "today", "upcoming", "waiting_on"}
+        {"inbox", "today", "anytime", "upcoming", "waiting_on"}
     )
 
     def _start_create_folder(self, insert_position: str = "end") -> None:
@@ -4938,6 +5357,23 @@ class GtdApp(App[None]):
         self._rebuild_sidebar()
         self._refresh_list()
 
+    def _snooze_selected(self) -> None:
+        """Open the snooze picker for the currently selected task."""
+        task = self._get_selected_task()
+        if task is None or is_divider_task(task):
+            return
+
+        def _on_snooze(until: datetime | None) -> None:
+            if until is None:
+                return
+            self._push_undo()
+            self._all_tasks = snooze_task(self._all_tasks, task.id, until)
+            self._save()
+            self._refresh_list()
+            self._update_status("Snoozed")
+
+        self.push_screen(SnoozePickerScreen(), _on_snooze)
+
     def _purge_logbook_entry(self) -> None:
         """Permanently remove the selected logbook entry (no undo)."""
         task = self._get_selected_task()
@@ -5020,3 +5456,56 @@ class GtdApp(App[None]):
 
     def _redo(self) -> None:
         self._apply_history(self._redo_stack, self._undo_stack, "(nothing to redo)")
+
+    # ------------------------------------------------------------------ #
+    # Split view                                                           #
+    # ------------------------------------------------------------------ #
+
+    def _selected_task(self) -> Task | None:
+        """Return the currently selected task (alias for _get_selected_task)."""
+        return self._get_selected_task()
+
+    def action_toggle_split_view(self) -> None:
+        """Toggle the right-side split-detail pane (bound to \\)."""
+        pane = self.query_one("#split-detail-pane", TaskSplitPane)
+        content = self.query_one("#content", Vertical)
+        if self._split_active:
+            self._split_active = False
+            pane.display = False
+            content.styles.width = "1fr"
+        else:
+            self._split_active = True
+            pane.display = True
+            ratio = self._config.split_ratio
+            left_pct = int(ratio * 100)
+            content.styles.width = f"{left_pct}%"
+            pane.load_task(self._selected_task())
+
+    def _focus_split_pane(self) -> None:
+        """Move focus into the split pane (onto the notes proxy or VimInput)."""
+        pane = self.query_one("#split-detail-pane", TaskSplitPane)
+        proxy = pane.query_one("#split-notes-proxy", MarkdownNotesProxy)
+        vim_inp = pane.query_one("#split-notes-input", VimInput)
+        if proxy.display:
+            proxy.focus()
+        else:
+            vim_inp.focus()
+
+    def on_task_split_pane_notes_saved(self, event: TaskSplitPane.NotesSaved) -> None:
+        """Persist notes edits from the split pane to the task store."""
+        task = next((t for t in self._all_tasks if t.id == event.task_id), None)
+        if task is None:
+            return
+        new_notes = event.notes.strip("\n").rstrip()
+        if new_notes == (task.notes or "").strip("\n").rstrip():
+            return  # no change — skip save
+        self._push_undo()
+        self._all_tasks = edit_task(
+            self._all_tasks, event.task_id, task.title, new_notes
+        )
+        self._save()
+
+    def on_task_split_pane_return_focus(self, event: TaskSplitPane.ReturnFocus) -> None:
+        """Return focus to the task list when the split pane requests it."""
+        list_view = self.query_one("#task-list", ListView)
+        list_view.focus()

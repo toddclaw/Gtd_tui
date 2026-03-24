@@ -973,7 +973,7 @@ Add `gg` (jump to start of text) and `G` (jump to end of text) to VimInput in al
 
 ## Group: GTD feature gaps
 
-### BACKLOG-45 — "Anytime" folder (unscheduled active tasks)
+### BACKLOG-45 — "Anytime" folder (unscheduled active tasks) ✅ DONE
 
 **Story points:** 3
 
@@ -981,12 +981,12 @@ Add `gg` (jump to start of text) and `G` (jump to end of text) to VimInput in al
 The Things app distinguishes between **Anytime** (active, unscheduled tasks) and **Someday** (low-priority, parked). A native Anytime folder makes it clear which work is active but flexible in timing, separate from Someday.
 
 **Acceptance criteria:**
-- [ ] Built-in "Anytime" folder created on app initialization; old `data.json` files without it load with an empty Anytime folder
-- [ ] Anytime appears in the sidebar between Today and Upcoming
-- [ ] `o`/`O` create tasks in Anytime when the Anytime view is active
-- [ ] `m` (move) works correctly to move tasks in/out of Anytime
-- [ ] Sidebar numbering adjusts: `2`=Anytime, `3`=Upcoming, `4`=Waiting On, `5`=Someday
-- [ ] Tests confirm Anytime appears in sidebar order and tasks display correctly
+- [x] Built-in "Anytime" folder created on app initialization; old `data.json` files without it load with an empty Anytime folder
+- [x] Anytime appears in the sidebar between Today and Upcoming
+- [x] `o`/`O` create tasks in Anytime when the Anytime view is active
+- [x] `m` (move) works correctly to move tasks in/out of Anytime
+- [x] Sidebar numbering adjusts: `2`=Anytime, `3`=Upcoming, `4`=Waiting On, `5`=Someday
+- [x] Tests confirm Anytime appears in sidebar order and tasks display correctly
 
 ---
 
@@ -1090,7 +1090,7 @@ Users may want to export their tasks for backup or external processing. Add simp
 
 ---
 
-### BACKLOG-54 — Snooze / Defer task
+### BACKLOG-54 — Snooze / Defer task ✅ DONE
 
 **Story points:** 5
 
@@ -1098,11 +1098,11 @@ Users may want to export their tasks for backup or external processing. Add simp
 "Snooze" temporarily hides a task and re-surfaces it at a later time, without requiring a permanent reschedule.
 
 **Acceptance criteria:**
-- [ ] `Task.snoozed_until: datetime | None = None`; old JSON files load safely
-- [ ] Snoozed tasks are excluded from Today, Upcoming, and search results
-- [ ] `z` keybinding opens a snooze-duration picker (1 hour, 3 hours, tomorrow, 1 week, custom)
-- [ ] On app launch, expired snooze timers are resolved and tasks re-appear in smart views
-- [ ] Snoozed status indicated in task list rows (e.g., `[Snoozed until Thu]`)
+- [x] `Task.snoozed_until: datetime | None = None`; old JSON files load safely
+- [x] Snoozed tasks are excluded from Today, Upcoming, and search results
+- [x] `z` keybinding opens a snooze-duration picker (1 hour, 3 hours, tomorrow, 1 week, custom)
+- [x] On app launch, expired snooze timers are resolved and tasks re-appear in smart views
+- [x] Snoozed status indicated in task list rows (e.g., `[Snoozed until Thu]`)
 
 ---
 
@@ -1516,7 +1516,7 @@ The classic GTD tickler file (43 folders: 31 daily + 12 monthly) surfaces refere
 
 ## Group: TUI / interface gaps
 
-### BACKLOG-78 — Side-by-side split view (task list + detail pane)
+### BACKLOG-78 — Side-by-side split view (task list + detail pane) ✅ DONE
 
 **Story points:** 8
 
@@ -1528,13 +1528,13 @@ Currently the task detail screen is a modal overlay that replaces the task list.
 - Editing in the right pane uses INSERT mode; `h`/`l` switches focus between panes
 
 **Acceptance criteria:**
-- [ ] `\` toggles between split view and the current full-screen layout
-- [ ] Right pane shows title, date, deadline, notes, checklist of the selected task
-- [ ] Moving `j`/`k` in the left pane updates the right pane immediately
-- [ ] `l` transfers focus to the right pane for editing; `h` returns to the task list
-- [ ] Edits in the right pane save on `Esc` or on `h` (leaving the pane)
-- [ ] Split ratio is configurable: `split_ratio = 0.4` (left width fraction) in `config.toml`
-- [ ] Tests cover pane switching, auto-update, and edit-save flow
+- [x] `\` toggles between split view and the current full-screen layout
+- [x] Right pane shows title, date, deadline, notes, checklist of the selected task
+- [x] Moving `j`/`k` in the left pane updates the right pane immediately
+- [x] `l` transfers focus to the right pane for editing; `h` returns to the task list
+- [x] Edits in the right pane save on `Esc` or on `h` (leaving the pane)
+- [x] Split ratio is configurable: `split_ratio = 0.6` (left width fraction) in `config.toml`
+- [x] Tests cover pane switching, auto-update, and edit-save flow
 
 ---
 
@@ -1603,7 +1603,7 @@ Long-form task notes are awkward to write in the inline VimInput widget. Pressin
 
 ---
 
-### BACKLOG-82 — Markdown-rendered notes in detail view
+### BACKLOG-82 — Markdown-rendered notes in detail view ✅ DONE
 
 **Story points:** 5
 
@@ -1615,12 +1615,12 @@ Task notes are stored as plain text but many users naturally write Markdown (hea
 - Toggle with a keybinding or automatic on focus change
 
 **Acceptance criteria:**
-- [ ] Notes displayed using Textual's `Markdown` widget in read mode
-- [ ] Pressing `i`/`a`/`o` on the notes field switches to raw VimInput (INSERT mode)
-- [ ] `Esc` from INSERT mode returns to Markdown rendered view
-- [ ] Markdown rendering supports: headings, bold, italic, bullet lists, code blocks
-- [ ] Fallback: if notes contain no Markdown syntax, rendered output is visually identical to plain text
-- [ ] Tests: notes with Markdown syntax render without error; edit/save round-trip preserves raw text
+- [x] Notes displayed using Textual's `Markdown` widget in read mode
+- [x] Pressing `i`/`a`/`o` on the notes field switches to raw VimInput (INSERT mode)
+- [x] `Esc` from INSERT mode returns to Markdown rendered view
+- [x] Markdown rendering supports: headings, bold, italic, bullet lists, code blocks
+- [x] Fallback: if notes contain no Markdown syntax, rendered output is visually identical to plain text
+- [x] Tests: notes with Markdown syntax render without error; edit/save round-trip preserves raw text
 
 ---
 

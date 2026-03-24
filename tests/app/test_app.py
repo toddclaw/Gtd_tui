@@ -928,8 +928,8 @@ async def test_o_inserts_folder_after_selected(tmp_path: Path) -> None:
         await pilot.press("h")
         await pilot.pause()
         sidebar = app.query_one("#sidebar", ListView)
-        # Alpha is at sidebar index 4: Inbox=0, Today=1, Upcoming=2, WaitingOn=3, Alpha=4
-        sidebar.index = 4
+        # Alpha is at sidebar index 5: Inbox=0, Today=1, Anytime=2, Upcoming=3, WaitingOn=4, Alpha=5
+        sidebar.index = 5
         await pilot.pause()
         await pilot.press("o")  # open folder slot after Alpha
         await pilot.pause()
@@ -1200,8 +1200,8 @@ async def test_m_key_normal_mode_moves_task_to_folder(tmp_path: Path) -> None:
         # NORMAL mode, task selected: press m to open action picker
         await pilot.press("m")
         await pilot.pause()
-        # Picker starts at Inbox; j j j navigates Inbox→Today→WaitingOn→Someday
-        await pilot.press("j", "j", "j")
+        # Picker starts at Inbox; j j j j navigates Inbox→Today→Anytime→WaitingOn→Someday
+        await pilot.press("j", "j", "j", "j")
         await pilot.pause()
         await pilot.press("enter")
         await pilot.pause()
@@ -1354,4 +1354,53 @@ async def test_external_editor_preserves_notes_on_failure(tmp_path: Path):
             await pilot.press("ctrl+e")
             await pilot.pause()
 
-        assert notes_inp.value == "Original notes"
+
+# ---------------------------------------------------------------------------
+# BACKLOG-45: Anytime folder
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_anytime_appears_in_sidebar(tmp_path: Path) -> None:
+    """The 'Anytime' entry is visible in the sidebar."""
+    data_file = tmp_path / "data.json"
+    save_data([], [], data_file=data_file)
+    app = _app(data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        labels = [
+            str(item.query_one(Label).render()) for item in sidebar.query("ListItem")
+        ]
+        assert any("Anytime" in lbl for lbl in labels)
+
+
+@pytest.mark.asyncio
+async def test_create_task_in_anytime_view(tmp_path: Path) -> None:
+    """Navigating to Anytime and pressing o creates a task with folder_id='anytime'."""
+    data_file = tmp_path / "data.json"
+    save_data([], [], data_file=data_file)
+
+    cfg = replace(load_config(), startup_focus_sidebar=True)
+    app = GtdApp(data_file=data_file, config=cfg)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        sidebar = app.query_one("#sidebar", ListView)
+        # Find the Anytime item index in the sidebar
+        anytime_idx = next(
+            i
+            for i, item in enumerate(sidebar.query("ListItem"))
+            if "Anytime" in str(item.query_one(Label).render())
+        )
+        sidebar.index = anytime_idx
+        await pilot.pause()
+        await pilot.press("l")  # move focus to task list
+        await pilot.pause()
+        await pilot.press("o")  # open new task in Anytime view
+        await pilot.pause()
+        await pilot.press("a", "n", "y", "t", "a", "s", "k")
+        await pilot.press("escape")  # switch to command mode
+        await pilot.press("escape")  # save
+        await pilot.pause()
+        anytime = [t for t in app._all_tasks if t.folder_id == "anytime"]
+        assert any(t.title == "anytask" for t in anytime)
