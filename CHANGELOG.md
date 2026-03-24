@@ -7,6 +7,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Vim `J` (join lines):** In multiline VimInput COMMAND mode, pressing `J` joins the current line with the next, separated by a single space. No-op at the last line or in single-line mode.
+- **Ctrl-V paste in INSERT mode:** `ctrl+v` and `ctrl+shift+v` in VimInput INSERT mode paste clipboard content at the cursor via `pyperclip`, falling back to the internal yank register if the clipboard is unavailable.
+
+### Fixed
+- **Yellow theme border color:** The `yellow` theme now uses an explicit `panel` color (`#8A7000`) so sidebar and widget borders render as yellow-grey rather than Textual's default orange-tinted derivation.
+
 ---
 
 ## [1.10.0] — 2026-03-24
