@@ -92,8 +92,8 @@ async def test_project_completed_task_shows_strikethrough(tmp_path: Path) -> Non
     async with app.run_test() as pilot:
         await pilot.pause()
         # Sidebar focused on startup; navigate to project
-        # Order: inbox, today, upcoming, waiting_on, __projects_header__, project
-        for _ in range(4):
+        # Order: inbox, today, anytime, upcoming, waiting_on, __projects_header__, project
+        for _ in range(5):
             await pilot.press("j")
         await pilot.press("l")  # open project
         await pilot.pause()

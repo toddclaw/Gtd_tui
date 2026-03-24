@@ -533,7 +533,7 @@ See [BACKLOG.md](BACKLOG.md) for the full feature backlog.
 
 - **Before editing:** Follow [Before starting work (branch sanity)](#before-starting-work-branch-sanity) — confirm `git branch --show-current`, `git fetch` + `git pull` on the correct branch (especially for release/PR-specific work). Do not assume the workspace is on the right branch.
 - **After substantive work:** Follow [Closing a body of work](#closing-a-body-of-work-reflection-and-follow-up) — reflect, propose a few improvements, let the user pick one to implement next (do not auto-implement suggestions without their choice).
-- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 30, 31, 32, 33, 53, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 78, 81, 82, 100 are **complete**. BACKLOG-23 is pending. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
+- BACKLOG-1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 30, 31, 32, 33, 45, 53, 54, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 78, 81, 82, 100 are **complete**. BACKLOG-23 is pending. The full project structure exists (`pyproject.toml`, `gtd_tui/`, `tests/`). When implementing new features, extend the existing codebase rather than scaffolding from scratch.
 - **TDD is required.** Write tests before or alongside every feature. Do not implement logic without a corresponding test.
 - Always run `pytest` (or suggest it) after adding/modifying Python source files.
 - Prefer **minimal, focused changes** — avoid adding speculative abstractions before the design stabilizes.

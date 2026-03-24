@@ -104,6 +104,7 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         "tags": task.tags,
         "project_id": task.project_id,
         "checklist": [_checklist_item_to_dict(i) for i in task.checklist],
+        "snoozed_until": task.snoozed_until.isoformat() if task.snoozed_until else None,
     }
 
 
@@ -143,6 +144,11 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
         tags=data.get("tags", []),
         project_id=data.get("project_id", None),
         checklist=[_checklist_item_from_dict(i) for i in data.get("checklist", [])],
+        snoozed_until=(
+            datetime.fromisoformat(data["snoozed_until"])
+            if data.get("snoozed_until")
+            else None
+        ),
     )
 
 

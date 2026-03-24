@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -9,6 +9,7 @@ from gtd_tui.gtd.operations import (
     create_folder,
     set_recur_rule,
     set_repeat_rule,
+    snooze_task,
 )
 from gtd_tui.gtd.task import RecurRule, RepeatRule
 from gtd_tui.storage.file import (
@@ -557,3 +558,30 @@ def test_repeat_rule_legacy_no_advanced_fields(tmp_path: Path) -> None:
     assert tasks[0].repeat_rule is not None
     assert tasks[0].repeat_rule.days_of_week == []
     assert tasks[0].repeat_rule.nth_weekday is None
+
+
+# ---------------------------------------------------------------------------
+# snoozed_until round-trip (BACKLOG-54)
+# ---------------------------------------------------------------------------
+
+
+def test_snoozed_until_round_trip_set(tmp_path: Path) -> None:
+    """snoozed_until is preserved across save/load when set to a datetime."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Snoozed task")
+    task_id = tasks[0].id
+    until = datetime(2026, 3, 24, 9, 0, 0)
+    tasks = snooze_task(tasks, task_id, until)
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    loaded_task = next(t for t in loaded if t.id == task_id)
+    assert loaded_task.snoozed_until == until
+
+
+def test_snoozed_until_round_trip_none(tmp_path: Path) -> None:
+    """snoozed_until=None is preserved across save/load."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Normal task")
+    save_tasks(tasks, data_file=data_file)
+    loaded = load_tasks(data_file=data_file)
+    assert loaded[0].snoozed_until is None

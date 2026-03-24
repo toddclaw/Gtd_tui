@@ -253,7 +253,11 @@ def deadline_status(task: Task, as_of: date | None = None) -> tuple[str, str] | 
         return (f"{date_str} — {delta}d left", "ok")
 
 
-def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
+def today_tasks(
+    tasks: list[Task],
+    as_of: date | None = None,
+    snooze_as_of: datetime | None = None,
+) -> list[Task]:
     """Return tasks that should appear in the Today smart view.
 
     Two sources of tasks, matching Things app behaviour:
@@ -261,6 +265,8 @@ def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     2. Tasks from any other non-excluded folder that have a scheduled_date
        on or before today (explicitly scheduled to surface today/overdue).
        Undated tasks in other folders do NOT appear here.
+
+    Snoozed tasks are excluded regardless of their folder.
 
     Sort order: 'today'-folder tasks first (by position), then dated tasks
     from other folders by (scheduled_date, folder_id, position).
@@ -270,6 +276,8 @@ def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     dated_other: list[Task] = []
     for t in tasks:
         if t.folder_id in _EXCLUDED_FROM_SMART_VIEWS:
+            continue
+        if is_snoozed(t, as_of=snooze_as_of):
             continue
         if t.folder_id == "today":
             if t.scheduled_date is None or t.scheduled_date <= ref:
@@ -282,12 +290,18 @@ def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     return today_home + dated_other
 
 
-def upcoming_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
+def upcoming_tasks(
+    tasks: list[Task],
+    as_of: date | None = None,
+    snooze_as_of: datetime | None = None,
+) -> list[Task]:
     """Return tasks that should appear in the Upcoming smart view.
 
     Includes tasks (except 'someday' and 'logbook') that have either:
     - a scheduled_date strictly in the future, OR
     - a repeat_rule whose next_due is strictly in the future.
+
+    Snoozed tasks are excluded regardless of their scheduled date.
 
     Tasks with a repeat rule stay in Today (they are still actionable) and also
     appear here to preview the next scheduled occurrence.  Sorted by the
@@ -305,7 +319,9 @@ def upcoming_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
     result = [
         t
         for t in tasks
-        if t.folder_id not in _EXCLUDED_FROM_SMART_VIEWS and _future_date(t) is not None
+        if t.folder_id not in _EXCLUDED_FROM_SMART_VIEWS
+        and _future_date(t) is not None
+        and not is_snoozed(t, as_of=snooze_as_of)
     ]
     return sorted(result, key=lambda t: (_future_date(t), t.position))
 
@@ -331,6 +347,21 @@ def inbox_tasks(tasks: list[Task]) -> list[Task]:
     """Return tasks in the Inbox folder, sorted by position."""
     return sorted(
         [t for t in tasks if t.folder_id == "inbox"],
+        key=lambda t: t.position,
+    )
+
+
+def anytime_tasks(tasks: list[Task], as_of: datetime | None = None) -> list[Task]:
+    """Return tasks in the Anytime folder, sorted by position.
+
+    Snoozed tasks are excluded so they don't surface in smart views.
+    """
+    return sorted(
+        [
+            t
+            for t in tasks
+            if t.folder_id == "anytime" and not is_snoozed(t, as_of=as_of)
+        ],
         key=lambda t: t.position,
     )
 
@@ -910,7 +941,9 @@ def is_divider_task(task: "Task") -> bool:
     return task.title.strip() in ("-", "=")
 
 
-def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
+def search_tasks(
+    tasks: list[Task], query: str, as_of: datetime | None = None
+) -> list[tuple[Task, str]]:
     """Full-text search across all tasks by title and notes, case-insensitive.
 
     Returns (task, match_type) pairs where match_type is "title" or "notes".
@@ -920,6 +953,7 @@ def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
       2. Logbook tasks: title matches first, then notes matches;
          within each group sorted by recency (most-recently completed first).
     Returns empty list for an empty/whitespace-only query.
+    Snoozed tasks are excluded from results.
     """
     if not query.strip():
         return []
@@ -974,7 +1008,50 @@ def search_tasks(tasks: list[Task], query: str) -> list[tuple[Task, str]]:
             -(r[0].completed_at.timestamp() if r[0].completed_at else 0),
         )
     )
-    return active + logbook_results
+    return [
+        pair
+        for pair in (active + logbook_results)
+        if not is_snoozed(pair[0], as_of=as_of)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Snooze / defer (BACKLOG-54)
+# ---------------------------------------------------------------------------
+
+
+def is_snoozed(task: Task, as_of: datetime | None = None) -> bool:
+    """Return True if the task is currently snoozed (snoozed_until is set and in the future)."""
+    ref = as_of or datetime.now()
+    return task.snoozed_until is not None and task.snoozed_until > ref
+
+
+def snooze_task(tasks: list[Task], task_id: str, until: datetime) -> list[Task]:
+    """Set snoozed_until on the task with the given ID. Returns an updated task list."""
+    return [replace(t, snoozed_until=until) if t.id == task_id else t for t in tasks]
+
+
+def unsnooze_task(tasks: list[Task], task_id: str) -> list[Task]:
+    """Clear snoozed_until on the task with the given ID. Returns an updated task list."""
+    return [replace(t, snoozed_until=None) if t.id == task_id else t for t in tasks]
+
+
+def resolve_expired_snoozes(
+    tasks: list[Task], as_of: datetime | None = None
+) -> list[Task]:
+    """Clear snoozed_until on tasks whose snooze timer has expired.
+
+    Tasks with a future snoozed_until are left untouched.
+    """
+    ref = as_of or datetime.now()
+    return [
+        (
+            replace(t, snoozed_until=None)
+            if t.snoozed_until is not None and t.snoozed_until <= ref
+            else t
+        )
+        for t in tasks
+    ]
 
 
 # ---------------------------------------------------------------------------
