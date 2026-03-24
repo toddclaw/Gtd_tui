@@ -491,12 +491,13 @@ When the user asks to make a release (e.g. "release v1.3.0" or "merge and tag"),
 5. **Merge the pull request** (only after step 2 is green): `gh pr merge <number> --merge --subject "Merge branch '<branch>' — vX.Y.Z"`
    (use `--merge` for a standard merge commit, preserving full history). If you use **`gh pr merge --auto`**, queue it **after** step 2 — never enable auto-merge before the full test suite has passed.
 6. **Checkout main and pull**: `git checkout main && git pull origin main`
-7. **Bump version** in `pyproject.toml`: `version = "X.Y.Z"`
-8. **Commit the version bump**: `git commit -m "Bump version to X.Y.Z"`
-9. **Create annotated tag**: `git tag -a vX.Y.Z HEAD -m "vX.Y.Z — <short summary of changes>"`
-10. **Push main**: `git push origin main`
-11. **Push tags**: `git push origin vX.Y.Z`
-12. **Return to feature branch**: `git checkout <branch>`
+7. **Rename CHANGELOG section**: in `CHANGELOG.md` on `main`, rename `## [Unreleased]` to `## [X.Y.Z] — YYYY-MM-DD` and add a fresh empty `## [Unreleased]` above it. This **must happen before tagging** — the Release CI runs `reorder_changelog_section.py X.Y.Z` and fails with exit code 1 if the section does not exist.
+8. **Bump version** in `pyproject.toml`: `version = "X.Y.Z"`
+9. **Commit both changes**: `git commit -m "Bump version to X.Y.Z"` (include the CHANGELOG rename in the same commit)
+10. **Create annotated tag**: `git tag -a vX.Y.Z HEAD -m "vX.Y.Z — <short summary of changes>"`
+11. **Push main**: `git push origin main`
+12. **Push tags**: `git push origin vX.Y.Z`
+13. **Return to feature branch**: `git checkout <branch>`
 
 GitHub Actions will automatically build the wheel and publish the release once the tag arrives.
 
