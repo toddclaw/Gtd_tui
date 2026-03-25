@@ -424,7 +424,9 @@ class TaskDetailScreen(
     }
 
     #detail-panel {
-        width: 70;
+        width: 90%;
+        max-width: 120;
+        min-width: 60;
         height: 95%;
         background: $surface;
         border: solid $primary;
@@ -1695,6 +1697,7 @@ class TaskSplitPane(Widget):
                 proxy.update_content(notes)
                 proxy.display = True
                 vim_inp.display = False
+                proxy.focus()
             # Save notes whenever we return to command mode
             self.save_notes()
 
@@ -2242,6 +2245,22 @@ class GtdApp(App[None]):
         width: 1fr;
         height: 1fr;
     }
+
+    /* Override modal/picker border color to match configured border_style.
+       $gtd-modal-border is set in get_css_variables() based on border_style.
+       Screens that are shown outside GtdApp (e.g. in tests) fall back to
+       $primary via their own CSS declarations. */
+    #help-scroll,
+    #review-scroll,
+    #detail-panel,
+    #search-panel,
+    #area-picker-panel,
+    #cal-panel,
+    #picker-outer,
+    .picker-dialog,
+    #import-md-dialog {
+        border: solid $gtd-modal-border;
+    }
     """
 
     def __init__(
@@ -2490,6 +2509,17 @@ class GtdApp(App[None]):
                 dark=True,
             )
             variables.update(custom.to_color_system().generate())
+        # $gtd-modal-border: modal/picker border color follows border_style when set to a
+        # named color scheme (red_grey/yellow_grey), otherwise falls back to $primary.
+        _BORDER_STYLE_COLORS: dict[str, str] = {
+            "red_grey": "#C0392B",
+            "yellow_grey": "#D4A017",
+        }
+        border_style = self._config.border_style
+        modal_border = _BORDER_STYLE_COLORS.get(
+            border_style, variables.get("primary", "#0178D4")
+        )
+        variables["gtd-modal-border"] = modal_border
         return variables
 
     def _compose_main_content(self) -> ComposeResult:

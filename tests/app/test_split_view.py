@@ -203,3 +203,98 @@ async def test_notes_saved_on_cursor_change(tmp_path: Path) -> None:
         assert (
             "hello" in first_shown.notes
         ), f"Notes should be saved after editing, got: {first_shown.notes!r} for '{first_shown.title}'"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: notes proxy focus after Esc in split pane
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_split_pane_proxy_focused_after_esc(tmp_path: Path) -> None:
+    """After Esc from INSERT in split pane, proxy should hold focus.
+
+    Bug: on_vim_input_mode_changed in TaskSplitPane was missing proxy.focus(),
+    leaving focus on the now-hidden VimInput.  Subsequent 'i' presses had no
+    effect because the key never reached the pane's on_key handler.
+    """
+    from gtd_tui.app import MarkdownNotesProxy
+    from gtd_tui.widgets.vim_input import VimInput
+
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Some existing notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("backslash")  # open split view
+        await pilot.pause()
+        await pilot.press("l")  # focus split pane
+        await pilot.pause()
+
+        pane = app.query_one("#split-detail-pane", TaskSplitPane)
+        proxy = pane.query_one("#split-notes-proxy", MarkdownNotesProxy)
+
+        # Proxy should be visible (task has notes)
+        assert proxy.display is True
+
+        # Edit notes
+        await pilot.press("i")
+        await pilot.pause()
+
+        vim_inp = pane.query_one("#split-notes-input", VimInput)
+        assert vim_inp.display is True, "VimInput should show in INSERT mode"
+
+        # Esc back to command/markdown view
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert proxy.display is True, "Proxy should be visible after Esc"
+        assert vim_inp.display is False, "VimInput should be hidden after Esc"
+
+        # The proxy must hold focus — this is the regression
+        focused = app.screen.focused
+        assert focused is proxy, f"Proxy should have focus after Esc; got {focused!r}"
+
+
+@pytest.mark.asyncio
+async def test_split_pane_i_works_after_esc(tmp_path: Path) -> None:
+    """Pressing 'i' after Esc in split pane should re-enter edit mode.
+
+    This verifies the full user flow: edit → Esc → edit again.
+    """
+    from gtd_tui.app import MarkdownNotesProxy
+    from gtd_tui.widgets.vim_input import VimInput
+
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Initial notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("backslash")
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+
+        pane = app.query_one("#split-detail-pane", TaskSplitPane)
+        proxy = pane.query_one("#split-notes-proxy", MarkdownNotesProxy)
+        vim_inp = pane.query_one("#split-notes-input", VimInput)
+
+        # First edit cycle
+        await pilot.press("i")
+        await pilot.pause()
+        assert vim_inp.display is True
+        await pilot.press("escape")
+        await pilot.pause()
+        assert proxy.display is True
+
+        # Second i press must work — VimInput must become visible again
+        await pilot.press("i")
+        await pilot.pause()
+        assert (
+            vim_inp.display is True
+        ), "VimInput must reappear on second 'i' press after Esc"
+        assert proxy.display is False

@@ -167,3 +167,105 @@ async def test_esc_from_insert_shows_markdown_again(tmp_path: Path) -> None:
         assert (
             vim_inp.display is False
         ), "VimInput should be hidden after Esc from INSERT mode"
+
+
+@pytest.mark.asyncio
+async def test_proxy_focused_after_esc_from_insert(tmp_path: Path) -> None:
+    """After Esc from INSERT, the proxy should hold focus so 'i' works again."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Some notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TaskDetailScreen)
+
+        proxy = screen.query_one("#detail-notes-proxy", MarkdownNotesProxy)
+
+        # Navigate to the proxy with j/k from title
+        proxy.focus()
+        await pilot.pause()
+
+        # Switch to edit mode
+        await pilot.press("i")
+        await pilot.pause()
+
+        # Esc back to command/markdown view
+        await pilot.press("escape")
+        await pilot.pause()
+
+        # The proxy should now hold focus so the user can press i again
+        assert (
+            screen.focused is proxy
+        ), "Proxy should have focus after Esc — otherwise 'i' to re-edit is broken"
+
+
+@pytest.mark.asyncio
+async def test_i_on_proxy_works_second_time(tmp_path: Path) -> None:
+    """Pressing 'i' on the proxy, then Esc, then 'i' again must open edit mode each time."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Original notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TaskDetailScreen)
+
+        proxy = screen.query_one("#detail-notes-proxy", MarkdownNotesProxy)
+        vim_inp = screen.query_one("#detail-notes-input", VimInput)
+
+        # First round: i → edit → Esc → back to proxy
+        proxy.focus()
+        await pilot.pause()
+        await pilot.press("i")
+        await pilot.pause()
+        assert vim_inp.display is True, "VimInput must show on first i"
+        await pilot.press("escape")
+        await pilot.pause()
+        assert proxy.display is True, "Proxy must show after first Esc"
+
+        # Second round: i must open edit mode again
+        await pilot.press("i")
+        await pilot.pause()
+        assert vim_inp.display is True, "VimInput must show on second i"
+        assert proxy.display is False, "Proxy must be hidden on second i"
+
+
+@pytest.mark.asyncio
+async def test_j_navigation_skips_hidden_notes_vim_input(tmp_path: Path) -> None:
+    """j/k from deadline field should land on the proxy (not the hidden VimInput)."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Some notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TaskDetailScreen)
+
+        proxy = screen.query_one("#detail-notes-proxy", MarkdownNotesProxy)
+
+        # Focus the deadline input, then press j — next focusable should be the proxy
+        deadline_inp = screen.query_one("#detail-deadline-input", VimInput)
+        deadline_inp.focus()
+        await pilot.pause()
+        await pilot.press("j")
+        await pilot.pause()
+
+        assert (
+            screen.focused is proxy
+        ), "j from deadline should land on the notes proxy, not the hidden VimInput"
