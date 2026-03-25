@@ -7,12 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.11.0] — 2026-03-25
+
 ### Added
 - **Vim `J` (join lines):** In multiline VimInput COMMAND mode, pressing `J` joins the current line with the next, separated by a single space. No-op at the last line or in single-line mode.
 - **Ctrl-V paste in INSERT mode:** `ctrl+v` and `ctrl+shift+v` in VimInput INSERT mode paste clipboard content at the cursor via `pyperclip`, falling back to the internal yank register if the clipboard is unavailable.
-- **Import tasks from Markdown checkbox list**: `--import tasks.md` (CLI) or `Ctrl+I` (TUI) reads `- [ ] task` / `- [x] done` lines into a target folder. `--import-folder FOLDER` sets the destination (default: inbox). Indented lines after a task become notes. Completed tasks get `completed_at = now()`.
-- **Vim-style cut-paste for tasks (`d`/`p`/`P`)**: `d` in normal mode (or visual `d` on a block) cuts the task(s) into a `_cut_register`. `p`/`P` pastes cut tasks below/above the cursor in the current folder — including cross-folder moves. Undo after `d` restores the task and clears the register. `y`/`p` still duplicates (unchanged).
-- **i18n — full translation of all UI strings**: JSON locale files under `gtd_tui/i18n/locales/` for en, es, fr, de, zh, ja, ru. `language = "en"` in `[ui]` of `config.toml` selects the active locale. All status messages, folder labels, mode indicators, and modal text go through `t("key")`.
+- **BACKLOG-101 — Import tasks from Markdown checkbox list**: `--import tasks.md` (CLI) or `Ctrl+I` (TUI) reads `- [ ] task` / `- [x] done` lines into a target folder. `--import-folder FOLDER` sets the destination (default: inbox). Indented lines after a task become notes. Completed tasks get `completed_at = now()`.
+- **BACKLOG-102 — Vim-style cut-paste for tasks (`d`/`p`/`P`)**: `d` in normal mode (or visual `d` on a block) cuts the task(s) into a `_cut_register`. `p`/`P` pastes cut tasks below/above the cursor in the current folder — including cross-folder moves. Undo after `d` restores the task and clears the register. `y`/`p` still duplicates (unchanged).
+- **BACKLOG-103 — i18n — full translation of all UI strings**: JSON locale files under `gtd_tui/i18n/locales/` for en, es, fr, de, zh, ja, ru. `language = "en"` in `[ui]` of `config.toml` selects the active locale. All status messages, folder labels, mode indicators, and modal text go through `t("key")`.
 
 ### Fixed
 - **Yellow theme border color:** The `yellow` theme now uses an explicit `panel` color (`#8A7000`) so sidebar and widget borders render as yellow-grey rather than Textual's default orange-tinted derivation.
