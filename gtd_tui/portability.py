@@ -6,7 +6,9 @@ Supported export formats:
   csv  — columns: folder, title, scheduled_date, deadline, notes
   md   — markdown with folder headings and task bullet lists
 
-Only JSON import is supported because the other formats are lossy.
+Import formats:
+  json — lossless round-trip from export_json
+  md   — markdown checkbox list (- [ ] title / - [x] title)
 """
 
 from __future__ import annotations
@@ -14,6 +16,9 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -181,3 +186,68 @@ def import_json(
     save_data(merged_tasks, merged_folders, data_file, password=password)
 
     return len(new_tasks), len(new_folders)
+
+
+# ---------------------------------------------------------------------------
+# Import from Markdown checkbox list
+# ---------------------------------------------------------------------------
+
+_CHECKBOX_RE = re.compile(r"^- \[([ xX])\] (.+)$")
+_INDENT_RE = re.compile(r"^(?:  +|\t)(.*)$")
+
+
+def import_md(
+    text: str,
+    target_folder_id: str = "inbox",
+) -> list[Task]:
+    """Parse a markdown checkbox list and return new Task objects.
+
+    Accepted lines::
+
+        - [ ] Task title  → active task
+        - [x] Task title  → completed task (completed_at = now)
+
+    Indented lines (2+ spaces or a tab) immediately after a task append to
+    that task's ``notes`` field.  All other lines (headings, blank lines,
+    plain text) are ignored.
+
+    Args:
+        text: Raw markdown text to parse.
+        target_folder_id: ``folder_id`` assigned to every returned task.
+
+    Returns:
+        A list of :class:`~gtd_tui.gtd.task.Task` objects in parse order.
+        Caller is responsible for merging them into the active task store.
+    """
+    tasks: list[Task] = []
+    current_task: Task | None = None
+
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+
+        checkbox_match = _CHECKBOX_RE.match(line)
+        if checkbox_match:
+            mark, title = checkbox_match.group(1), checkbox_match.group(2)
+            completed_at = datetime.now() if mark.lower() == "x" else None
+            current_task = Task(
+                title=title.strip(),
+                id=str(uuid.uuid4()),
+                folder_id=target_folder_id,
+                position=len(tasks),
+                completed_at=completed_at,
+            )
+            tasks.append(current_task)
+            continue
+
+        if current_task is not None:
+            indent_match = _INDENT_RE.match(line)
+            if indent_match:
+                note_line = indent_match.group(1)
+                existing = current_task.notes or ""
+                current_task.notes = (existing + "\n" + note_line).lstrip("\n")
+                continue
+
+        # Non-indented, non-checkbox line — reset the note-accumulation anchor.
+        current_task = None
+
+    return tasks

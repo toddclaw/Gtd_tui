@@ -1,0 +1,63 @@
+{
+  "inbox": "Eingang",
+  "today": "Heute",
+  "anytime": "Jederzeit",
+  "upcoming": "Demnächst",
+  "waiting_on": "Warte auf",
+  "someday": "Irgendwann",
+  "logbook": "Protokoll",
+  "reference": "Referenz",
+  "projects_header": "── Projekte ──",
+  "tags_header": "── Tags ──",
+
+  "mode_normal": "NORMAL",
+  "mode_insert": "EINGABE",
+  "mode_visual": "VISUELL ({n})",
+
+  "status_bar": "{mode}  |  {view_name}{suffix}",
+  "auto_quit_warning": "(automatisch beenden in {remaining}m)",
+  "tmux_tip": "tmux erkannt — für schnelleres Esc: set-environment -g ESCDELAY 25 in ~/.tmux.conf",
+
+  "yanked_to_clipboard": "(in Zwischenablage kopiert)",
+  "clipboard_not_available": "(Zwischenablage nicht verfügbar)",
+  "task_duplicated": "(Aufgabe dupliziert)",
+  "no_task_yanked": "(keine Aufgabe kopiert — zuerst y drücken)",
+  "snoozed": "Verschoben",
+  "invalid_date": "(ungültiges Datum)",
+  "unknown_command": "(unbekannter Befehl: {cmd})",
+  "cannot_move_to_upcoming": "(Verschieben nach Demnächst nicht möglich — 's' zum Planen eines Datums verwenden)",
+  "assigned_to_project": "(Projekt zugewiesen)",
+  "tag_added": "(Tag '{tag}' hinzugefügt)",
+  "no_areas_defined": "(keine Bereiche definiert — A drücken, um einen zu erstellen)",
+  "cannot_rename_builtin_folder": "(integrierte Ordner können nicht umbenannt werden)",
+  "cannot_delete_builtin_folder": "(integrierte Ordner können nicht gelöscht werden)",
+  "task_cut_single": "(1 Aufgabe ausgeschnitten — p/P zum Einfügen drücken)",
+  "task_cut_multiple": "({n} Aufgabe(n) ausgeschnitten — p/P zum Einfügen drücken)",
+  "tasks_pasted": "({n} Aufgabe(n) eingefügt)",
+  "no_tasks_found_in_file": "(keine Aufgaben in der Datei gefunden)",
+  "imported_tasks": "({count} Aufgaben importiert: {active} aktiv, {completed} abgeschlossen → {folder})",
+
+  "rename_hint": "Umbenennen: Enter zum Speichern, Esc Esc zum Speichern (Esc → Befehlsmodus)",
+  "command_prefix": ":",
+
+  "empty_hint": "Keine Aufgaben — o drücken, um eine hinzuzufügen",
+
+  "snooze_until": "Zurückstellen bis…",
+  "snooze_1hour": "1 Stunde",
+  "snooze_3hours": "3 Stunden",
+  "snooze_tomorrow_9am": "Morgen 9 Uhr",
+  "snooze_1week": "1 Woche",
+
+  "import_md_title": "Aufgaben aus Markdown importieren",
+  "import_md_path_label": "Dateipfad (.md):",
+  "import_md_folder_label": "Zielordner:",
+  "import_md_file_not_found": "Datei nicht gefunden: {path}",
+
+  "help_title": "Navigation",
+  "weekly_review_no_tasks": "[dim]In den letzten 7 Tagen wurden keine Aufgaben abgeschlossen.[/dim]",
+  "weekly_review_header": "[bold]In den letzten 7 Tagen abgeschlossen ({count})[/bold]",
+
+  "delete_folder_confirm_prompt": "(d = alle Aufgaben löschen, m = Aufgaben in Eingang verschieben, Esc = abbrechen)",
+  "delete_project_confirm_prompt": "(d = alle Aufgaben löschen, k = Aufgaben ohne Verknüpfung behalten, Esc = abbrechen)",
+  "delete_area_confirm_prompt": "(d = Bereichslöschung bestätigen, Esc = abbrechen)"
+}

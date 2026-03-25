@@ -1,0 +1,63 @@
+{
+  "inbox": "受信トレイ",
+  "today": "今日",
+  "anytime": "いつでも",
+  "upcoming": "近日中",
+  "waiting_on": "待ち中",
+  "someday": "いつか",
+  "logbook": "ログ",
+  "reference": "参照",
+  "projects_header": "── プロジェクト ──",
+  "tags_header": "── タグ ──",
+
+  "mode_normal": "ノーマル",
+  "mode_insert": "挿入",
+  "mode_visual": "ビジュアル ({n})",
+
+  "status_bar": "{mode}  |  {view_name}{suffix}",
+  "auto_quit_warning": "（{remaining}分後に自動終了）",
+  "tmux_tip": "tmux を検出 — Esc を高速化する方法: ~/.tmux.conf に set-environment -g ESCDELAY 25 を追加",
+
+  "yanked_to_clipboard": "（クリップボードにコピーしました）",
+  "clipboard_not_available": "（クリップボードは利用できません）",
+  "task_duplicated": "（タスクを複製しました）",
+  "no_task_yanked": "（タスクがコピーされていません — 先に y を押してください）",
+  "snoozed": "スヌーズ",
+  "invalid_date": "（無効な日付）",
+  "unknown_command": "（不明なコマンド: {cmd}）",
+  "cannot_move_to_upcoming": "（近日中には移動できません — 日付を設定するには 's' を使用してください）",
+  "assigned_to_project": "（プロジェクトに割り当てました）",
+  "tag_added": "（タグ '{tag}' を追加しました）",
+  "no_areas_defined": "（エリアが定義されていません — A を押して作成してください）",
+  "cannot_rename_builtin_folder": "（組み込みフォルダはリネームできません）",
+  "cannot_delete_builtin_folder": "（組み込みフォルダは削除できません）",
+  "task_cut_single": "（1件のタスクを切り取りました — p/P で貼り付けてください）",
+  "task_cut_multiple": "（{n}件のタスクを切り取りました — p/P で貼り付けてください）",
+  "tasks_pasted": "（{n}件のタスクを貼り付けました）",
+  "no_tasks_found_in_file": "（ファイルにタスクが見つかりません）",
+  "imported_tasks": "（{count}件のタスクをインポートしました: {active}件アクティブ, {completed}件完了 → {folder}）",
+
+  "rename_hint": "リネーム: Enter で保存, Esc Esc で保存 (Esc → コマンドモード)",
+  "command_prefix": "：",
+
+  "empty_hint": "タスクなし — o を押して追加",
+
+  "snooze_until": "スヌーズ期限…",
+  "snooze_1hour": "1時間",
+  "snooze_3hours": "3時間",
+  "snooze_tomorrow_9am": "明日午前9時",
+  "snooze_1week": "1週間",
+
+  "import_md_title": "Markdown からタスクをインポート",
+  "import_md_path_label": "ファイルパス (.md):",
+  "import_md_folder_label": "対象フォルダ:",
+  "import_md_file_not_found": "ファイルが見つかりません: {path}",
+
+  "help_title": "ナビゲーション",
+  "weekly_review_no_tasks": "[dim]過去7日間に完了したタスクはありません。[/dim]",
+  "weekly_review_header": "[bold]過去7日間の完了タスク ({count})[/bold]",
+
+  "delete_folder_confirm_prompt": "(d = すべてのタスクを削除, m = 受信トレイに移動, Esc = キャンセル)",
+  "delete_project_confirm_prompt": "(d = すべてのタスクを削除, k = リンクなしで保持, Esc = キャンセル)",
+  "delete_area_confirm_prompt": "(d = エリア削除を確認, Esc = キャンセル)"
+}

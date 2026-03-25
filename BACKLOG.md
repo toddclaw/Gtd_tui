@@ -2063,3 +2063,73 @@ class RecurRule:  # same new fields
 - [x] Storage round-trip for all new fields (`days_of_week`, `nth_weekday`) in both RepeatRule and RecurRule
 - [x] Unit tests for: parser (all new patterns), advance functions (weekday cycle, nth-weekday roll-over to next month), `spawn_repeating_tasks` with a weekday rule, `complete_task` with a weekday recur rule
 - [x] All existing repeat/recur tests still pass
+
+---
+
+### BACKLOG-101 — Import tasks from Markdown checkbox list ✅ DONE
+
+**Story points:** 5
+
+**Problem:** No way to bulk-import tasks from a `.md` file (e.g. from another tool, brain-dump, or AI-generated list).
+
+**Implementation:**
+- `portability.import_md(text, target_folder_id)` parses `- [ ] title` / `- [x] title` lines; indented lines → notes; completed get `completed_at = now()`
+- CLI: `gtd-tui --import tasks.md [--import-folder FOLDER]` auto-detects `.md` extension
+- TUI: `Ctrl+I` opens `ImportMdScreen` modal (file path + folder picker)
+- Status message: `imported N tasks: M active, K completed → folder`
+
+**Acceptance criteria:**
+- [x] `import_md()` parses `[ ]` as active and `[x]` as completed tasks
+- [x] Indented lines after a task become notes
+- [x] Headings and non-checkbox lines are ignored
+- [x] CLI `--import tasks.md` routes to `_cmd_import_md()`; `--import-folder` sets destination
+- [x] TUI `Ctrl+I` opens `ImportMdScreen`; imported tasks merge into task list and persist
+- [x] Unit tests in `tests/test_portability.py`; integration tests in `tests/app/test_import.py`
+
+---
+
+### BACKLOG-102 — Vim-style cut-paste for tasks (d/p/P) ✅ DONE
+
+**Story points:** 5
+
+**Problem:** `y`/`p` duplicates tasks; there is no way to *move* a task to another position or folder via keyboard cut-paste.
+
+**Implementation:**
+- `d` (normal) and visual `d` cut task(s) into `_cut_register` (separate from `_task_register` used by `y`)
+- `p`/`P` paste cut tasks below/above cursor in the current view, updating `folder_id` and `position`
+- Undo after `d` restores the task and clears `_cut_register`
+- `y`/`p` (duplicate) is unchanged; `_cut_register` only set by `d`
+
+**Acceptance criteria:**
+- [x] `d` populates `_cut_register` with the deleted task
+- [x] `p` after `d` moves the task below cursor position; `P` moves above
+- [x] Cross-folder paste updates `folder_id` to the current view's folder
+- [x] Visual `d` puts all selected tasks into `_cut_register`
+- [x] Undo after `d` restores task and clears register
+- [x] `y`/`p` still creates a duplicate; `_cut_register` stays empty
+- [x] Integration tests in `tests/app/test_cutpaste.py`
+
+---
+
+### BACKLOG-103 — i18n: Full translation of all UI strings ✅ DONE
+
+**Story points:** 8
+
+**Problem:** All UI strings are hardcoded in English with no way to use another language.
+
+**Implementation:**
+- `gtd_tui/i18n/__init__.py` — `t(key, **kwargs)` and `set_language(lang)` helpers
+- `gtd_tui/i18n/locales/en.json` — ~200 English strings (source of truth)
+- Locale files for es, fr, de, zh, ja, ru
+- `Config.language = "en"`; `save_default_config()` adds commented `# language = "en"` in `[ui]`
+- All hardcoded strings in `app.py` replaced with `t("key")` calls
+- `GtdApp.on_mount()` calls `set_language(self._config.language)`
+
+**Acceptance criteria:**
+- [x] `t("key")` returns English for unknown keys (fallback to key itself)
+- [x] `set_language("es")` loads Spanish translations
+- [x] Missing keys in a locale fall back to English
+- [x] Unknown language code falls back to English
+- [x] All 7 locale files have core sidebar keys (inbox, today, anytime, upcoming, someday, logbook)
+- [x] Parameterised strings (`mode_visual`, `imported_tasks`, etc.) interpolate correctly
+- [x] `tests/test_i18n.py` covers all above behaviours

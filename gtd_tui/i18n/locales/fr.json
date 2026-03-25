@@ -1,0 +1,63 @@
+{
+  "inbox": "Boîte de réception",
+  "today": "Aujourd'hui",
+  "anytime": "N'importe quand",
+  "upcoming": "À venir",
+  "waiting_on": "En attente de",
+  "someday": "Un jour",
+  "logbook": "Journal",
+  "reference": "Référence",
+  "projects_header": "── Projets ──",
+  "tags_header": "── Étiquettes ──",
+
+  "mode_normal": "NORMAL",
+  "mode_insert": "INSERTION",
+  "mode_visual": "VISUEL ({n})",
+
+  "status_bar": "{mode}  |  {view_name}{suffix}",
+  "auto_quit_warning": "(fermeture automatique dans {remaining}m)",
+  "tmux_tip": "tmux détecté — pour un Esc plus rapide : set-environment -g ESCDELAY 25 dans ~/.tmux.conf",
+
+  "yanked_to_clipboard": "(copié dans le presse-papiers)",
+  "clipboard_not_available": "(presse-papiers non disponible)",
+  "task_duplicated": "(tâche dupliquée)",
+  "no_task_yanked": "(aucune tâche copiée — appuyez d'abord sur y)",
+  "snoozed": "Reporté",
+  "invalid_date": "(date invalide)",
+  "unknown_command": "(commande inconnue : {cmd})",
+  "cannot_move_to_upcoming": "(impossible de déplacer vers À venir — utilisez 's' pour planifier une date)",
+  "assigned_to_project": "(assigné au projet)",
+  "tag_added": "(étiquette '{tag}' ajoutée)",
+  "no_areas_defined": "(aucune zone définie — appuyez sur A pour en créer une)",
+  "cannot_rename_builtin_folder": "(impossible de renommer les dossiers intégrés)",
+  "cannot_delete_builtin_folder": "(impossible de supprimer les dossiers intégrés)",
+  "task_cut_single": "(1 tâche coupée — appuyez sur p/P pour coller)",
+  "task_cut_multiple": "({n} tâche(s) coupée(s) — appuyez sur p/P pour coller)",
+  "tasks_pasted": "({n} tâche(s) collée(s))",
+  "no_tasks_found_in_file": "(aucune tâche trouvée dans le fichier)",
+  "imported_tasks": "({count} tâches importées : {active} actives, {completed} terminées → {folder})",
+
+  "rename_hint": "Renommer : Entrée pour sauvegarder, Esc Esc pour sauvegarder (Esc → mode commande)",
+  "command_prefix": ":",
+
+  "empty_hint": "Aucune tâche — appuyez sur o pour en ajouter une",
+
+  "snooze_until": "Reporter jusqu'à…",
+  "snooze_1hour": "1 heure",
+  "snooze_3hours": "3 heures",
+  "snooze_tomorrow_9am": "Demain 9h",
+  "snooze_1week": "1 semaine",
+
+  "import_md_title": "Importer des tâches depuis Markdown",
+  "import_md_path_label": "Chemin du fichier (.md) :",
+  "import_md_folder_label": "Dossier cible :",
+  "import_md_file_not_found": "Fichier introuvable : {path}",
+
+  "help_title": "Navigation",
+  "weekly_review_no_tasks": "[dim]Aucune tâche complétée dans les 7 derniers jours.[/dim]",
+  "weekly_review_header": "[bold]Complétées dans les 7 derniers jours ({count})[/bold]",
+
+  "delete_folder_confirm_prompt": "(d = supprimer toutes les tâches, m = déplacer vers la boîte de réception, Esc = annuler)",
+  "delete_project_confirm_prompt": "(d = supprimer toutes les tâches, k = conserver les tâches non liées, Esc = annuler)",
+  "delete_area_confirm_prompt": "(d = confirmer la suppression de la zone, Esc = annuler)"
+}

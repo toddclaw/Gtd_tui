@@ -1,0 +1,63 @@
+{
+  "inbox": "Entrada",
+  "today": "Hoy",
+  "anytime": "En cualquier momento",
+  "upcoming": "Próximamente",
+  "waiting_on": "Esperando",
+  "someday": "Algún día",
+  "logbook": "Registro",
+  "reference": "Referencia",
+  "projects_header": "── Proyectos ──",
+  "tags_header": "── Etiquetas ──",
+
+  "mode_normal": "NORMAL",
+  "mode_insert": "INSERTAR",
+  "mode_visual": "VISUAL ({n})",
+
+  "status_bar": "{mode}  |  {view_name}{suffix}",
+  "auto_quit_warning": "(cierre automático en {remaining}m)",
+  "tmux_tip": "tmux detectado — para Esc más rápido: set-environment -g ESCDELAY 25 en ~/.tmux.conf",
+
+  "yanked_to_clipboard": "(copiado al portapapeles)",
+  "clipboard_not_available": "(portapapeles no disponible)",
+  "task_duplicated": "(tarea duplicada)",
+  "no_task_yanked": "(ninguna tarea copiada — pulse y primero)",
+  "snoozed": "Pospuesto",
+  "invalid_date": "(fecha inválida)",
+  "unknown_command": "(comando desconocido: {cmd})",
+  "cannot_move_to_upcoming": "(no se puede mover a Próximamente — use 's' para programar una fecha)",
+  "assigned_to_project": "(asignado al proyecto)",
+  "tag_added": "(etiqueta '{tag}' añadida)",
+  "no_areas_defined": "(sin áreas definidas — pulse A para crear una)",
+  "cannot_rename_builtin_folder": "(no se pueden renombrar carpetas integradas)",
+  "cannot_delete_builtin_folder": "(no se pueden eliminar carpetas integradas)",
+  "task_cut_single": "(1 tarea cortada — pulse p/P para pegar)",
+  "task_cut_multiple": "({n} tarea(s) cortada(s) — pulse p/P para pegar)",
+  "tasks_pasted": "(pegadas {n} tarea(s))",
+  "no_tasks_found_in_file": "(no se encontraron tareas en el archivo)",
+  "imported_tasks": "(importadas {count} tareas: {active} activas, {completed} completadas → {folder})",
+
+  "rename_hint": "Renombrar: Enter para guardar, Esc Esc para guardar (Esc → modo comando)",
+  "command_prefix": ":",
+
+  "empty_hint": "Sin tareas — pulse o para añadir una",
+
+  "snooze_until": "Posponer hasta…",
+  "snooze_1hour": "1 hora",
+  "snooze_3hours": "3 horas",
+  "snooze_tomorrow_9am": "Mañana 9 am",
+  "snooze_1week": "1 semana",
+
+  "import_md_title": "Importar tareas desde Markdown",
+  "import_md_path_label": "Ruta del archivo (.md):",
+  "import_md_folder_label": "Carpeta de destino:",
+  "import_md_file_not_found": "Archivo no encontrado: {path}",
+
+  "help_title": "Navegación",
+  "weekly_review_no_tasks": "[dim]No se completaron tareas en los últimos 7 días.[/dim]",
+  "weekly_review_header": "[bold]Completadas en los últimos 7 días ({count})[/bold]",
+
+  "delete_folder_confirm_prompt": "(d = eliminar todas las tareas, m = mover tareas a entrada, Esc = cancelar)",
+  "delete_project_confirm_prompt": "(d = eliminar todas las tareas, k = conservar tareas sin vincular, Esc = cancelar)",
+  "delete_area_confirm_prompt": "(d = confirmar eliminación de área, Esc = cancelar)"
+}
