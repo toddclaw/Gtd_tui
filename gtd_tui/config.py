@@ -114,6 +114,7 @@ class Config:
     border_block_size: int = 3
     border_text: str = ""
     split_ratio: float = 0.6
+    language: str = "en"
     counts: SidebarCountsConfig = field(default_factory=SidebarCountsConfig)
     backup: BackupConfig = field(default_factory=BackupConfig)
     text: TextEditConfig = field(default_factory=TextEditConfig)
@@ -167,6 +168,8 @@ def _ensure_config_defaults(path: Path, raw: dict) -> None:
         ui_lines.append('border_text = ""\n')
     if not _has_key("split_ratio"):
         ui_lines.append("# split_ratio = 0.6\n")
+    if not _has_key("language"):
+        ui_lines.append('# language = "en"  # en, es, fr, de, zh, ja, ru\n')
     if ui_lines:
         if "ui" not in raw:
             missing.append("\n[ui]\n")
@@ -409,6 +412,7 @@ def load_config(path: Path | None = None) -> Config:
         ),
         border_text=str(ui_section.get("border_text", Config.border_text)),
         split_ratio=float(ui_section.get("split_ratio", Config.split_ratio)),
+        language=str(ui_section.get("language", Config.language)),
         counts=counts,
         backup=backup,
         text=text,
@@ -455,6 +459,9 @@ border_text = ""
 
 # Left-pane width fraction when split view is toggled with \\.
 # split_ratio = 0.6
+
+# UI language. Supported: en, es, fr, de, zh, ja, ru
+# language = "en"
 
 [sidebar_counts]
 # Set any entry to false to hide counts for that section.

@@ -18,6 +18,7 @@ from gtd_tui.portability import (
     export_md,
     export_txt,
     import_json,
+    import_md,
 )
 from gtd_tui.storage.file import save_data
 
@@ -393,3 +394,100 @@ def test_json_round_trip_preserves_task_fields(tmp_path: Path) -> None:
     assert rt.notes == "Important note"
     assert rt.scheduled_date == date(2025, 7, 4)
     assert rt.deadline == date(2025, 12, 31)
+
+
+# ---------------------------------------------------------------------------
+# import_md
+# ---------------------------------------------------------------------------
+
+
+def test_import_md_basic() -> None:
+    text = "- [ ] Task one\n- [ ] Task two"
+    tasks = import_md(text)
+    assert len(tasks) == 2
+    assert tasks[0].title == "Task one"
+    assert tasks[1].title == "Task two"
+    assert all(t.folder_id == "inbox" for t in tasks)
+    assert all(t.completed_at is None for t in tasks)
+
+
+def test_import_md_completed() -> None:
+    text = "- [x] Done task"
+    tasks = import_md(text)
+    assert len(tasks) == 1
+    assert tasks[0].completed_at is not None
+
+
+def test_import_md_completed_uppercase_x() -> None:
+    text = "- [X] Done task uppercase"
+    tasks = import_md(text)
+    assert len(tasks) == 1
+    assert tasks[0].completed_at is not None
+
+
+def test_import_md_mixed() -> None:
+    text = "- [ ] Active one\n- [x] Completed\n- [ ] Active two"
+    tasks = import_md(text)
+    assert len(tasks) == 3
+    assert tasks[0].completed_at is None
+    assert tasks[1].completed_at is not None
+    assert tasks[2].completed_at is None
+
+
+def test_import_md_ignores_non_checklist() -> None:
+    text = "## Heading\n\n- [ ] Real task\n\nJust some text\n\n- [ ] Another task"
+    tasks = import_md(text)
+    assert len(tasks) == 2
+    assert tasks[0].title == "Real task"
+    assert tasks[1].title == "Another task"
+
+
+def test_import_md_indented_notes_spaces() -> None:
+    text = "- [ ] My task\n  This is a note\n  Second line"
+    tasks = import_md(text)
+    assert len(tasks) == 1
+    assert "This is a note" in tasks[0].notes
+    assert "Second line" in tasks[0].notes
+
+
+def test_import_md_indented_notes_tab() -> None:
+    text = "- [ ] My task\n\tTab-indented note"
+    tasks = import_md(text)
+    assert len(tasks) == 1
+    assert "Tab-indented note" in tasks[0].notes
+
+
+def test_import_md_target_folder() -> None:
+    text = "- [ ] Task A\n- [ ] Task B"
+    tasks = import_md(text, target_folder_id="today")
+    assert all(t.folder_id == "today" for t in tasks)
+
+
+def test_import_md_positions_are_sequential() -> None:
+    text = "- [ ] First\n- [ ] Second\n- [ ] Third"
+    tasks = import_md(text)
+    assert [t.position for t in tasks] == [0, 1, 2]
+
+
+def test_import_md_each_task_gets_unique_id() -> None:
+    text = "- [ ] Task A\n- [ ] Task B"
+    tasks = import_md(text)
+    assert tasks[0].id != tasks[1].id
+
+
+def test_import_md_empty_text_returns_empty_list() -> None:
+    assert import_md("") == []
+
+
+def test_import_md_only_headings_returns_empty_list() -> None:
+    assert import_md("## Section\n\n### Sub\n") == []
+
+
+def test_import_md_note_not_attached_across_blank_line() -> None:
+    """A blank line between task and indented text should break note attachment."""
+    text = "- [ ] Task\n\n  Not a note (blank line breaks context)"
+    tasks = import_md(text)
+    assert len(tasks) == 1
+    # The indented line is separated by a blank non-indented line,
+    # so the blank line resets current_task and the indented line is not a note.
+    assert tasks[0].notes == ""

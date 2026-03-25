@@ -1,0 +1,63 @@
+{
+  "inbox": "Входящие",
+  "today": "Сегодня",
+  "anytime": "В любое время",
+  "upcoming": "Предстоящие",
+  "waiting_on": "Ожидает",
+  "someday": "Когда-нибудь",
+  "logbook": "Журнал",
+  "reference": "Справка",
+  "projects_header": "── Проекты ──",
+  "tags_header": "── Метки ──",
+
+  "mode_normal": "НОРМАЛЬНЫЙ",
+  "mode_insert": "ВСТАВКА",
+  "mode_visual": "ВИЗУАЛЬНЫЙ ({n})",
+
+  "status_bar": "{mode}  |  {view_name}{suffix}",
+  "auto_quit_warning": "(автовыход через {remaining}м)",
+  "tmux_tip": "Обнаружен tmux — для более быстрого Esc: set-environment -g ESCDELAY 25 в ~/.tmux.conf",
+
+  "yanked_to_clipboard": "(скопировано в буфер обмена)",
+  "clipboard_not_available": "(буфер обмена недоступен)",
+  "task_duplicated": "(задача продублирована)",
+  "no_task_yanked": "(задача не скопирована — сначала нажмите y)",
+  "snoozed": "Отложено",
+  "invalid_date": "(неверная дата)",
+  "unknown_command": "(неизвестная команда: {cmd})",
+  "cannot_move_to_upcoming": "(нельзя переместить в Предстоящие — используйте 's' для планирования даты)",
+  "assigned_to_project": "(назначено в проект)",
+  "tag_added": "(метка '{tag}' добавлена)",
+  "no_areas_defined": "(области не определены — нажмите A для создания)",
+  "cannot_rename_builtin_folder": "(нельзя переименовать встроенные папки)",
+  "cannot_delete_builtin_folder": "(нельзя удалить встроенные папки)",
+  "task_cut_single": "(1 задача вырезана — нажмите p/P для вставки)",
+  "task_cut_multiple": "({n} задача(и) вырезана(ы) — нажмите p/P для вставки)",
+  "tasks_pasted": "({n} задача(и) вставлена(ы))",
+  "no_tasks_found_in_file": "(в файле задачи не найдены)",
+  "imported_tasks": "(импортировано {count} задач: {active} активных, {completed} завершённых → {folder})",
+
+  "rename_hint": "Переименование: Enter для сохранения, Esc Esc для сохранения (Esc → командный режим)",
+  "command_prefix": ":",
+
+  "empty_hint": "Нет задач — нажмите o для добавления",
+
+  "snooze_until": "Отложить до…",
+  "snooze_1hour": "1 час",
+  "snooze_3hours": "3 часа",
+  "snooze_tomorrow_9am": "Завтра 9:00",
+  "snooze_1week": "1 неделя",
+
+  "import_md_title": "Импорт задач из Markdown",
+  "import_md_path_label": "Путь к файлу (.md):",
+  "import_md_folder_label": "Целевая папка:",
+  "import_md_file_not_found": "Файл не найден: {path}",
+
+  "help_title": "Навигация",
+  "weekly_review_no_tasks": "[dim]За последние 7 дней задачи не выполнялись.[/dim]",
+  "weekly_review_header": "[bold]Выполнено за последние 7 дней ({count})[/bold]",
+
+  "delete_folder_confirm_prompt": "(d = удалить все задачи, m = переместить задачи во входящие, Esc = отмена)",
+  "delete_project_confirm_prompt": "(d = удалить все задачи, k = сохранить задачи без связи, Esc = отмена)",
+  "delete_area_confirm_prompt": "(d = подтвердить удаление области, Esc = отмена)"
+}

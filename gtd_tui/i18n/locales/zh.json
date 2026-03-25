@@ -1,0 +1,63 @@
+{
+  "inbox": "收件箱",
+  "today": "今天",
+  "anytime": "随时",
+  "upcoming": "即将到来",
+  "waiting_on": "等待中",
+  "someday": "将来某天",
+  "logbook": "日志",
+  "reference": "参考",
+  "projects_header": "── 项目 ──",
+  "tags_header": "── 标签 ──",
+
+  "mode_normal": "正常",
+  "mode_insert": "插入",
+  "mode_visual": "可视 ({n})",
+
+  "status_bar": "{mode}  |  {view_name}{suffix}",
+  "auto_quit_warning": "（{remaining}分钟后自动退出）",
+  "tmux_tip": "检测到 tmux — 更快的 Esc: 在 ~/.tmux.conf 中设置 set-environment -g ESCDELAY 25",
+
+  "yanked_to_clipboard": "（已复制到剪贴板）",
+  "clipboard_not_available": "（剪贴板不可用）",
+  "task_duplicated": "（任务已复制）",
+  "no_task_yanked": "（未复制任务 — 请先按 y）",
+  "snoozed": "已推迟",
+  "invalid_date": "（无效日期）",
+  "unknown_command": "（未知命令：{cmd}）",
+  "cannot_move_to_upcoming": "（无法移动到即将到来 — 请使用 's' 安排日期）",
+  "assigned_to_project": "（已分配到项目）",
+  "tag_added": "（已添加标签 '{tag}'）",
+  "no_areas_defined": "（未定义区域 — 按 A 创建）",
+  "cannot_rename_builtin_folder": "（无法重命名内置文件夹）",
+  "cannot_delete_builtin_folder": "（无法删除内置文件夹）",
+  "task_cut_single": "（已剪切 1 个任务 — 按 p/P 粘贴）",
+  "task_cut_multiple": "（已剪切 {n} 个任务 — 按 p/P 粘贴）",
+  "tasks_pasted": "（已粘贴 {n} 个任务）",
+  "no_tasks_found_in_file": "（文件中未找到任务）",
+  "imported_tasks": "（已导入 {count} 个任务：{active} 个活跃，{completed} 个已完成 → {folder}）",
+
+  "rename_hint": "重命名：Enter 保存，Esc Esc 保存（Esc → 命令模式）",
+  "command_prefix": "：",
+
+  "empty_hint": "没有任务 — 按 o 添加",
+
+  "snooze_until": "推迟至…",
+  "snooze_1hour": "1 小时",
+  "snooze_3hours": "3 小时",
+  "snooze_tomorrow_9am": "明天上午 9 点",
+  "snooze_1week": "1 周",
+
+  "import_md_title": "从 Markdown 导入任务",
+  "import_md_path_label": "文件路径（.md）：",
+  "import_md_folder_label": "目标文件夹：",
+  "import_md_file_not_found": "文件未找到：{path}",
+
+  "help_title": "导航",
+  "weekly_review_no_tasks": "[dim]过去 7 天内没有完成任务。[/dim]",
+  "weekly_review_header": "[bold]过去 7 天内完成（{count}）[/bold]",
+
+  "delete_folder_confirm_prompt": "（d = 删除所有任务，m = 将任务移到收件箱，Esc = 取消）",
+  "delete_project_confirm_prompt": "（d = 删除所有任务，k = 保留未关联任务，Esc = 取消）",
+  "delete_area_confirm_prompt": "（d = 确认删除区域，Esc = 取消）"
+}

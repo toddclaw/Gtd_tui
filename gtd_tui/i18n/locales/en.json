@@ -1,0 +1,63 @@
+{
+  "inbox": "Inbox",
+  "today": "Today",
+  "anytime": "Anytime",
+  "upcoming": "Upcoming",
+  "waiting_on": "Waiting On",
+  "someday": "Someday",
+  "logbook": "Logbook",
+  "reference": "Reference",
+  "projects_header": "── Projects ──",
+  "tags_header": "── Tags ──",
+
+  "mode_normal": "NORMAL",
+  "mode_insert": "INSERT",
+  "mode_visual": "VISUAL ({n})",
+
+  "status_bar": "{mode}  |  {view_name}{suffix}",
+  "auto_quit_warning": "(auto-quit in {remaining}m)",
+  "tmux_tip": "tmux detected — for faster Esc: set-environment -g ESCDELAY 25 in ~/.tmux.conf",
+
+  "yanked_to_clipboard": "(yanked to clipboard)",
+  "clipboard_not_available": "(clipboard not available)",
+  "task_duplicated": "(task duplicated)",
+  "no_task_yanked": "(no task yanked — press y first)",
+  "snoozed": "Snoozed",
+  "invalid_date": "(invalid date)",
+  "unknown_command": "(unknown command: {cmd})",
+  "cannot_move_to_upcoming": "(cannot move to Upcoming — schedule a date with 's' instead)",
+  "assigned_to_project": "(assigned to project)",
+  "tag_added": "(tag '{tag}' added)",
+  "no_areas_defined": "(no areas defined — press A to create one)",
+  "cannot_rename_builtin_folder": "(cannot rename built-in folders)",
+  "cannot_delete_builtin_folder": "(cannot delete built-in folders)",
+  "task_cut_single": "(1 task cut — press p/P to paste)",
+  "task_cut_multiple": "({n} task(s) cut — press p/P to paste)",
+  "tasks_pasted": "(pasted {n} task(s))",
+  "no_tasks_found_in_file": "(no tasks found in file)",
+  "imported_tasks": "(imported {count} tasks: {active} active, {completed} completed → {folder})",
+
+  "rename_hint": "Rename: Enter to save, Esc Esc to save (Esc → command mode)",
+  "command_prefix": ":",
+
+  "empty_hint": "No tasks — press o to add one",
+
+  "snooze_until": "Snooze until…",
+  "snooze_1hour": "1 hour",
+  "snooze_3hours": "3 hours",
+  "snooze_tomorrow_9am": "Tomorrow 9 am",
+  "snooze_1week": "1 week",
+
+  "import_md_title": "Import tasks from Markdown",
+  "import_md_path_label": "File path (.md):",
+  "import_md_folder_label": "Target folder:",
+  "import_md_file_not_found": "File not found: {path}",
+
+  "help_title": "Navigation",
+  "weekly_review_no_tasks": "[dim]No tasks completed in the past 7 days.[/dim]",
+  "weekly_review_header": "[bold]Completed in the past 7 days ({count})[/bold]",
+
+  "delete_folder_confirm_prompt": "(d = delete all tasks, m = move tasks to inbox, Esc = cancel)",
+  "delete_project_confirm_prompt": "(d = delete all tasks, k = keep tasks unlinked, Esc = cancel)",
+  "delete_area_confirm_prompt": "(d = confirm delete area, Esc = cancel)"
+}

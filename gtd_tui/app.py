@@ -115,6 +115,7 @@ from gtd_tui.gtd.operations import (
 )
 from gtd_tui.gtd.project import Project
 from gtd_tui.gtd.task import ChecklistItem, RecurRule, RepeatRule, Task
+from gtd_tui.i18n import set_language, t
 from gtd_tui.storage.file import (
     UndoStack,
     default_data_file_path,
@@ -184,7 +185,7 @@ class HelpScreen(ModalScreen[None]):
   o            Add new task after selected
   O            Add new task before selected
   x / Space    Complete selected task
-  d            Delete selected task
+  d            Delete selected task (also loads cut register — p/P to paste/move)
   r            Quick-rename selected task (inline, without opening detail)
   s            Schedule selected task (supports today, +3d, tomorrow, next monday, someday)
   m            Move / assign / tag — opens picker (folder → move, project → assign, tag → add)
@@ -192,7 +193,8 @@ class HelpScreen(ModalScreen[None]):
   w            Move task to Waiting On  (Today view)
   t            Move to Today (Waiting On / Inbox) or schedule for today (user folders)
   y            Yank task to clipboard AND to internal register
-  p / P        Paste a duplicate of yanked task below / above current position
+  p / P        If cut register non-empty: move cut task(s) below / above cursor
+               Otherwise: paste a duplicate of yanked task below / above current position
   z            Snooze selected task (hide from smart views until timer expires)
   u            Undo last action
   Ctrl+R       Redo last undone action
@@ -208,7 +210,7 @@ class HelpScreen(ModalScreen[None]):
   j / k        Extend selection down / up
   H / M / L    Jump to top / middle / bottom of list (extends selection)
   x / Space    Complete all selected tasks
-  d            Delete all selected tasks
+  d            Delete all selected tasks (also loads cut register — p/P to paste/move)
   s            Schedule all selected tasks
   m            Move / assign / tag all selected tasks (same picker as NORMAL mode)
   w            Move all selected tasks to Waiting On
@@ -271,6 +273,7 @@ class HelpScreen(ModalScreen[None]):
   gtd-tui --backup-now   Create a one-shot backup of the data file and exit
 
 [bold]General[/bold]
+  Ctrl+I       Import tasks from a Markdown checkbox (.md) file
   q            Quit
   Ctrl+Z       Suspend to background (resume with fg)
   Config       ~/.config/gtd_tui/config.toml — [backup] rotating copies of data.json;
@@ -2010,6 +2013,129 @@ class SnoozePickerScreen(ModalScreen["datetime | None"]):
         self.dismiss(None)
 
 
+class ImportMdScreen(ModalScreen["tuple[list[Task], str] | None"]):
+    """Modal for importing tasks from a Markdown checkbox list file.
+
+    Dismissed with ``(new_tasks, folder_id)`` on confirm, or ``None`` on cancel.
+    """
+
+    CSS = """
+    ImportMdScreen {
+        align: center middle;
+    }
+
+    #import-md-dialog {
+        width: 60;
+        height: auto;
+        background: $surface;
+        border: solid $primary;
+        padding: 1 2;
+    }
+
+    #import-md-title {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+
+    #import-md-folder-label {
+        margin-top: 1;
+    }
+
+    #import-md-folder-list {
+        height: 6;
+        margin-top: 0;
+    }
+
+    #import-md-error {
+        color: $error;
+        margin-top: 1;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "cancel", show=False)]
+
+    # Built-in folders shown in the folder selector
+    _BUILTIN_FOLDERS: list[tuple[str, str]] = [
+        ("inbox", "Inbox"),
+        ("today", "Today"),
+        ("anytime", "Anytime"),
+        ("upcoming", "Upcoming"),
+        ("waiting_on", "Waiting On"),
+        ("someday", "Someday"),
+    ]
+
+    def __init__(
+        self,
+        folders: "list[Folder]",
+        areas: "list[Area]",
+    ) -> None:
+        super().__init__()
+        self._user_folders = folders
+        self._areas = areas
+        # Folder entries: (folder_id, display_name)
+        self._folder_entries: list[tuple[str, str]] = list(self._BUILTIN_FOLDERS)
+        for f in sorted(self._user_folders, key=lambda x: x.position):
+            self._folder_entries.append((f.id, f.name))
+        self._selected_folder_idx: int = 0  # default: inbox
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="import-md-dialog"):
+            yield Label("Import tasks from Markdown", id="import-md-title")
+            yield Label("File path (.md):")
+            yield Input(
+                id="import-path",
+                placeholder="Path to .md file",
+            )
+            yield Label("Target folder:", id="import-md-folder-label")
+            yield ListView(
+                *[ListItem(Label(name)) for _, name in self._folder_entries],
+                id="import-md-folder-list",
+            )
+            yield Label("", id="import-md-error")
+
+    def on_mount(self) -> None:
+        lv = self.query_one("#import-md-folder-list", ListView)
+        lv.index = 0
+        self.query_one("#import-path", Input).focus()
+
+    def _get_selected_folder_id(self) -> str:
+        lv = self.query_one("#import-md-folder-list", ListView)
+        idx = lv.index or 0
+        if 0 <= idx < len(self._folder_entries):
+            return self._folder_entries[idx][0]
+        return "inbox"
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "enter":
+            self._confirm()
+        elif event.key == "tab":
+            # Cycle focus: path input → folder list → path input
+            inp = self.query_one("#import-path", Input)
+            lv = self.query_one("#import-md-folder-list", ListView)
+            if inp.has_focus:
+                lv.focus()
+            else:
+                inp.focus()
+            event.prevent_default()
+
+    def _confirm(self) -> None:
+        from gtd_tui.portability import import_md as _import_md
+
+        inp = self.query_one("#import-path", Input)
+        error_label = self.query_one("#import-md-error", Label)
+        path = Path(inp.value.strip())
+        if not path.exists():
+            error_label.update(f"File not found: {path}")
+            return
+        folder_id = self._get_selected_folder_id()
+        text = path.read_text(encoding="utf-8")
+        new_tasks = _import_md(text, target_folder_id=folder_id)
+        self.dismiss((new_tasks, folder_id))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class GtdApp(App[None]):
     ESCAPE_TO_MINIMIZE = False  # prevent Textual's minimize-on-Esc delay
 
@@ -2017,6 +2143,7 @@ class GtdApp(App[None]):
         Binding("escape", "cancel_insert_mode", priority=True, show=False),
         Binding("ctrl+c", "cancel_task_input", priority=True, show=False),
         Binding("backslash", "toggle_split_view", priority=True, show=False),
+        Binding("ctrl+i", "import_md", priority=True, show=False),
     ]
 
     CSS = """
@@ -2176,6 +2303,8 @@ class GtdApp(App[None]):
         self._delete_confirm_area_id: str = ""
         # Task register: holds a yanked Task for duplication via p/P
         self._task_register: Task | None = None
+        # Cut register: holds task(s) cut via d for repositioning via p/P
+        self._cut_register: list[Task] = []
         # Task rename from list: holds the task id being renamed
         self._rename_task_id: str = ""
         # Count prefix buffer for task-list navigation (e.g. "5j")
@@ -2313,21 +2442,21 @@ class GtdApp(App[None]):
 
     def _view_label(self, view_id: str) -> str:
         if view_id == "inbox":
-            return "Inbox"
+            return t("inbox")
         if view_id == "today":
-            return "Today"
+            return t("today")
         if view_id == "anytime":
-            return "Anytime"
+            return t("anytime")
         if view_id == "upcoming":
-            return "Upcoming"
+            return t("upcoming")
         if view_id == "waiting_on":
-            return "Waiting On"
+            return t("waiting_on")
         if view_id == "someday":
-            return "Someday"
+            return t("someday")
         if view_id == REFERENCE_FOLDER_ID:
-            return "Reference"
+            return t("reference")
         if view_id == "logbook":
-            return "Logbook"
+            return t("logbook")
         if view_id.startswith("area:"):
             area_id = view_id[5:]
             area = next((a for a in self._all_areas if a.id == area_id), None)
@@ -2395,6 +2524,7 @@ class GtdApp(App[None]):
             yield ColorBorderStrip(border, bsize, "horizontal", border_text=btext)
 
     def on_mount(self) -> None:
+        set_language(self._config.language)
         cfg_path = default_config_path()
         if not cfg_path.exists():
             try:
@@ -4185,16 +4315,99 @@ class GtdApp(App[None]):
         )
 
     def _paste_task_duplicate(self, position: str) -> None:
-        """Paste a duplicate of the yanked task above or below the selection."""
+        """Paste the cut register (d) or a yank duplicate (y) at *position*.
+
+        If ``_cut_register`` is non-empty the tasks are *moved* (their original
+        IDs are preserved and their folder/position are updated).  After the
+        move the cut register is cleared.
+
+        If ``_cut_register`` is empty, the behaviour falls back to the original
+        yank-duplicate logic: a new copy of ``_task_register`` is inserted.
+        """
+        import uuid as _uuid
+        from dataclasses import replace as _replace
+
+        anchor = self._get_selected_task()
+
+        # ------------------------------------------------------------------ #
+        # Cut-paste branch: move tasks from the cut register                  #
+        # ------------------------------------------------------------------ #
+        if self._cut_register:
+            cut_tasks = self._cut_register
+            # Determine target folder from the current view / anchor task.
+            if anchor is not None:
+                target_folder = anchor.folder_id
+            else:
+                target_folder = (
+                    self._current_view
+                    if self._current_view not in ("upcoming", "logbook")
+                    else "inbox"
+                )
+
+            # Compute a fractional insert position so we can renormalise later.
+            if anchor is not None:
+                base_pos = anchor.position + (0.5 if position == "after" else -0.5)
+            else:
+                max_existing = max(
+                    (
+                        t.position
+                        for t in self._all_tasks
+                        if t.folder_id == target_folder
+                    ),
+                    default=-1,
+                )
+                base_pos = float(max_existing + 1)
+
+            self._push_undo()
+
+            # IDs of tasks being moved — to remove their deleted copies first.
+            cut_ids = {t.id for t in cut_tasks}
+
+            # Restore cut tasks with updated folder and fractional positions,
+            # resetting their deleted/completed state from the delete operation.
+            pasted: list[Task] = []
+            for i, task in enumerate(cut_tasks):
+                pasted.append(
+                    _replace(
+                        task,
+                        folder_id=target_folder,
+                        position=base_pos + i * 0.001,  # type: ignore[arg-type]
+                        is_deleted=False,
+                        # Preserve completed_at: a completed task moved is still complete.
+                    )
+                )
+
+            # Build the new task list, excluding already-deleted cut copies.
+            remaining = [t for t in self._all_tasks if t.id not in cut_ids]
+            all_tasks = remaining + pasted
+
+            # Renormalise positions for the target folder (sort → assign 0,1,2,…).
+            folder_tasks_sorted = sorted(
+                [t for t in all_tasks if t.folder_id == target_folder],
+                key=lambda t: t.position,
+            )
+            pos_map = {t.id: idx for idx, t in enumerate(folder_tasks_sorted)}
+            self._all_tasks = [
+                _replace(t, position=pos_map[t.id]) if t.id in pos_map else t
+                for t in all_tasks
+            ]
+
+            self._cut_register = []
+            self._save()
+            # Select the first pasted task in the refreshed list.
+            first_id = pasted[0].id if pasted else None
+            self._refresh_list(select_task_id=first_id)
+            self._update_status(f"(pasted {len(pasted)} task(s))")
+            return
+
+        # ------------------------------------------------------------------ #
+        # Yank-duplicate branch (original behaviour)                          #
+        # ------------------------------------------------------------------ #
         if self._task_register is None:
             self._update_status("(no task yanked — press y first)")
             return
         src = self._task_register
-        anchor = self._get_selected_task()
         self._push_undo()
-
-        import uuid as _uuid
-        from dataclasses import replace as _replace
 
         # The duplicate lands in the anchor's folder (current view), not src's folder.
         target_folder = (
@@ -4642,6 +4855,9 @@ class GtdApp(App[None]):
         if not tasks:
             self._exit_visual_mode()
             return
+        # Store cut tasks in register (skip logbook purges — those are permanent).
+        if self._current_view != "logbook":
+            self._cut_register = list(tasks)
         self._push_undo()
         if self._current_view == "logbook":
             for task in tasks:
@@ -4653,6 +4869,9 @@ class GtdApp(App[None]):
         self._save()
         self._rebuild_sidebar()
         self._refresh_list()
+        if self._current_view != "logbook" and self._cut_register:
+            n = len(self._cut_register)
+            self._update_status(f"({n} task(s) cut — press p/P to paste)")
 
     def _bulk_start_schedule(self) -> None:
         tasks = self._visual_selected_tasks
@@ -5358,11 +5577,14 @@ class GtdApp(App[None]):
         task = self._get_selected_task()
         if task is None:
             return
+        # Store the task in the cut register so it can be pasted with p/P.
+        self._cut_register = [task]
         self._push_undo()
         self._all_tasks = delete_task(self._all_tasks, task.id)
         self._save()
         self._rebuild_sidebar()
         self._refresh_list()
+        self._update_status("(1 task cut — press p/P to paste)")
 
     def _snooze_selected(self) -> None:
         """Open the snooze picker for the currently selected task."""
@@ -5459,6 +5681,7 @@ class GtdApp(App[None]):
         self._refresh_list()
 
     def _undo(self) -> None:
+        self._cut_register = []
         self._apply_history(self._undo_stack, self._redo_stack, "(nothing to undo)")
 
     def _redo(self) -> None:
@@ -5516,3 +5739,38 @@ class GtdApp(App[None]):
         """Return focus to the task list when the split pane requests it."""
         list_view = self.query_one("#task-list", ListView)
         list_view.focus()
+
+    # ------------------------------------------------------------------ #
+    # Import from Markdown                                                 #
+    # ------------------------------------------------------------------ #
+
+    async def action_import_md(self) -> None:
+        """Open the ImportMdScreen modal (bound to Ctrl+I)."""
+
+        async def on_result(result: "tuple[list[Task], str] | None") -> None:
+            if result is None:
+                return
+            new_tasks, folder_id = result
+            if not new_tasks:
+                self._update_status("(no tasks found in file)")
+                return
+            self._push_undo()
+            max_pos = max(
+                (t.position for t in self._all_tasks if t.folder_id == folder_id),
+                default=-1,
+            )
+            for i, task in enumerate(new_tasks):
+                self._all_tasks.append(replace(task, position=max_pos + 1 + i))
+            self._save()
+            self._rebuild_sidebar()
+            self._refresh_list()
+            completed = sum(1 for t in new_tasks if t.completed_at is not None)
+            active = len(new_tasks) - completed
+            self._update_status(
+                f"(imported {len(new_tasks)} tasks: {active} active,"
+                f" {completed} completed → {folder_id})"
+            )
+
+        await self.push_screen(
+            ImportMdScreen(self._all_folders, self._all_areas), on_result
+        )

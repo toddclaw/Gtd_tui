@@ -35,13 +35,20 @@ from gtd_tui.portability import (  # noqa: E402
     export_md,
     export_txt,
     import_json,
+    import_md,
 )
 from gtd_tui.storage.crypto import (  # noqa: E402
     DecryptionError,
     decrypt_data,
     is_encrypted,
 )
-from gtd_tui.storage.file import load_folders, load_tasks, save_data  # noqa: E402
+from gtd_tui.storage.file import (  # noqa: E402
+    load_areas,
+    load_folders,
+    load_projects,
+    load_tasks,
+    save_data,
+)
 from gtd_tui.storage.lockfile import (  # noqa: E402
     release_lock,
     try_acquire_lock,
@@ -197,6 +204,51 @@ def _cmd_import(import_file: str, data_file: Path, password: str | None) -> None
     )
 
 
+def _cmd_import_md(
+    path: Path,
+    folder_id: str,
+    data_file: Path,
+    password: str | None,
+) -> None:
+    """Import tasks from a Markdown checkbox list into *folder_id*."""
+    from dataclasses import replace as _replace
+
+    if not path.exists():
+        print(f"Import file not found: {path}", file=sys.stderr)
+        sys.exit(1)
+    text = path.read_text(encoding="utf-8")
+    new_tasks = import_md(text, target_folder_id=folder_id)
+    if not new_tasks:
+        print("No tasks found in file.")
+        return
+    existing = load_tasks(data_file, password=password)
+    existing_folders = load_folders(data_file, password=password)
+    existing_projects = load_projects(data_file, password=password)
+    existing_areas = load_areas(data_file, password=password)
+    # Renumber positions to go after existing tasks in that folder.
+    max_pos = max(
+        (t.position for t in existing if t.folder_id == folder_id),
+        default=-1,
+    )
+    for i, task in enumerate(new_tasks):
+        task = _replace(task, position=max_pos + 1 + i)
+        existing.append(task)
+    save_data(
+        existing,
+        existing_folders,
+        data_file,
+        password=password,
+        projects=existing_projects,
+        areas=existing_areas,
+    )
+    completed = sum(1 for t in new_tasks if t.completed_at is not None)
+    active = len(new_tasks) - completed
+    print(
+        f"Imported {len(new_tasks)} tasks ({active} active, {completed} completed)"
+        f" → {folder_id}"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="gtd_tui", description="GTD TUI")
     parser.add_argument(
@@ -230,7 +282,18 @@ def main() -> None:
         "--import",
         metavar="FILE",
         dest="import_file",
-        help="Import tasks from a JSON export file (non-destructive merge)",
+        help="Import tasks from a JSON export file (or .md checkbox list)",
+    )
+    parser.add_argument(
+        "--import-folder",
+        metavar="FOLDER",
+        default="inbox",
+        dest="import_folder",
+        help=(
+            "Target folder for --import of .md files (default: inbox). "
+            "Use a built-in id (inbox, today, anytime, upcoming, waiting_on, someday) "
+            "or a user folder name."
+        ),
     )
     parser.add_argument(
         "--backup-now",
@@ -260,7 +323,11 @@ def main() -> None:
         sys.exit(0)
 
     if args.import_file:
-        _cmd_import(args.import_file, data_file, password)
+        import_path = Path(args.import_file)
+        if import_path.suffix.lower() == ".md":
+            _cmd_import_md(import_path, args.import_folder, data_file, password)
+        else:
+            _cmd_import(args.import_file, data_file, password)
         sys.exit(0)
 
     if args.backup_now:
