@@ -1420,3 +1420,71 @@ async def test_count_dd_deletes_multiple_lines() -> None:
         await pilot.pause()
         # Should have deleted line1 and line2, leaving line3 and line4
         assert vi._text == "line3\nline4"
+
+
+# ---------------------------------------------------------------------------
+# Feature B: J (join lines) in COMMAND mode
+# ---------------------------------------------------------------------------
+
+
+async def test_J_joins_two_lines() -> None:
+    """J in command mode joins the current line with the next, separated by a space."""
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        # Set up two lines directly
+        vi._text = "line1\nline2"
+        vi._cursor = 0
+        vi.set_mode("command")
+        await pilot.press("J")
+        assert vi.value == "line1 line2"
+
+
+async def test_J_noop_at_last_line() -> None:
+    """J on the last (only) line of a multiline VimInput is a no-op."""
+    async with _MultiApp().run_test() as pilot:
+        vi = _mvi(pilot.app)
+        vi._text = "only line"
+        vi._cursor = 0
+        vi.set_mode("command")
+        await pilot.press("J")
+        assert vi.value == "only line"
+
+
+async def test_J_noop_single_line_mode() -> None:
+    """J in single-line mode is a no-op (no lines to join)."""
+    async with _App(value="hello", start_mode="command").run_test() as pilot:
+        vi = _vi(pilot.app)
+        await pilot.press("J")
+        assert vi.value == "hello"
+
+
+# ---------------------------------------------------------------------------
+# Feature C: Ctrl-V / Shift-Ctrl-V clipboard paste in INSERT mode
+# ---------------------------------------------------------------------------
+
+
+async def test_ctrl_v_pastes_in_insert_mode() -> None:
+    """ctrl+v in INSERT mode pastes clipboard content at cursor."""
+    import unittest.mock as mock
+
+    async with _App(value="", start_mode="insert").run_test() as pilot:
+        vi = _vi(pilot.app)
+        with mock.patch(
+            "gtd_tui.widgets.vim_input.pyperclip.paste", return_value="hello"
+        ):
+            await pilot.press("ctrl+v")
+        assert "hello" in vi.value
+
+
+async def test_shift_ctrl_v_pastes_in_insert_mode() -> None:
+    """shift+ctrl+v (or ctrl+shift+v) in INSERT mode also pastes clipboard content."""
+    import unittest.mock as mock
+
+    async with _App(value="", start_mode="insert").run_test() as pilot:
+        vi = _vi(pilot.app)
+        with mock.patch(
+            "gtd_tui.widgets.vim_input.pyperclip.paste", return_value="world"
+        ):
+            # Try ctrl+shift+v (Textual's canonical name for Shift+Ctrl+V)
+            await pilot.press("ctrl+shift+v")
+        assert "world" in vi.value

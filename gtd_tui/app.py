@@ -231,6 +231,8 @@ class HelpScreen(ModalScreen[None]):
   Deadline     Hard due date — [bold red]red[/bold red] if overdue, [yellow]yellow[/yellow] if ≤3 days
   y            Yank current line to clipboard and internal register
   p / P        Paste register after / before cursor (or below / above in notes)
+  J            Join current line with the next (multiline notes only)
+  Ctrl+V       Paste clipboard into text field at cursor (INSERT mode)
 
 [bold]Sidebar Actions (sidebar focused)[/bold]
   H / M / L    Jump to top / middle / bottom of sidebar
@@ -1781,6 +1783,7 @@ _THEMES: dict[str, dict[str, str]] = {
         "primary": "#D4A017",
         "primary_dark": "#8A6800",
         "accent": "#F4C430",
+        "panel": "#8A7000",
     },
     "green": {
         "primary": "#1E8A3E",
@@ -2347,10 +2350,14 @@ class GtdApp(App[None]):
             t = _THEMES.get(theme_name, _THEMES["blue"])
             # Build a temporary Theme just to let Textual derive all variants
             # (primary-darken-1, accent-lighten-1, etc.) from the new base colors.
+            # Pass an explicit panel color when the theme defines one so that
+            # border colors (border: solid $panel) use a theme-appropriate shade
+            # rather than Textual's orange-tinted default derived from the primary.
             custom = Theme(
                 name="_gtd_custom",
                 primary=t["primary"],
                 accent=t["accent"],
+                panel=t.get("panel"),
                 dark=True,
             )
             variables.update(custom.to_color_system().generate())

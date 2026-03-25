@@ -517,6 +517,21 @@ class VimInput(Widget, can_focus=True):
             self._cursor += 1
             self._last_insert += " "
 
+        elif key in ("ctrl+v", "ctrl+shift+v"):
+            event.stop()
+            event.prevent_default()
+            try:
+                text = pyperclip.paste() or ""
+            except Exception:
+                text = self._register
+            if text:
+                self._push_undo()
+                self._text = (
+                    self._text[: self._cursor] + text + self._text[self._cursor :]
+                )
+                self._cursor += len(text)
+                self._last_insert += text
+
         elif event.is_printable and event.character:
             event.stop()
             event.prevent_default()
@@ -1048,6 +1063,8 @@ class VimInput(Widget, can_focus=True):
             match = self._find_matching_bracket(self._cursor)
             if match is not None:
                 self._cursor = match
+        elif key == "J":
+            self._cmd_join_lines()
 
         # Any unhandled count prefix is discarded after every command.
         self._count_buffer = ""
@@ -1121,6 +1138,19 @@ class VimInput(Widget, can_focus=True):
         # Move cursor to start of same row (now the next line).
         new_row = min(row, len(lines) - 1) if lines else 0
         self._cursor = self._offset_from_row_col(new_row, 0) if lines else 0
+        self._clamp_cursor_for_command()
+
+    def _cmd_join_lines(self) -> None:
+        """J: join the current line with the next, separated by a single space."""
+        if not self._multiline:
+            return  # single-line mode: no lines to join — no-op
+        row, _ = self._cursor_row_col()
+        lines = self._text.split("\n")
+        if row + 1 >= len(lines):
+            return  # already on the last line — no-op
+        self._push_undo()
+        joined = lines[row].rstrip() + " " + lines[row + 1].lstrip()
+        self._text = "\n".join(lines[:row] + [joined] + lines[row + 2 :])
         self._clamp_cursor_for_command()
 
     def _find_matching_bracket(self, pos: int) -> int | None:
