@@ -163,9 +163,13 @@ async def test_esc_from_insert_stays_in_command_mode(tmp_path: Path) -> None:
         await pilot.press("escape")
         await pilot.pause()
 
-        assert vim_inp.display is True, "VimInput stays visible after Esc (command mode)"
+        assert (
+            vim_inp.display is True
+        ), "VimInput stays visible after Esc (command mode)"
         assert proxy.display is False, "Proxy stays hidden after Esc (not yet Enter)"
-        assert vim_inp._vim_mode == "command", "VimInput should be in command mode after Esc"
+        assert (
+            vim_inp._vim_mode == "command"
+        ), "VimInput should be in command mode after Esc"
 
         # Press Enter in command mode → proxy reappears with rendered markdown
         await pilot.press("enter")
@@ -245,7 +249,9 @@ async def test_enter_on_proxy_enter_in_command_mode_roundtrip(tmp_path: Path) ->
         await pilot.press("enter")
         await pilot.pause()
         assert proxy.display is True, "Proxy must reappear after Enter in command mode"
-        assert vim_inp.display is False, "VimInput must hide after Enter in command mode"
+        assert (
+            vim_inp.display is False
+        ), "VimInput must hide after Enter in command mode"
         assert screen.focused is proxy, "Proxy should regain focus"
 
         # Second Enter on proxy works again

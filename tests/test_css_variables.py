@@ -123,6 +123,6 @@ def test_gtd_modal_border_always_present(tmp_path: Path) -> None:
     for theme in ("blue", "red", "yellow", "green"):
         for bs in ("none", "red_grey", "yellow_grey", "solid"):
             vars_ = _variables(tmp_path, theme=theme, border_style=bs)
-            assert "gtd-modal-border" in vars_, (
-                f"gtd-modal-border missing for theme={theme}, border_style={bs}"
-            )
+            assert (
+                "gtd-modal-border" in vars_
+            ), f"gtd-modal-border missing for theme={theme}, border_style={bs}"

@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from textual.widgets import Label, ListView
+from textual.widgets import ListView
 
 from gtd_tui.app import GtdApp, TaskSplitPane
 from gtd_tui.config import load_config
@@ -254,7 +254,9 @@ async def test_split_pane_esc_stays_in_command_mode(tmp_path: Path) -> None:
         await pilot.press("escape")
         await pilot.pause()
 
-        assert vim_inp.display is True, "VimInput stays visible after Esc (command mode)"
+        assert (
+            vim_inp.display is True
+        ), "VimInput stays visible after Esc (command mode)"
         assert proxy.display is False, "Proxy stays hidden after Esc"
         assert vim_inp._vim_mode == "command"
 
