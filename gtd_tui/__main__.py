@@ -29,6 +29,7 @@ from gtd_tui.app import GtdApp  # noqa: E402
 from gtd_tui.config import load_config  # noqa: E402
 from gtd_tui.gtd.dates import format_date  # noqa: E402
 from gtd_tui.gtd.operations import today_tasks, upcoming_tasks  # noqa: E402
+from gtd_tui.i18n import set_language, t  # noqa: E402
 from gtd_tui.portability import (  # noqa: E402
     export_csv,
     export_json,
@@ -87,19 +88,19 @@ def _print_summary(data_file: Path | None = None, password: str | None = None) -
     upcoming = upcoming_tasks(tasks)
 
     print(f"Today ({len(today)}):")
-    for t in today:
-        print(f"  - {t.title}")
-        if t.notes:
-            for line in t.notes.splitlines():
+    for task in today:
+        print(f"  - {task.title}")
+        if task.notes:
+            for line in task.notes.splitlines():
                 print(f"    {line}")
 
     if upcoming:
         print(f"\nUpcoming ({len(upcoming)}):")
-        for t in upcoming:
-            date_str = format_date(t.scheduled_date) if t.scheduled_date else ""
-            print(f"  - {t.title}  {date_str}")
-            if t.notes:
-                for line in t.notes.splitlines():
+        for task in upcoming:
+            date_str = format_date(task.scheduled_date) if task.scheduled_date else ""
+            print(f"  - {task.title}  {date_str}")
+            if task.notes:
+                for line in task.notes.splitlines():
                     print(f"    {line}")
 
 
@@ -217,22 +218,25 @@ def _cmd_import_md(
         print(f"Import file not found: {path}", file=sys.stderr)
         sys.exit(1)
     text = path.read_text(encoding="utf-8")
-    new_tasks = import_md(text, target_folder_id=folder_id)
+    existing = load_tasks(data_file, password=password)
+    existing_folders = load_folders(data_file, password=password)
+    new_tasks = import_md(text, target_folder_id=folder_id, folders=existing_folders)
     if not new_tasks:
         print("No tasks found in file.")
         return
-    existing = load_tasks(data_file, password=password)
-    existing_folders = load_folders(data_file, password=password)
     existing_projects = load_projects(data_file, password=password)
     existing_areas = load_areas(data_file, password=password)
-    # Renumber positions to go after existing tasks in that folder.
-    max_pos = max(
-        (t.position for t in existing if t.folder_id == folder_id),
-        default=-1,
-    )
-    for i, task in enumerate(new_tasks):
-        task = _replace(task, position=max_pos + 1 + i)
-        existing.append(task)
+    # Renumber positions per folder so tasks land after existing entries.
+    pos_map: dict[str, int] = {}
+    for task in new_tasks:
+        fid = task.folder_id
+        if fid not in pos_map:
+            pos_map[fid] = max(
+                (_t.position for _t in existing if _t.folder_id == fid),
+                default=-1,
+            )
+        pos_map[fid] += 1
+        existing.append(_replace(task, position=pos_map[fid]))
     save_data(
         existing,
         existing_folders,
@@ -250,55 +254,67 @@ def _cmd_import_md(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="gtd_tui", description="GTD TUI")
+    _config_file = Path("~/.config/gtd_tui/config.toml").expanduser()
+    _cfg = load_config()
+    set_language(_cfg.language)
+    epilog = (
+        f"{t('cli_epilog_files_header')}\n"
+        f"{t('cli_epilog_data_label')} {_DEFAULT_DATA_FILE}\n"
+        f"{t('cli_epilog_config_label')} {_config_file}\n"
+        f"{t('cli_epilog_language_label')} {_cfg.language}  {t('cli_epilog_language_hint')}\n"
+        f"\n"
+        f"{t('cli_epilog_note')}"
+    )
+    parser = argparse.ArgumentParser(
+        prog="gtd_tui",
+        description=t("cli_description"),
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     parser.add_argument(
         "-s",
         "--summary",
         action="store_true",
-        help="Print a summary of today's tasks and exit (no TUI)",
+        help=t("cli_opt_summary"),
     )
     parser.add_argument(
         "--encrypt",
         action="store_true",
-        help="Encrypt the data file with a password and exit",
+        help=t("cli_opt_encrypt"),
     )
     parser.add_argument(
         "--decrypt",
         action="store_true",
-        help="Decrypt the data file back to plaintext and exit",
+        help=t("cli_opt_decrypt"),
     )
     parser.add_argument(
         "--export",
         metavar="FORMAT",
         choices=["json", "txt", "csv", "md"],
-        help="Export tasks to stdout (or --output file). Formats: json, txt, csv, md",
+        help=t("cli_opt_export"),
     )
     parser.add_argument(
         "--output",
         metavar="FILE",
-        help="Write --export output to FILE instead of stdout",
+        help=t("cli_opt_output"),
     )
     parser.add_argument(
         "--import",
         metavar="FILE",
         dest="import_file",
-        help="Import tasks from a JSON export file (or .md checkbox list)",
+        help=t("cli_opt_import_file"),
     )
     parser.add_argument(
         "--import-folder",
         metavar="FOLDER",
         default="inbox",
         dest="import_folder",
-        help=(
-            "Target folder for --import of .md files (default: inbox). "
-            "Use a built-in id (inbox, today, anytime, upcoming, waiting_on, someday) "
-            "or a user folder name."
-        ),
+        help=t("cli_opt_import_folder"),
     )
     parser.add_argument(
         "--backup-now",
         action="store_true",
-        help="Create a one-shot backup of the data file and exit (uses [backup] config)",
+        help=t("cli_opt_backup_now"),
     )
     args = parser.parse_args()
 

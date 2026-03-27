@@ -43,6 +43,7 @@ _EXPORT_VERSION = 1
 _BUILTIN_NAMES: dict[str, str] = {
     "inbox": "Inbox",
     "today": "Today",
+    "anytime": "Anytime",
     "upcoming": "Upcoming",
     "waiting_on": "Waiting On",
     "someday": "Someday",
@@ -194,11 +195,13 @@ def import_json(
 
 _CHECKBOX_RE = re.compile(r"^- \[([ xX])\] (.+)$")
 _INDENT_RE = re.compile(r"^(?:  +|\t)(.*)$")
+_HEADING_RE = re.compile(r"^#{1,6}\s+(.+)$")
 
 
 def import_md(
     text: str,
     target_folder_id: str = "inbox",
+    folders: list[Folder] | None = None,
 ) -> list[Task]:
     """Parse a markdown checkbox list and return new Task objects.
 
@@ -207,23 +210,45 @@ def import_md(
         - [ ] Task title  → active task
         - [x] Task title  → completed task (completed_at = now)
 
+    Headings (e.g. ``## Today``, ``## My Folder``) switch which folder
+    subsequent tasks are assigned to, matching against built-in and
+    user-created folder names (case-insensitive).  Tasks before the first
+    heading and under unrecognised headings fall back to *target_folder_id*.
+
     Indented lines (2+ spaces or a tab) immediately after a task append to
-    that task's ``notes`` field.  All other lines (headings, blank lines,
-    plain text) are ignored.
+    that task's ``notes`` field.  All other lines (blank lines, plain text)
+    are ignored.
 
     Args:
         text: Raw markdown text to parse.
-        target_folder_id: ``folder_id`` assigned to every returned task.
+        target_folder_id: Fallback ``folder_id`` when no heading match is found.
+        folders: User-created :class:`~gtd_tui.gtd.folder.Folder` objects used
+            for heading→folder matching.  Built-in folders are always checked.
 
     Returns:
         A list of :class:`~gtd_tui.gtd.task.Task` objects in parse order.
         Caller is responsible for merging them into the active task store.
     """
+    # Build reverse lookup: folder name (lowercase) → folder_id
+    name_to_id: dict[str, str] = {v.lower(): k for k, v in _BUILTIN_NAMES.items()}
+    if folders:
+        for f in folders:
+            name_to_id[f.name.lower()] = f.id
+
     tasks: list[Task] = []
     current_task: Task | None = None
+    current_folder_id: str = target_folder_id
 
     for raw_line in text.splitlines():
         line = raw_line.rstrip()
+
+        # Heading → switch current folder assignment
+        heading_match = _HEADING_RE.match(line)
+        if heading_match:
+            heading_name = heading_match.group(1).strip()
+            current_folder_id = name_to_id.get(heading_name.lower(), target_folder_id)
+            current_task = None
+            continue
 
         checkbox_match = _CHECKBOX_RE.match(line)
         if checkbox_match:
@@ -232,7 +257,7 @@ def import_md(
             current_task = Task(
                 title=title.strip(),
                 id=str(uuid.uuid4()),
-                folder_id=target_folder_id,
+                folder_id=current_folder_id,
                 position=len(tasks),
                 completed_at=completed_at,
             )
@@ -247,7 +272,7 @@ def import_md(
                 current_task.notes = (existing + "\n" + note_line).lstrip("\n")
                 continue
 
-        # Non-indented, non-checkbox line — reset the note-accumulation anchor.
+        # Non-indented, non-checkbox, non-heading line — reset note anchor.
         current_task = None
 
     return tasks

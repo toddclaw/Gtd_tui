@@ -7,6 +7,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+- **Visual mode `z` (bulk snooze):** `z` in visual mode (`v` + `j`/`k` selection) opens the snooze picker and applies the chosen time to all selected tasks.
+
+### Fixed
+- **Markdown import folder routing:** `--import file.md` and `Ctrl+I` now recognise `## FolderName` headings (the same format produced by `--export md`) and route tasks into the correct folder instead of always using the target folder. Case-insensitive matching covers both builtin folders and user-defined folders.
+- **Task editor / split pane field labels i18n:** All field label strings in `TaskDetailScreen` and `TaskSplitPane` (Title, Date, Deadline, Notes, Tags, Repeat, Recurring, Checklist) are now translated via `t()`. Changing `language` in `config.toml` now affects the full task editing UI.
+- **Full UI i18n coverage:** Sidebar labels (Inbox, Today, Anytime, Upcoming, Waiting On, Someday, Logbook, Reference), status bar mode indicators (NORMAL, INSERT, VISUAL), view headers (Today, Upcoming, etc. with counts), move/assign picker section headers and folder names, snooze picker options and custom input, task editor placeholders `(none)`/`(optional)`/`Add checklist item…`, `Created:` label, field navigation hint, search screen, area picker, and import dialog — all now translated via `t()` across all 7 supported languages (en, es, de, fr, ja, ru, zh).
+
 ---
 
 ## [1.12.0] — 2026-03-26

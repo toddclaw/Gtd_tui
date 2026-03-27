@@ -102,6 +102,11 @@ async def test_check_timeout_exits_when_idle_enough(tmp_path: Path) -> None:
 
 async def test_also_due_waiting_on_shows_waiting_on_label(tmp_path: Path) -> None:
     """In Today view, Waiting On tasks in Also Due show [Waiting On] not [W]."""
+    from dataclasses import replace
+
+    from gtd_tui.config import load_config
+    from gtd_tui.i18n import t
+
     tasks: list[Task] = []
     tasks = add_waiting_on_task(tasks, "WO Task")
     # Schedule it for today so it surfaces in Today view
@@ -109,15 +114,18 @@ async def test_also_due_waiting_on_shows_waiting_on_label(tmp_path: Path) -> Non
     tasks = schedule_task(tasks, tasks[-1].id, today)
 
     data_file = _save_tasks(tmp_path, tasks)
-    app = GtdApp(data_file=data_file)
+    # Pin English so the assertion is language-independent (conftest resets language)
+    cfg = replace(load_config(), language="en")
+    app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
         task_list = app.query_one("#task-list", ListView)
         labels = [str(item.query_one(Label).render()) for item in task_list.children]
-        # At least one label should contain "Waiting On"
+        # At least one label should contain the translated "Waiting On"
+        waiting_on_label = t("waiting_on")
         assert any(
-            "Waiting On" in lbl for lbl in labels
-        ), f"Expected 'Waiting On' in labels: {labels}"
+            waiting_on_label in lbl for lbl in labels
+        ), f"Expected '{waiting_on_label}' in labels: {labels}"
         # None should contain the old "[W] " prefix
         assert not any(
             lbl.strip().startswith("[W]") for lbl in labels
@@ -131,18 +139,23 @@ async def test_also_due_waiting_on_shows_waiting_on_label(tmp_path: Path) -> Non
 
 async def test_reference_folder_appears_in_sidebar(tmp_path: Path) -> None:
     """Reference folder is visible in the sidebar."""
+    from gtd_tui.i18n import t
+
     app = _make_app(tmp_path)
     async with app.run_test():
         sidebar = app.query_one("#sidebar", ListView)
         items = list(sidebar.query(Label))
         labels = [str(item.content) for item in items]
+        ref_label = t("reference")
         assert any(
-            "Reference" in lbl for lbl in labels
-        ), f"'Reference' not found in sidebar: {labels}"
+            ref_label in lbl for lbl in labels
+        ), f"'{ref_label}' not found in sidebar: {labels}"
 
 
 async def test_reference_view_renders(tmp_path: Path) -> None:
     """Navigating to Reference view renders the header correctly."""
+    from gtd_tui.i18n import t
+
     tasks: list[Task] = []
     tasks = add_task_to_folder(tasks, REFERENCE_FOLDER_ID, "Ref item 1")
     data_file = _save_tasks(tmp_path, tasks)
@@ -151,11 +164,13 @@ async def test_reference_view_renders(tmp_path: Path) -> None:
         app._current_view = REFERENCE_FOLDER_ID
         app._refresh_list()
         header = app.query_one("#header", Label)
-        assert "Reference" in str(header.content)
+        assert t("reference") in str(header.content)
 
 
 async def test_reference_sidebar_shows_count(tmp_path: Path) -> None:
     """Sidebar shows correct count for Reference folder."""
+    from gtd_tui.i18n import t
+
     tasks: list[Task] = []
     tasks = add_task_to_folder(tasks, REFERENCE_FOLDER_ID, "Ref A")
     tasks = add_task_to_folder(tasks, REFERENCE_FOLDER_ID, "Ref B")
@@ -167,9 +182,10 @@ async def test_reference_sidebar_shows_count(tmp_path: Path) -> None:
         sidebar = app.query_one("#sidebar", ListView)
         items = list(sidebar.query(Label))
         labels = [str(item.content) for item in items]
+        ref_label = t("reference")
         assert any(
-            "Reference (2)" in lbl for lbl in labels
-        ), f"'Reference (2)' not found in: {labels}"
+            f"{ref_label} (2)" in lbl for lbl in labels
+        ), f"'{ref_label} (2)' not found in: {labels}"
 
 
 # ---------------------------------------------------------------------------

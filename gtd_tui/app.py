@@ -196,6 +196,7 @@ class HelpScreen(ModalScreen[None]):
   p / P        If cut register non-empty: move cut task(s) below / above cursor
                Otherwise: paste a duplicate of yanked task below / above current position
   z            Snooze selected task (hide from smart views until timer expires)
+  Ctrl+I       Import tasks from a Markdown checkbox (.md) file
   u            Undo last action
   Ctrl+R       Redo last undone action
   /            Global search  (plain → auto-detect regex; //pat → case-sensitive regex)
@@ -216,6 +217,7 @@ class HelpScreen(ModalScreen[None]):
   w            Move all selected tasks to Waiting On
   t            Move to Today (Waiting On / Inbox) or schedule for today (user folders)
   y            Yank all selected tasks to clipboard (title + notes, blank line between)
+  z            Snooze all selected tasks (same snooze picker as NORMAL mode)
   J / K        Move selected block down / up
   u            Undo last bulk action (exits VISUAL mode)
   Esc          Cancel selection and return to NORMAL mode
@@ -269,22 +271,32 @@ class HelpScreen(ModalScreen[None]):
   :help / :h   Show this help screen
 
 [bold]CLI[/bold]
-  gtd-tui -s             Print today's tasks to stdout and exit
-  gtd-tui --backup-now   Create a one-shot backup of the data file and exit
+  gtd-tui -s                          Print today's tasks to stdout and exit
+  gtd-tui --export [json|txt|csv|md]  Export all tasks to stdout (or --output FILE)
+  gtd-tui --import FILE               Import from a JSON export or .md checkbox list
+  gtd-tui --encrypt / --decrypt       Encrypt or decrypt the data file with a password
+  gtd-tui --backup-now                Create a one-shot backup of the data file and exit
 
 [bold]General[/bold]
   Ctrl+I       Import tasks from a Markdown checkbox (.md) file
   q            Quit
   Ctrl+Z       Suspend to background (resume with fg)
+  Data         ~/.local/share/gtd_tui/data.json
   Config       ~/.config/gtd_tui/config.toml — [backup] rotating copies of data.json;
                [text] optional spell check / capitalization on save (see comments in file)
+  Language     {language}  (change: language = "en" in config.toml)
 
   j / k to scroll  ·  Esc, Enter, or q to close\
 """
 
     def compose(self) -> ComposeResult:
+        language = self.app._config.language  # type: ignore[attr-defined]
+        raw = t("help_text")
+        text = (raw if raw != "help_text" else self._HELP_TEXT).format(
+            language=language
+        )
         with VerticalScroll(id="help-scroll"):
-            yield Static(self._HELP_TEXT)
+            yield Static(text)
 
     def on_key(self, event: events.Key) -> None:
         scroll = self.query_one("#help-scroll", VerticalScroll)
@@ -571,97 +583,77 @@ class TaskDetailScreen(
             self._gtd_task.deadline.isoformat() if self._gtd_task.deadline else ""
         )
         with VerticalScroll(id="detail-panel"):
-            yield Label("Edit Task", id="detail-header")
-            yield Label("Title", classes="field-label")
+            yield Label(t("edit_task_header"), id="detail-header")
+            yield Label(t("field_title"), classes="field-label")
             yield VimInput(
                 value=self._gtd_task.title,
                 start_mode="command",
                 start_at_beginning=True,
                 id="detail-title-input",
             )
-            yield Label(
-                "Date  (e.g. today, 2026-03-20, tomorrow, +7d, someday — empty to clear)",
-                classes="field-label",
-            )
+            yield Label(t("field_date"), classes="field-label")
             yield VimInput(
                 value=date_val,
-                placeholder="(none)",
+                placeholder=t("placeholder_none"),
                 start_mode="command",
                 id="detail-date-input",
             )
-            yield Label(
-                "Deadline  (hard due date — empty to clear)", classes="field-label"
-            )
+            yield Label(t("field_deadline"), classes="field-label")
             yield VimInput(
                 value=deadline_val,
-                placeholder="(none)",
+                placeholder=t("placeholder_none"),
                 start_mode="command",
                 id="detail-deadline-input",
             )
-            yield Label(
-                "Notes  (Enter = newline  Ctrl+E = open in $EDITOR  i = edit)",
-                classes="field-label",
-            )
+            yield Label(t("field_notes"), classes="field-label")
             yield MarkdownNotesProxy(id="detail-notes-proxy")
             yield VimInput(
                 value=self._gtd_task.notes,
-                placeholder="(optional)",
+                placeholder=t("placeholder_optional"),
                 start_mode="command",
                 multiline=True,
                 start_at_beginning=True,
                 id="detail-notes-input",
             )
             yield Label(
-                "Checklist  (o: add  x/Space: toggle  d: delete  r: rename  J/K: reorder)",
+                t("field_checklist"),
                 classes="field-label",
                 id="detail-checklist-header",
             )
             yield ListView(id="detail-checklist-list")
             yield VimInput(
                 value="",
-                placeholder="Add checklist item…",
+                placeholder=t("placeholder_add_checklist"),
                 start_mode="command",
                 id="detail-checklist-new",
             )
-            yield Label(
-                "Repeat  (calendar-fixed — e.g. 7 days, M-F, MWF, TR, weekends, every Mon, every other Tue, 4th Thu, monthly, quarterly — empty to clear)",
-                classes="field-label",
-            )
+            yield Label(t("field_repeat"), classes="field-label")
             yield VimInput(
                 value=repeat_val,
-                placeholder="(none)",
+                placeholder=t("placeholder_none"),
                 start_mode="command",
                 id="detail-repeat-input",
             )
-            yield Label(
-                "Recurring  (after completion — e.g. 1 day, M-F, MWF, TR, every Mon, every other Tue, 4th Thu — empty to clear)",
-                classes="field-label",
-            )
+            yield Label(t("field_recurring"), classes="field-label")
             yield VimInput(
                 value=recur_val,
-                placeholder="(none)",
+                placeholder=t("placeholder_none"),
                 start_mode="command",
                 id="detail-recur-input",
             )
-            yield Label(
-                "Tags  (comma-separated, e.g. @home, @work — empty to clear)",
-                classes="field-label",
-            )
+            yield Label(t("field_tags"), classes="field-label")
             yield VimInput(
                 value=", ".join(self._gtd_task.tags),
-                placeholder="(none)",
+                placeholder=t("placeholder_none"),
                 start_mode="command",
                 id="detail-tags-input",
             )
             if self._gtd_task.created_at:
                 yield Label(
-                    f"Created: {self._gtd_task.created_at.strftime('%Y-%m-%d %H:%M:%S')}",
+                    f"{t('created_label')}: {self._gtd_task.created_at.strftime('%Y-%m-%d %H:%M:%S')}",
                     id="detail-created",
                 )
-            yield Label(
-                "j/k: next/prev field  i on notes: edit  Ctrl+E on notes: open $EDITOR  Enter on checklist: edit items  Esc: save & close",
-                id="detail-status",
-            )
+            yield Label(t("detail_status_hint"), id="detail-status")
 
     def on_mount(self) -> None:
         # Toggle initial visibility of notes proxy vs VimInput.
@@ -1164,13 +1156,10 @@ class SearchScreen(ModalScreen[tuple[str | None, str]]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="search-panel"):
-            yield Label("Search", id="search-header")
-            yield Input(placeholder="Type to search...", id="search-input")
+            yield Label(t("search_header"), id="search-header")
+            yield Input(placeholder=t("search_placeholder"), id="search-input")
             yield ListView(id="search-results")
-            yield Label(
-                "Enter: jump to results   ↑/↓/n/N: navigate   Enter: go to task   Esc: cancel",
-                id="search-status",
-            )
+            yield Label(t("search_status"), id="search-status")
 
     def on_mount(self) -> None:
         self.query_one("#search-input", Input).focus()
@@ -1372,12 +1361,12 @@ class AreaPickerScreen(ModalScreen[str | None]):
 
     def compose(self) -> ComposeResult:
         with VerticalScroll(id="area-picker-panel"):
-            yield Label("Assign to Area", id="area-picker-header")
+            yield Label(t("area_picker_header"), id="area-picker-header")
             yield ListView(id="area-picker-list")
 
     def on_mount(self) -> None:
         lv = self.query_one("#area-picker-list", ListView)
-        lv.append(ListItem(Label("(No area)")))
+        lv.append(ListItem(Label(t("area_no_area"))))
         for area in self._areas:
             lv.append(ListItem(Label(markup_escape(area.name))))
         lv.focus()
@@ -1647,72 +1636,54 @@ class TaskSplitPane(Widget):
         self._task_id: str | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static("Title", classes="field-label")
+        yield Static(t("field_title"), classes="field-label")
         yield VimInput(
             value="",
             start_mode="command",
             start_at_beginning=True,
             id="split-title-input",
         )
-        yield Static(
-            "Date  (e.g. today, +7d, someday — empty to clear)",
-            classes="field-label",
-        )
+        yield Static(t("split_field_date"), classes="field-label")
         yield VimInput(
             value="",
-            placeholder="(none)",
+            placeholder=t("placeholder_none"),
             start_mode="command",
             id="split-date-input",
         )
-        yield Static(
-            "Deadline  (hard due date — empty to clear)",
-            classes="field-label",
-        )
+        yield Static(t("field_deadline"), classes="field-label")
         yield VimInput(
             value="",
-            placeholder="(none)",
+            placeholder=t("placeholder_none"),
             start_mode="command",
             id="split-deadline-input",
         )
-        yield Static(
-            "Notes  (Enter = command mode  i = insert  Ctrl+E = $EDITOR)",
-            classes="field-label",
-        )
+        yield Static(t("split_field_notes"), classes="field-label")
         yield MarkdownNotesProxy(id="split-notes-proxy")
         yield VimInput(
             value="",
-            placeholder="(optional)",
+            placeholder=t("placeholder_optional"),
             start_mode="command",
             multiline=True,
             id="split-notes-input",
         )
-        yield Static(
-            "Tags  (comma-separated, e.g. @home, @work — empty to clear)",
-            classes="field-label",
-        )
+        yield Static(t("field_tags"), classes="field-label")
         yield VimInput(
             value="",
-            placeholder="(none)",
+            placeholder=t("placeholder_none"),
             start_mode="command",
             id="split-tags-input",
         )
-        yield Static(
-            "Repeat  (e.g. 7 days, M-F, every Mon — empty to clear)",
-            classes="field-label",
-        )
+        yield Static(t("split_field_repeat"), classes="field-label")
         yield VimInput(
             value="",
-            placeholder="(none)",
+            placeholder=t("placeholder_none"),
             start_mode="command",
             id="split-repeat-input",
         )
-        yield Static(
-            "Recurring  (after completion — empty to clear)",
-            classes="field-label",
-        )
+        yield Static(t("split_field_recurring"), classes="field-label")
         yield VimInput(
             value="",
-            placeholder="(none)",
+            placeholder=t("placeholder_none"),
             start_mode="command",
             id="split-recur-input",
         )
@@ -2155,10 +2126,7 @@ class _ActionPickerScreen(ModalScreen["tuple[str, str] | None"]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="picker-outer"):
-            yield Label(
-                "Move / Assign / Tag  (j/k H/M/L/G/gg Enter Esc)",
-                id="picker-header",
-            )
+            yield Label(t("picker_header"), id="picker-header")
             yield ListView(id="picker-list")
 
     def on_mount(self) -> None:
@@ -2251,14 +2219,14 @@ def _build_action_picker_entries(
 
     entries: list[tuple[str, tuple[str, str] | None]] = []
 
-    entries.append(("── Folders ──", None))
+    entries.append((t("folders_header"), None))
     builtin_folders = [
-        ("Inbox", "inbox"),
-        ("Today", "today"),
-        ("Anytime", "anytime"),
-        ("Waiting On", "waiting_on"),
-        ("Someday", "someday"),
-        ("Reference", REFERENCE_FOLDER_ID),
+        (t("inbox"), "inbox"),
+        (t("today"), "today"),
+        (t("anytime"), "anytime"),
+        (t("waiting_on"), "waiting_on"),
+        (t("someday"), "someday"),
+        (t("reference"), REFERENCE_FOLDER_ID),
     ]
     for name, fid in builtin_folders:
         entries.append((name, ("folder", fid)))
@@ -2267,12 +2235,12 @@ def _build_action_picker_entries(
             entries.append((folder.name, ("folder", folder.id)))
 
     if projects:
-        entries.append(("── Projects ──", None))
+        entries.append((t("projects_header"), None))
         for project in projects:
             entries.append((project.title, ("project", project.id)))
 
     if tags:
-        entries.append(("── Tags (add) ──", None))
+        entries.append((t("tags_add_header"), None))
         for tag_name, _ in tags:
             entries.append((tag_name, ("tag", tag_name)))
 
@@ -2332,26 +2300,23 @@ class SnoozePickerScreen(ModalScreen["datetime | None"]):
             hour=9, minute=0, second=0, microsecond=0
         )
         self._options = [
-            ("1 hour", now + timedelta(hours=1)),
-            ("3 hours", now + timedelta(hours=3)),
-            ("Tomorrow 9 am", tomorrow_9am),
-            ("1 week", now + timedelta(weeks=1)),
+            (t("snooze_1hour"), now + timedelta(hours=1)),
+            (t("snooze_3hours"), now + timedelta(hours=3)),
+            (t("snooze_tomorrow_9am"), tomorrow_9am),
+            (t("snooze_1week"), now + timedelta(weeks=1)),
         ]
         with Vertical(classes="picker-dialog"):
-            yield Label("Snooze until…", classes="picker-title")
+            yield Label(t("snooze_until"), classes="picker-title")
             yield ListView(
                 *[ListItem(Label(label)) for label, _ in self._options],
                 id="snooze-list",
             )
-            yield Label(
-                "Custom (e.g. tomorrow, +3h, 2026-04-01):",
-                id="snooze-custom-label",
-            )
+            yield Label(t("snooze_custom_label"), id="snooze-custom-label")
             from gtd_tui.widgets.vim_input import VimInput as _VI
 
             yield _VI(
                 value="",
-                placeholder="date/time expression…",
+                placeholder=t("snooze_custom_placeholder"),
                 start_mode="insert",
                 id="snooze-custom-input",
             )
@@ -2462,14 +2427,14 @@ class ImportMdScreen(ModalScreen["tuple[list[Task], str] | None"]):
 
     BINDINGS = [Binding("escape", "cancel", show=False)]
 
-    # Built-in folders shown in the folder selector
-    _BUILTIN_FOLDERS: list[tuple[str, str]] = [
-        ("inbox", "Inbox"),
-        ("today", "Today"),
-        ("anytime", "Anytime"),
-        ("upcoming", "Upcoming"),
-        ("waiting_on", "Waiting On"),
-        ("someday", "Someday"),
+    # Built-in folder IDs shown in the folder selector (display names use t())
+    _BUILTIN_FOLDER_IDS: list[str] = [
+        "inbox",
+        "today",
+        "anytime",
+        "upcoming",
+        "waiting_on",
+        "someday",
     ]
 
     def __init__(
@@ -2481,20 +2446,22 @@ class ImportMdScreen(ModalScreen["tuple[list[Task], str] | None"]):
         self._user_folders = folders
         self._areas = areas
         # Folder entries: (folder_id, display_name)
-        self._folder_entries: list[tuple[str, str]] = list(self._BUILTIN_FOLDERS)
+        self._folder_entries: list[tuple[str, str]] = [
+            (fid, t(fid)) for fid in self._BUILTIN_FOLDER_IDS
+        ]
         for f in sorted(self._user_folders, key=lambda x: x.position):
             self._folder_entries.append((f.id, f.name))
         self._selected_folder_idx: int = 0  # default: inbox
 
     def compose(self) -> ComposeResult:
         with Vertical(id="import-md-dialog"):
-            yield Label("Import tasks from Markdown", id="import-md-title")
-            yield Label("File path (.md):")
+            yield Label(t("import_md_title"), id="import-md-title")
+            yield Label(t("import_md_path_label"))
             yield Input(
                 id="import-path",
-                placeholder="Path to .md file",
+                placeholder=t("import_md_path_placeholder"),
             )
-            yield Label("Target folder:", id="import-md-folder-label")
+            yield Label(t("import_md_folder_label"), id="import-md-folder-label")
             yield ListView(
                 *[ListItem(Label(name)) for _, name in self._folder_entries],
                 id="import-md-folder-list",
@@ -2537,7 +2504,9 @@ class ImportMdScreen(ModalScreen["tuple[list[Task], str] | None"]):
             return
         folder_id = self._get_selected_folder_id()
         text = path.read_text(encoding="utf-8")
-        new_tasks = _import_md(text, target_folder_id=folder_id)
+        new_tasks = _import_md(
+            text, target_folder_id=folder_id, folders=self._user_folders
+        )
         self.dismiss((new_tasks, folder_id))
 
     def action_cancel(self) -> None:
@@ -2931,19 +2900,21 @@ class GtdApp(App[None]):
 
     def _compose_main_content(self) -> ComposeResult:
         """Yield the core app widgets (header, sidebar+content, status)."""
-        yield Label("Today", id="header")
+        yield Label(t("today"), id="header")
         with Horizontal(id="main-area"):
             yield ListView(id="sidebar")
             with Horizontal(id="content-area"):
                 with Vertical(id="content"):
-                    yield VimInput(placeholder="Task title...", id="vim-input")
-                    yield Input(placeholder="Task title...", id="task-input")
-                    yield ListView(id="task-list")
-                    yield _FocusableEmptyHint(
-                        "No tasks — press o to add one", id="empty-hint"
+                    yield VimInput(
+                        placeholder=t("task_input_placeholder"), id="vim-input"
                     )
+                    yield Input(
+                        placeholder=t("task_input_placeholder"), id="task-input"
+                    )
+                    yield ListView(id="task-list")
+                    yield _FocusableEmptyHint(t("empty_hint"), id="empty-hint")
                 yield TaskSplitPane(id="split-detail-pane")
-        yield Label("NORMAL  |  Today", id="status")
+        yield Label(t("mode_normal"), id="status")
 
     def compose(self) -> ComposeResult:
         border = self._config.border_style
@@ -3042,49 +3013,51 @@ class GtdApp(App[None]):
         for view_id in self._sidebar_view_ids:
             if view_id == "inbox":
                 suffix = _n(len(inbox_tasks(self._all_tasks))) if counts.inbox else ""
-                sidebar.append(ListItem(Label(f"Inbox{suffix}")))
+                sidebar.append(ListItem(Label(f"{t('inbox')}{suffix}")))
             elif view_id == "today":
                 suffix = _n(len(today_tasks(self._all_tasks))) if counts.today else ""
-                sidebar.append(ListItem(Label(f"Today{suffix}")))
+                sidebar.append(ListItem(Label(f"{t('today')}{suffix}")))
             elif view_id == "anytime":
                 suffix = (
                     _n(len(anytime_tasks(self._all_tasks))) if counts.anytime else ""
                 )
-                sidebar.append(ListItem(Label(f"Anytime{suffix}")))
+                sidebar.append(ListItem(Label(f"{t('anytime')}{suffix}")))
             elif view_id == "upcoming":
                 suffix = (
                     _n(len(upcoming_tasks(self._all_tasks))) if counts.upcoming else ""
                 )
-                sidebar.append(ListItem(Label(f"Upcoming{suffix}")))
+                sidebar.append(ListItem(Label(f"{t('upcoming')}{suffix}")))
             elif view_id == "waiting_on":
                 suffix = (
                     _n(len(waiting_on_tasks(self._all_tasks)))
                     if counts.waiting_on
                     else ""
                 )
-                sidebar.append(ListItem(Label(f"Waiting On{suffix}")))
+                sidebar.append(ListItem(Label(f"{t('waiting_on')}{suffix}")))
             elif view_id == "someday":
                 suffix = (
                     _n(len(someday_tasks(self._all_tasks))) if counts.someday else ""
                 )
-                sidebar.append(ListItem(Label(f"Someday{suffix}")))
+                sidebar.append(ListItem(Label(f"{t('someday')}{suffix}")))
             elif view_id == REFERENCE_FOLDER_ID:
                 suffix = (
                     _n(len(reference_tasks(self._all_tasks)))
                     if counts.reference
                     else ""
                 )
-                sidebar.append(ListItem(Label(f"Reference{suffix}")))
+                sidebar.append(ListItem(Label(f"{t('reference')}{suffix}")))
             elif view_id == "logbook":
                 suffix = (
                     _n(len(logbook_tasks(self._all_tasks))) if counts.logbook else ""
                 )
-                sidebar.append(ListItem(Label(f"Logbook{suffix}")))
+                sidebar.append(ListItem(Label(f"{t('logbook')}{suffix}")))
             elif view_id == "__new_folder__":
                 sidebar.append(ListItem(Label("▸ …", classes="sidebar-placeholder")))
             elif view_id == "__projects_header__":
                 sidebar.append(
-                    ListItem(Label("── Projects ──", classes="sidebar-section-header"))
+                    ListItem(
+                        Label(t("projects_header"), classes="sidebar-section-header")
+                    )
                 )
             elif view_id.startswith("project:"):
                 project_id = view_id[8:]
@@ -3124,7 +3097,7 @@ class GtdApp(App[None]):
                     )
             elif view_id == "__tags_header__":
                 sidebar.append(
-                    ListItem(Label("── Tags ──", classes="sidebar-section-header"))
+                    ListItem(Label(t("tags_header"), classes="sidebar-section-header"))
                 )
             elif view_id.startswith("tag:"):
                 tag_name = view_id[4:]
@@ -3273,7 +3246,7 @@ class GtdApp(App[None]):
         today_only = [t for t in all_today if t.folder_id == "today"]
         other = [t for t in all_today if t.folder_id != "today"]
 
-        self.query_one("#header", Label).update(f"Today ({len(all_today)})")
+        self.query_one("#header", Label).update(f"{t('today')} ({len(all_today)})")
 
         # Placeholder row only applies in the today-folder section.
         ph_at: int | None = None
@@ -3305,7 +3278,7 @@ class GtdApp(App[None]):
 
     def _render_upcoming_view(self, list_view: ListView) -> None:
         tasks = upcoming_tasks(self._all_tasks)
-        self.query_one("#header", Label).update(f"Upcoming ({len(tasks)})")
+        self.query_one("#header", Label).update(f"{t('upcoming')} ({len(tasks)})")
         today = date.today()
 
         def _effective_date(t: Task) -> date | None:
@@ -3372,7 +3345,7 @@ class GtdApp(App[None]):
 
     def _render_waiting_on_view(self, list_view: ListView) -> None:
         tasks = waiting_on_tasks(self._all_tasks)
-        self.query_one("#header", Label).update(f"Waiting On ({len(tasks)})")
+        self.query_one("#header", Label).update(f"{t('waiting_on')} ({len(tasks)})")
 
         def _wo_label(task: Task) -> str:
             date_str = (
@@ -3386,27 +3359,27 @@ class GtdApp(App[None]):
 
     def _render_inbox_view(self, list_view: ListView) -> None:
         tasks = inbox_tasks(self._all_tasks)
-        self.query_one("#header", Label).update(f"Inbox ({len(tasks)})")
+        self.query_one("#header", Label).update(f"{t('inbox')} ({len(tasks)})")
         self._render_simple_list(list_view, tasks, self._task_label)
 
     def _render_anytime_view(self, list_view: ListView) -> None:
         tasks = anytime_tasks(self._all_tasks)
-        self.query_one("#header", Label).update(f"Anytime ({len(tasks)})")
+        self.query_one("#header", Label).update(f"{t('anytime')} ({len(tasks)})")
         self._render_simple_list(list_view, tasks, self._task_label)
 
     def _render_someday_view(self, list_view: ListView) -> None:
         tasks = someday_tasks(self._all_tasks)
-        self.query_one("#header", Label).update(f"Someday ({len(tasks)})")
+        self.query_one("#header", Label).update(f"{t('someday')} ({len(tasks)})")
         self._render_simple_list(list_view, tasks, self._task_label)
 
     def _render_reference_view(self, list_view: ListView) -> None:
         tasks = reference_tasks(self._all_tasks)
-        self.query_one("#header", Label).update(f"Reference ({len(tasks)})")
+        self.query_one("#header", Label).update(f"{t('reference')} ({len(tasks)})")
         self._render_simple_list(list_view, tasks, self._task_label)
 
     def _render_logbook_view(self, list_view: ListView) -> None:
         tasks = logbook_tasks(self._all_tasks)
-        self.query_one("#header", Label).update(f"Logbook ({len(tasks)})")
+        self.query_one("#header", Label).update(f"{t('logbook')} ({len(tasks)})")
         for task in tasks:
             done = (
                 task.completed_at.strftime("%Y-%m-%d %H:%M")
@@ -3541,12 +3514,12 @@ class GtdApp(App[None]):
 
     def _update_status(self, message: str = "") -> None:
         if self._mode == "INSERT":
-            mode = "INSERT"
+            mode = t("mode_insert")
         elif self._visual_mode:
             n = len(self._visual_selected_tasks)
-            mode = f"VISUAL ({n})"
+            mode = t("mode_visual", n=n)
         else:
-            mode = "NORMAL"
+            mode = t("mode_normal")
         view_name = self._view_label(self._current_view)
         suffix = f"  {message}" if message else ""
         self.query_one("#status", Label).update(f"{mode}  |  {view_name}{suffix}")
@@ -5259,6 +5232,10 @@ class GtdApp(App[None]):
             event.prevent_default()
             self._yank_task()
 
+        elif event.key == "z":
+            event.prevent_default()
+            self._bulk_snooze()
+
         elif event.key == "u":
             event.prevent_default()
             self._exit_visual_mode()
@@ -6040,6 +6017,26 @@ class GtdApp(App[None]):
 
         self.push_screen(SnoozePickerScreen(), _on_snooze)
 
+    def _bulk_snooze(self) -> None:
+        """Open the snooze picker and snooze all visually-selected tasks."""
+        tasks = list(self._visual_selected_tasks)  # snapshot before exiting visual mode
+        if not tasks:
+            self._exit_visual_mode()
+            return
+
+        def _on_snooze(until: datetime | None) -> None:
+            if until is None:
+                return
+            self._push_undo()
+            for task in tasks:
+                self._all_tasks = snooze_task(self._all_tasks, task.id, until)
+            self._save()
+            self._refresh_list()
+            self._update_status(t("snoozed"))
+
+        self._exit_visual_mode()
+        self.push_screen(SnoozePickerScreen(), _on_snooze)
+
     def _purge_logbook_entry(self) -> None:
         """Permanently remove the selected logbook entry (no undo)."""
         task = self._get_selected_task()
@@ -6320,23 +6317,33 @@ class GtdApp(App[None]):
                 return
             new_tasks, folder_id = result
             if not new_tasks:
-                self._update_status("(no tasks found in file)")
+                self._update_status(t("no_tasks_found_in_file"))
                 return
             self._push_undo()
-            max_pos = max(
-                (t.position for t in self._all_tasks if t.folder_id == folder_id),
-                default=-1,
-            )
-            for i, task in enumerate(new_tasks):
-                self._all_tasks.append(replace(task, position=max_pos + 1 + i))
+            # Tasks may belong to different folders; track max position per folder.
+            pos_map: dict[str, int] = {}
+            for task in new_tasks:
+                fid = task.folder_id
+                if fid not in pos_map:
+                    pos_map[fid] = max(
+                        (_t.position for _t in self._all_tasks if _t.folder_id == fid),
+                        default=-1,
+                    )
+                pos_map[fid] += 1
+                self._all_tasks.append(replace(task, position=pos_map[fid]))
             self._save()
             self._rebuild_sidebar()
             self._refresh_list()
-            completed = sum(1 for t in new_tasks if t.completed_at is not None)
+            completed = sum(1 for task in new_tasks if task.completed_at is not None)
             active = len(new_tasks) - completed
             self._update_status(
-                f"(imported {len(new_tasks)} tasks: {active} active,"
-                f" {completed} completed → {folder_id})"
+                t(
+                    "imported_tasks",
+                    count=len(new_tasks),
+                    active=active,
+                    completed=completed,
+                    folder=folder_id,
+                )
             )
 
         await self.push_screen(
