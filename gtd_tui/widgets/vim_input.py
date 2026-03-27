@@ -789,6 +789,12 @@ class VimInput(Widget, can_focus=True):
             if row == 0:
                 return  # at first line — bubble to parent for field navigation
 
+        if key == "enter" and self._multiline:
+            return  # bubble to parent — Enter in command mode exits to Markdown view
+
+        if key in ("backslash", "pipe"):
+            return  # bubble to parent — toggles split view when not editing
+
         # Every other command-mode key is consumed here.
         event.stop()
         event.prevent_default()
