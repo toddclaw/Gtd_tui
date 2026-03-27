@@ -1580,7 +1580,7 @@ class TaskSplitPane(Widget):
         "split-title-input",
         "split-date-input",
         "split-deadline-input",
-        "split-notes-proxy",   # placeholder; replaced by proxy/VimInput at runtime
+        "split-notes-proxy",  # placeholder; replaced by proxy/VimInput at runtime
         "split-tags-input",
         "split-repeat-input",
         "split-recur-input",
@@ -1951,13 +1951,18 @@ class TaskSplitPane(Widget):
         # or from MarkdownNotesProxy when at scroll boundary).
         if event.key in ("j", "k"):
             focused = self.app.focused
+            if focused is None:
+                return
             fields = self._focusable_fields()
             try:
                 idx = fields.index(focused)
             except ValueError:
                 return
             if event.key == "j" and idx < len(fields) - 1:
-                if isinstance(focused, VimInput) and focused.id in self._SAVEABLE_FIELDS:
+                if (
+                    isinstance(focused, VimInput)
+                    and focused.id in self._SAVEABLE_FIELDS
+                ):
                     self._save_field(focused.id)
                 next_w = fields[idx + 1]
                 next_w.focus()
@@ -1966,7 +1971,10 @@ class TaskSplitPane(Widget):
                 event.stop()
                 event.prevent_default()
             elif event.key == "k" and idx > 0:
-                if isinstance(focused, VimInput) and focused.id in self._SAVEABLE_FIELDS:
+                if (
+                    isinstance(focused, VimInput)
+                    and focused.id in self._SAVEABLE_FIELDS
+                ):
                     self._save_field(focused.id)
                 prev_w = fields[idx - 1]
                 prev_w.focus()
@@ -2357,7 +2365,6 @@ class SnoozePickerScreen(ModalScreen["datetime | None"]):
             self.dismiss(self._options[idx][1])
 
     def on_vim_input_submitted(self, event: "VimInput.Submitted") -> None:  # type: ignore[name-defined]
-        from gtd_tui.widgets.vim_input import VimInput as _VI
 
         if event.vim_input.id != "snooze-custom-input":
             return
@@ -6216,9 +6223,7 @@ class GtdApp(App[None]):
                 if new_val != old_val:
                     self._push_undo()
                     if new_val is None:
-                        self._all_tasks = clear_deadline(
-                            self._all_tasks, event.task_id
-                        )
+                        self._all_tasks = clear_deadline(self._all_tasks, event.task_id)
                     else:
                         self._all_tasks = set_deadline(
                             self._all_tasks, event.task_id, new_val  # type: ignore[arg-type]
@@ -6226,25 +6231,55 @@ class GtdApp(App[None]):
                     changed = True
 
         elif fid in ("split-repeat-input", "split-recur-input"):
-            if raw == "" or raw == "(invalid)":
-                new_rule = None
-            else:
-                try:
-                    new_rule = parse_repeat_input(raw)
-                except InvalidRepeatError:
-                    new_rule = None
             if fid == "split-repeat-input":
-                if new_rule != task.repeat_rule:
+                new_repeat: RepeatRule | None = task.repeat_rule
+                if raw == "" or raw == "(invalid)":
+                    new_repeat = None
+                else:
+                    try:
+                        parsed_rep = parse_repeat_input(raw)
+                        if parsed_rep is None:
+                            new_repeat = None
+                        elif (
+                            task.repeat_rule is not None
+                            and task.repeat_rule.interval == parsed_rep.interval
+                            and task.repeat_rule.unit == parsed_rep.unit
+                            and task.repeat_rule.days_of_week == parsed_rep.days_of_week
+                            and task.repeat_rule.nth_weekday == parsed_rep.nth_weekday
+                        ):
+                            new_repeat = task.repeat_rule  # preserve next_due
+                        else:
+                            new_repeat = make_repeat_rule_from_parsed(parsed_rep)
+                    except InvalidRepeatError:
+                        new_repeat = task.repeat_rule
+                if new_repeat != task.repeat_rule:
                     self._push_undo()
                     self._all_tasks = set_repeat_rule(
-                        self._all_tasks, event.task_id, new_rule
+                        self._all_tasks, event.task_id, new_repeat
                     )
                     changed = True
             else:
-                if new_rule != task.recur_rule:
+                new_recur: RecurRule | None = task.recur_rule
+                if raw == "" or raw == "(invalid)":
+                    new_recur = None
+                else:
+                    try:
+                        parsed_rec = parse_repeat_input(raw)
+                        if parsed_rec is None:
+                            new_recur = None
+                        else:
+                            new_recur = RecurRule(
+                                interval=parsed_rec.interval,
+                                unit=parsed_rec.unit,
+                                days_of_week=parsed_rec.days_of_week,
+                                nth_weekday=parsed_rec.nth_weekday,
+                            )
+                    except InvalidRepeatError:
+                        new_recur = task.recur_rule
+                if new_recur != task.recur_rule:
                     self._push_undo()
                     self._all_tasks = set_recur_rule(
-                        self._all_tasks, event.task_id, new_rule
+                        self._all_tasks, event.task_id, new_recur
                     )
                     changed = True
 
