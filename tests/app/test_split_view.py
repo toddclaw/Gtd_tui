@@ -12,7 +12,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from textual.widgets import Label, ListView
+from textual.widgets import ListView
 
 from gtd_tui.app import GtdApp, TaskSplitPane
 from gtd_tui.config import load_config
@@ -101,12 +101,12 @@ async def test_split_pane_shows_task_title(tmp_path: Path) -> None:
         await pilot.press("backslash")
         await pilot.pause()
 
-        title_label = app.query_one("#split-title", Label)
-        # Label.content property returns the current markup/text content
-        title_text = str(title_label.content)
+        from gtd_tui.widgets.vim_input import VimInput
+
+        title_inp = app.query_one("#split-title-input", VimInput)
         assert (
-            "My Important Task" in title_text
-        ), f"Split pane should show task title, got: {title_text!r}"
+            "My Important Task" in title_inp.value
+        ), f"Split pane should show task title, got: {title_inp.value!r}"
 
 
 @pytest.mark.asyncio
@@ -176,30 +176,140 @@ async def test_notes_saved_on_cursor_change(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("backslash")  # open split view
         await pilot.pause()
-        await pilot.press("l")  # focus split pane
+        await pilot.press("l")  # focus split pane (now lands on title VimInput)
         await pilot.pause()
 
-        # Enter insert mode and type some notes
+        # Navigate j×3 to reach the notes VimInput
+        # (title → date → deadline → notes)
+        await pilot.press("j", "j", "j")
+        await pilot.pause()
+
+        # Enter INSERT mode in notes VimInput and type
         await pilot.press("i")
         await pilot.pause()
-        await pilot.press("h", "e", "l", "l", "o")
+        await pilot.press("n", "o", "t", "e", "s")
         await pilot.pause()
 
-        # Press Escape to return to command mode in the pane — this saves notes
+        # Esc → command mode in notes VimInput (saves notes)
         await pilot.press("escape")
         await pilot.pause()
 
-        # Press h to return to task list
+        # Navigate back to title (j×4 to pass notes/tags/repeat/recur) then h
+        # or just press h directly — in command mode, notes VimInput is focused
+        # h returns to task list
         await pilot.press("h")
         await pilot.pause()
 
-        # The first task shown (Task two, position 0) should now have notes saved.
-        # Notes are saved on Esc (mode change) and again on h (ReturnFocus).
         first_shown = next(
             t
             for t in sorted(app._all_tasks, key=lambda t: t.position)
             if t.folder_id == "today"
         )
         assert (
-            "hello" in first_shown.notes
+            "notes" in first_shown.notes
         ), f"Notes should be saved after editing, got: {first_shown.notes!r} for '{first_shown.title}'"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: notes proxy focus after Esc in split pane
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_split_pane_esc_stays_in_command_mode(tmp_path: Path) -> None:
+    """After Esc from INSERT in split pane, VimInput stays visible in command mode.
+    Enter in command mode returns to the proxy (markdown view).
+    """
+    from gtd_tui.app import MarkdownNotesProxy
+    from gtd_tui.widgets.vim_input import VimInput
+
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Some existing notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("backslash")  # open split view
+        await pilot.pause()
+        await pilot.press("l")  # focus split pane
+        await pilot.pause()
+
+        pane = app.query_one("#split-detail-pane", TaskSplitPane)
+        proxy = pane.query_one("#split-notes-proxy", MarkdownNotesProxy)
+        vim_inp = pane.query_one("#split-notes-input", VimInput)
+
+        assert proxy.display is True
+
+        # Navigate j×3 from title to reach the notes proxy
+        await pilot.press("j", "j", "j")
+        await pilot.pause()
+        assert app.focused is proxy, "Should be on notes proxy after j×3"
+
+        # i on proxy → INSERT mode (proxy hides, VimInput shows)
+        await pilot.press("i")
+        await pilot.pause()
+        assert vim_inp.display is True
+
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert (
+            vim_inp.display is True
+        ), "VimInput stays visible after Esc (command mode)"
+        assert proxy.display is False, "Proxy stays hidden after Esc"
+        assert vim_inp._vim_mode == "command"
+
+        # Enter in command mode → proxy regains focus
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert proxy.display is True, "Proxy reappears after Enter in command mode"
+        assert vim_inp.display is False
+
+
+@pytest.mark.asyncio
+async def test_split_pane_i_works_after_enter_from_command_mode(tmp_path: Path) -> None:
+    """Full split pane roundtrip: i → Esc → Enter → i → INSERT again."""
+    from gtd_tui.app import MarkdownNotesProxy
+    from gtd_tui.widgets.vim_input import VimInput
+
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Initial notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("backslash")
+        await pilot.pause()
+        await pilot.press("l")
+        await pilot.pause()
+
+        pane = app.query_one("#split-detail-pane", TaskSplitPane)
+        proxy = pane.query_one("#split-notes-proxy", MarkdownNotesProxy)
+        vim_inp = pane.query_one("#split-notes-input", VimInput)
+
+        # Navigate j×3 from title to reach the notes proxy
+        await pilot.press("j", "j", "j")
+        await pilot.pause()
+        assert app.focused is proxy, "Should be on notes proxy after j×3"
+
+        # First edit cycle: i → Esc → Enter (returns to proxy)
+        await pilot.press("i")
+        await pilot.pause()
+        assert vim_inp.display is True
+        await pilot.press("escape")
+        await pilot.pause()
+        # Still in command mode → Enter returns to proxy
+        await pilot.press("enter")
+        await pilot.pause()
+        assert proxy.display is True, "Proxy must show after Enter in command mode"
+
+        # Second i press from proxy → INSERT again
+        await pilot.press("i")
+        await pilot.pause()
+        assert (
+            vim_inp.display is True
+        ), "VimInput must reappear on second 'i' press from proxy"
+        assert proxy.display is False

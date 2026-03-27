@@ -1,8 +1,11 @@
 """Tests for BACKLOG-82: Markdown-rendered notes in detail view.
 
-The TaskDetailScreen notes field shows rendered Markdown (via MarkdownNotesProxy)
-when in COMMAND mode.  Pressing i/a/o switches to raw VimInput (INSERT mode).
-Esc from INSERT returns to Markdown view.
+State machine for the notes field in TaskDetailScreen:
+  Proxy (read / markdown)  → Enter          → VimInput COMMAND mode (raw text)
+  Proxy (read / markdown)  → i/a/A/o/O      → VimInput INSERT mode  (shortcut)
+  VimInput COMMAND mode    → i/a/A/o/O      → VimInput INSERT mode  (vim normal)
+  VimInput INSERT mode     → Esc            → VimInput COMMAND mode (no auto-return)
+  VimInput COMMAND mode    → Enter (bubble) → Proxy (renders markdown)
 """
 
 from __future__ import annotations
@@ -123,9 +126,9 @@ async def test_pressing_i_on_proxy_switches_to_vim_input(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_esc_from_insert_shows_markdown_again(tmp_path: Path) -> None:
-    """After editing in VimInput (INSERT mode), pressing Esc returns to COMMAND mode
-    and shows the Markdown proxy again."""
+async def test_esc_from_insert_stays_in_command_mode(tmp_path: Path) -> None:
+    """After editing in VimInput (INSERT mode), Esc returns to VimInput COMMAND mode —
+    the proxy does NOT reappear until Enter is pressed in command mode."""
     data_file = tmp_path / "data.json"
     tasks = add_task([], "Task with notes", notes="Original notes")
     save_data(tasks, [], data_file=data_file)
@@ -145,7 +148,7 @@ async def test_esc_from_insert_shows_markdown_again(tmp_path: Path) -> None:
         # Proxy starts visible
         assert proxy.display is True
 
-        # Focus proxy and press i to switch to VimInput
+        # Focus proxy and press i to switch to VimInput INSERT mode
         proxy.focus()
         await pilot.pause()
         await pilot.press("i")
@@ -154,16 +157,134 @@ async def test_esc_from_insert_shows_markdown_again(tmp_path: Path) -> None:
         assert vim_inp.display is True
         assert proxy.display is False
 
-        # VimInput is now in INSERT mode (set_mode called with "insert")
-        # Type something
+        # Type something then press Esc → VimInput COMMAND mode (proxy stays hidden)
         await pilot.press("space", "e", "d", "i", "t", "e", "d")
         await pilot.pause()
-
-        # Press Esc → VimInput goes to COMMAND mode → proxy should reappear
         await pilot.press("escape")
         await pilot.pause()
 
-        assert proxy.display is True, "Proxy should reappear after Esc from INSERT mode"
+        assert (
+            vim_inp.display is True
+        ), "VimInput stays visible after Esc (command mode)"
+        assert proxy.display is False, "Proxy stays hidden after Esc (not yet Enter)"
+        assert (
+            vim_inp._vim_mode == "command"
+        ), "VimInput should be in command mode after Esc"
+
+        # Press Enter in command mode → proxy reappears with rendered markdown
+        await pilot.press("enter")
+        await pilot.pause()
+
+        assert proxy.display is True, "Proxy reappears after Enter in command mode"
+        assert vim_inp.display is False, "VimInput hides after Enter in command mode"
+
+
+@pytest.mark.asyncio
+async def test_vim_input_focused_after_esc_from_insert(tmp_path: Path) -> None:
+    """After Esc from INSERT, VimInput holds focus in command mode.
+    The user presses Enter to return to the proxy, or i to re-enter INSERT."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Some notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TaskDetailScreen)
+
+        proxy = screen.query_one("#detail-notes-proxy", MarkdownNotesProxy)
+        vim_inp = screen.query_one("#detail-notes-input", VimInput)
+
+        proxy.focus()
+        await pilot.pause()
+        await pilot.press("i")
+        await pilot.pause()
+
+        # Esc → VimInput COMMAND mode; VimInput keeps focus
+        await pilot.press("escape")
+        await pilot.pause()
+
+        assert screen.focused is vim_inp, "VimInput should hold focus after Esc"
+        assert vim_inp._vim_mode == "command"
+
+        # From command mode, 'i' re-enters INSERT mode
+        await pilot.press("i")
+        await pilot.pause()
+        assert vim_inp._vim_mode == "insert", "'i' in command mode should enter INSERT"
+
+
+@pytest.mark.asyncio
+async def test_enter_on_proxy_enter_in_command_mode_roundtrip(tmp_path: Path) -> None:
+    """Enter on proxy → command mode; Enter in command mode → proxy (full roundtrip)."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Original notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")  # open detail view
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TaskDetailScreen)
+
+        proxy = screen.query_one("#detail-notes-proxy", MarkdownNotesProxy)
+        vim_inp = screen.query_one("#detail-notes-input", VimInput)
+
+        # Enter on proxy → VimInput command mode
+        proxy.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        assert vim_inp.display is True, "VimInput should show after Enter on proxy"
+        assert proxy.display is False, "Proxy should hide after Enter on proxy"
+        assert vim_inp._vim_mode == "command", "VimInput should be in command mode"
+
+        # Enter in command mode → back to proxy
+        await pilot.press("enter")
+        await pilot.pause()
+        assert proxy.display is True, "Proxy must reappear after Enter in command mode"
         assert (
             vim_inp.display is False
-        ), "VimInput should be hidden after Esc from INSERT mode"
+        ), "VimInput must hide after Enter in command mode"
+        assert screen.focused is proxy, "Proxy should regain focus"
+
+        # Second Enter on proxy works again
+        await pilot.press("enter")
+        await pilot.pause()
+        assert vim_inp.display is True, "VimInput must show on second Enter on proxy"
+
+
+@pytest.mark.asyncio
+async def test_j_navigation_skips_hidden_notes_vim_input(tmp_path: Path) -> None:
+    """j/k from deadline field should land on the proxy (not the hidden VimInput)."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task with notes", notes="Some notes")
+    save_data(tasks, [], data_file=data_file)
+    app = _app(data_file)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+        screen = app.screen
+        assert isinstance(screen, TaskDetailScreen)
+
+        proxy = screen.query_one("#detail-notes-proxy", MarkdownNotesProxy)
+
+        # Focus the deadline input, then press j — next focusable should be the proxy
+        deadline_inp = screen.query_one("#detail-deadline-input", VimInput)
+        deadline_inp.focus()
+        await pilot.pause()
+        await pilot.press("j")
+        await pilot.pause()
+
+        assert (
+            screen.focused is proxy
+        ), "j from deadline should land on the notes proxy, not the hidden VimInput"

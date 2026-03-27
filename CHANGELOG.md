@@ -7,6 +7,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+- **Notes proxy focus in split pane:** After pressing Esc from INSERT mode in the split pane, the `MarkdownNotesProxy` now explicitly receives focus (matching `TaskDetailScreen` behaviour). This ensures `i` to re-enter edit mode always works.
+- **Task edit dialog responsive width:** `#detail-panel` now uses `width: 90%; max-width: 120; min-width: 60` instead of a fixed `width: 70`, scaling naturally with the terminal width.
+- **Modal border colour follows `border_style` config:** When `border_style = red_grey` or `yellow_grey` is set, modal dialogs and pickers (task editor, calendar, search, action picker, import, help, review) now show a matching border colour via the `$gtd-modal-border` CSS variable injected in `get_css_variables()`.
+
 ---
 
 ## [1.11.0] — 2026-03-25
