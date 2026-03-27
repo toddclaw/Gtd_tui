@@ -30,13 +30,13 @@ from gtd_tui.widgets.vim_input import VimInput
 
 
 def _make_app(tmp_path: Path) -> GtdApp:
-    cfg = replace(load_config(), startup_focus_sidebar=False)
+    cfg = replace(load_config(), startup_focus_sidebar=False, language="en")
     return GtdApp(data_file=tmp_path / "data.json", config=cfg)
 
 
 def _app(data_file: Path) -> GtdApp:
     """Create app with task list focused on startup (for tests)."""
-    cfg = replace(load_config(), startup_focus_sidebar=False)
+    cfg = replace(load_config(), startup_focus_sidebar=False, language="en")
     return GtdApp(data_file=data_file, config=cfg)
 
 
@@ -1381,7 +1381,9 @@ async def test_create_task_in_anytime_view(tmp_path: Path) -> None:
     data_file = tmp_path / "data.json"
     save_data([], [], data_file=data_file)
 
-    cfg = replace(load_config(), startup_focus_sidebar=True)
+    from gtd_tui.i18n import t as _t
+
+    cfg = replace(load_config(), startup_focus_sidebar=True, language="en")
     app = GtdApp(data_file=data_file, config=cfg)
     async with app.run_test() as pilot:
         await pilot.pause()
@@ -1390,7 +1392,7 @@ async def test_create_task_in_anytime_view(tmp_path: Path) -> None:
         anytime_idx = next(
             i
             for i, item in enumerate(sidebar.query("ListItem"))
-            if "Anytime" in str(item.query_one(Label).render())
+            if _t("anytime") in str(item.query_one(Label).render())
         )
         sidebar.index = anytime_idx
         await pilot.pause()

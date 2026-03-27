@@ -23,7 +23,7 @@ from gtd_tui.storage.file import save_data
 # Helpers
 # ---------------------------------------------------------------------------
 
-CFG_TASK_LIST_FOCUS = replace(load_config(), startup_focus_sidebar=False)
+CFG_TASK_LIST_FOCUS = replace(load_config(), startup_focus_sidebar=False, language="en")
 
 
 def _app(data_file: Path) -> GtdApp:
@@ -32,12 +32,41 @@ def _app(data_file: Path) -> GtdApp:
 
 
 def _prepopulate(tmp_path: Path, *titles: str) -> Path:
+    """Create a data file pre-populated with tasks in the given order.
+
+    Note: ``add_task`` inserts at position 0 each time, so the *last* title
+    ends up first in the list.  Pass titles in desired display order (first
+    title = first row shown).
+    """
     data_file = tmp_path / "data.json"
     tasks: list = []
     for title in titles:
         tasks = add_task(tasks, title)
     save_data(tasks, [], data_file=data_file)
     return data_file
+
+
+async def _open_split_view(pilot: object) -> None:
+    """Open the split view with ``\\`` and pause for rendering."""
+    await pilot.press("backslash")  # type: ignore[attr-defined]
+    await pilot.pause()  # type: ignore[attr-defined]
+
+
+async def _focus_split_pane(pilot: object) -> None:
+    """Open the split view and move focus into the pane."""
+    await _open_split_view(pilot)
+    await pilot.press("l")  # type: ignore[attr-defined]
+    await pilot.pause()  # type: ignore[attr-defined]
+
+
+async def _navigate_to_notes(pilot: object) -> None:
+    """Open the split view, focus the pane, and navigate j×3 to the notes proxy.
+
+    Field order: title → date → deadline → notes (proxy).
+    """
+    await _focus_split_pane(pilot)
+    await pilot.press("j", "j", "j")  # type: ignore[attr-defined]
+    await pilot.pause()  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------------------
@@ -117,8 +146,7 @@ async def test_l_focuses_split_pane(tmp_path: Path) -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("backslash")
-        await pilot.pause()
+        await _open_split_view(pilot)
 
         # task list should have focus by default after opening split view
         list_view = app.query_one("#task-list", ListView)
@@ -145,10 +173,7 @@ async def test_h_returns_focus_to_task_list(tmp_path: Path) -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("backslash")
-        await pilot.pause()
-        await pilot.press("l")  # focus split pane
-        await pilot.pause()
+        await _focus_split_pane(pilot)
         await pilot.press("h")  # return to task list
         await pilot.pause()
 
@@ -174,15 +199,7 @@ async def test_notes_saved_on_cursor_change(tmp_path: Path) -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("backslash")  # open split view
-        await pilot.pause()
-        await pilot.press("l")  # focus split pane (now lands on title VimInput)
-        await pilot.pause()
-
-        # Navigate j×3 to reach the notes VimInput
-        # (title → date → deadline → notes)
-        await pilot.press("j", "j", "j")
-        await pilot.pause()
+        await _navigate_to_notes(pilot)  # open split, focus pane, j×3 to notes
 
         # Enter INSERT mode in notes VimInput and type
         await pilot.press("i")
@@ -230,20 +247,13 @@ async def test_split_pane_esc_stays_in_command_mode(tmp_path: Path) -> None:
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("backslash")  # open split view
-        await pilot.pause()
-        await pilot.press("l")  # focus split pane
-        await pilot.pause()
+        await _navigate_to_notes(pilot)
 
         pane = app.query_one("#split-detail-pane", TaskSplitPane)
         proxy = pane.query_one("#split-notes-proxy", MarkdownNotesProxy)
         vim_inp = pane.query_one("#split-notes-input", VimInput)
 
         assert proxy.display is True
-
-        # Navigate j×3 from title to reach the notes proxy
-        await pilot.press("j", "j", "j")
-        await pilot.pause()
         assert app.focused is proxy, "Should be on notes proxy after j×3"
 
         # i on proxy → INSERT mode (proxy hides, VimInput shows)
@@ -281,18 +291,12 @@ async def test_split_pane_i_works_after_enter_from_command_mode(tmp_path: Path) 
 
     async with app.run_test() as pilot:
         await pilot.pause()
-        await pilot.press("backslash")
-        await pilot.pause()
-        await pilot.press("l")
-        await pilot.pause()
+        await _navigate_to_notes(pilot)
 
         pane = app.query_one("#split-detail-pane", TaskSplitPane)
         proxy = pane.query_one("#split-notes-proxy", MarkdownNotesProxy)
         vim_inp = pane.query_one("#split-notes-input", VimInput)
 
-        # Navigate j×3 from title to reach the notes proxy
-        await pilot.press("j", "j", "j")
-        await pilot.pause()
         assert app.focused is proxy, "Should be on notes proxy after j×3"
 
         # First edit cycle: i → Esc → Enter (returns to proxy)

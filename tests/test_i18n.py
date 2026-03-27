@@ -7,18 +7,6 @@ import pytest
 from gtd_tui.i18n import set_language, t
 
 # ---------------------------------------------------------------------------
-# Reset between tests so they don't bleed into each other
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def reset_language():
-    set_language("en")
-    yield
-    set_language("en")
-
-
-# ---------------------------------------------------------------------------
 # Core t() behaviour
 # ---------------------------------------------------------------------------
 
@@ -129,3 +117,44 @@ def test_parameterised_mode_visual_renders(lang: str):
     set_language(lang)
     result = t("mode_visual", n=7)
     assert "7" in result
+
+
+# ---------------------------------------------------------------------------
+# Task editor field labels are translated
+# ---------------------------------------------------------------------------
+
+_FIELD_KEYS = [
+    "edit_task_header",
+    "field_title",
+    "field_date",
+    "field_deadline",
+    "field_notes",
+    "field_checklist",
+    "field_repeat",
+    "field_recurring",
+    "field_tags",
+    "split_field_date",
+    "split_field_notes",
+    "split_field_repeat",
+    "split_field_recurring",
+]
+
+
+@pytest.mark.parametrize("lang", SUPPORTED_LANGUAGES)
+def test_field_label_keys_present_for_all_languages(lang: str) -> None:
+    """All task-editor field label keys are present in every locale."""
+    set_language(lang)
+    for key in _FIELD_KEYS:
+        val = t(key)
+        assert (
+            val and val != key
+        ), f"Field label key '{key}' missing or untranslated in locale '{lang}'"
+
+
+def test_spanish_field_title_is_not_english() -> None:
+    """Spanish locale uses a different word for 'Title' than English."""
+    set_language("en")
+    en_title = t("field_title")
+    set_language("es")
+    es_title = t("field_title")
+    assert en_title != es_title, "Spanish 'field_title' should differ from English"

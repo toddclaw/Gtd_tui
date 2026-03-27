@@ -544,3 +544,56 @@ async def test_J_block_move_is_single_undo_step(tmp_path: Path) -> None:
             key=lambda t: t.position,
         )
         assert [t.title for t in active] == ["A", "B", "C"]
+
+
+# ---------------------------------------------------------------------------
+# z: bulk snooze in VISUAL mode
+# ---------------------------------------------------------------------------
+
+
+async def test_z_in_visual_mode_opens_snooze_picker(tmp_path: Path) -> None:
+    """Pressing z in VISUAL mode opens the snooze picker."""
+    from gtd_tui.app import SnoozePickerScreen
+
+    async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("v")  # enter visual mode
+        await pilot.pause()
+        await pilot.press("j")  # extend selection
+        await pilot.pause()
+        await pilot.press("z")  # trigger snooze
+        await pilot.pause()
+
+        assert isinstance(
+            pilot.app.screen, SnoozePickerScreen
+        ), "z in visual mode should open SnoozePickerScreen"
+
+
+async def test_z_in_visual_mode_snoozes_selected_tasks(tmp_path: Path) -> None:
+    """z in VISUAL mode snoozes all selected tasks."""
+    from datetime import datetime, timedelta
+
+    from gtd_tui.app import SnoozePickerScreen
+
+    async with _make_app(tmp_path, "A", "B", "C").run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("v")  # enter visual mode on A
+        await pilot.pause()
+        await pilot.press("j")  # extend to B
+        await pilot.pause()
+        await pilot.press("z")
+        await pilot.pause()
+
+        assert isinstance(pilot.app.screen, SnoozePickerScreen)
+
+        # Dismiss picker with a snooze time one hour from now
+        until = datetime.now() + timedelta(hours=1)
+        await pilot.app.screen.dismiss(until)
+        await pilot.pause()
+
+        snoozed = [t for t in pilot.app._all_tasks if t.snoozed_until is not None]
+        assert len(snoozed) == 2, f"Expected 2 snoozed tasks, got {len(snoozed)}"
+        snoozed_titles = {t.title for t in snoozed}
+        assert "A" in snoozed_titles
+        assert "B" in snoozed_titles
+        assert "C" not in snoozed_titles

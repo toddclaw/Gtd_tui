@@ -17,7 +17,7 @@ from gtd_tui.storage.file import save_data
 # Helpers
 # ---------------------------------------------------------------------------
 
-_CFG_TASK_FOCUS = replace(load_config(), startup_focus_sidebar=False)
+_CFG_TASK_FOCUS = replace(load_config(), startup_focus_sidebar=False, language="en")
 
 
 def _app_with_tasks(tmp_path: Path, *titles: str) -> GtdApp:

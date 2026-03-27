@@ -491,3 +491,74 @@ def test_import_md_note_not_attached_across_blank_line() -> None:
     # The indented line is separated by a blank non-indented line,
     # so the blank line resets current_task and the indented line is not a note.
     assert tasks[0].notes == ""
+
+
+# ---------------------------------------------------------------------------
+# import_md: folder heading parsing
+# ---------------------------------------------------------------------------
+
+
+def test_import_md_builtin_heading_assigns_correct_folder() -> None:
+    """## Today header routes tasks to the 'today' folder."""
+    text = "## Today\n\n- [ ] Buy milk\n- [ ] Call dentist\n"
+    tasks = import_md(text)
+    assert all(
+        t.folder_id == "today" for t in tasks
+    ), f"Expected folder_id='today', got: {[t.folder_id for t in tasks]}"
+
+
+def test_import_md_multiple_headings_route_to_correct_folders() -> None:
+    """Tasks under different headings land in the matching folder."""
+    text = (
+        "## Inbox\n\n- [ ] Inbox task\n\n"
+        "## Today\n\n- [ ] Today task\n\n"
+        "## Someday\n\n- [ ] Someday task\n"
+    )
+    tasks = import_md(text)
+    assert len(tasks) == 3
+    by_title = {t.title: t.folder_id for t in tasks}
+    assert by_title["Inbox task"] == "inbox"
+    assert by_title["Today task"] == "today"
+    assert by_title["Someday task"] == "someday"
+
+
+def test_import_md_user_folder_heading_matches_by_name() -> None:
+    """Tasks under a user-folder heading are assigned to that folder's ID."""
+    user_folder = _make_folder("Work")
+    user_folder_with_id = user_folder.__class__(id="work-uuid", name="Work", position=0)
+    text = "## Work\n\n- [ ] Work task\n"
+    tasks = import_md(text, folders=[user_folder_with_id])
+    assert tasks[0].folder_id == "work-uuid"
+
+
+def test_import_md_unknown_heading_falls_back_to_target_folder() -> None:
+    """An unrecognised heading falls back to target_folder_id."""
+    text = "## UnknownFolder\n\n- [ ] Some task\n"
+    tasks = import_md(text, target_folder_id="inbox")
+    assert tasks[0].folder_id == "inbox"
+
+
+def test_import_md_heading_case_insensitive() -> None:
+    """Heading matching is case-insensitive (e.g. 'today' matches 'today')."""
+    text = "## TODAY\n\n- [ ] Task\n"
+    tasks = import_md(text)
+    assert tasks[0].folder_id == "today"
+
+
+def test_import_md_tasks_before_heading_use_target_folder() -> None:
+    """Tasks before any heading use the target_folder_id fallback."""
+    text = "- [ ] Pre-heading task\n\n## Today\n\n- [ ] After heading task\n"
+    tasks = import_md(text, target_folder_id="inbox")
+    assert tasks[0].folder_id == "inbox"  # before heading
+    assert tasks[1].folder_id == "today"  # after ## Today
+
+
+def test_import_md_heading_parsing_is_md_export_roundtrip() -> None:
+    """export_md output can be imported back with folder headings preserved."""
+    task_inbox = _make_task("Inbox item", folder_id="inbox")
+    task_today = _make_task("Today item", folder_id="today")
+    md = export_md([task_inbox, task_today], [])
+    tasks = import_md(md)
+    by_title = {t.title: t.folder_id for t in tasks}
+    assert by_title["Inbox item"] == "inbox"
+    assert by_title["Today item"] == "today"
