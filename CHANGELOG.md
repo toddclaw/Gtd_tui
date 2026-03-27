@@ -7,10 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+---
+
+## [1.12.0] — 2026-03-26
+
 ### Fixed
-- **Notes proxy focus in split pane:** After pressing Esc from INSERT mode in the split pane, the `MarkdownNotesProxy` now explicitly receives focus (matching `TaskDetailScreen` behaviour). This ensures `i` to re-enter edit mode always works.
-- **Task edit dialog responsive width:** `#detail-panel` now uses `width: 90%; max-width: 120; min-width: 60` instead of a fixed `width: 70`, scaling naturally with the terminal width.
-- **Modal border colour follows `border_style` config:** When `border_style = red_grey` or `yellow_grey` is set, modal dialogs and pickers (task editor, calendar, search, action picker, import, help, review) now show a matching border colour via the `$gtd-modal-border` CSS variable injected in `get_css_variables()`.
+- **Notes editing state machine (task detail dialog & split pane):** `Enter` on the Markdown proxy → VimInput command mode (raw text). `Enter` in command mode → back to rendered proxy. `Esc` from INSERT now stays in VimInput command mode instead of auto-returning to proxy. `j`/`k` in proxy scrolls until boundary then bubbles for field navigation. Proxy shows a focus border (`$panel` idle, `$primary` focused). `Ctrl+E` works from all three states.
+- **Modal border colours (`red_grey` / `yellow_grey`):** Screen-level `CSS` overrides App `CSS` in Textual's cascade. Fixed by adding `!important` to the `GtdApp.CSS` override for `$gtd-modal-border`, ensuring all modal panels use the configured border colour.
+- **Backslash / pipe in text boxes:** Removed `priority=True` from the `\` binding; added `backslash` and `pipe` to VimInput's command-mode bubble list so `\` is typeable in INSERT mode and still toggles split view in command mode.
+- **Split pane (side-by-side view) shows all details and is editable:** Now shows Title, Date, Deadline, Notes (Markdown proxy + VimInput), Tags, Repeat, Recurring, Checklist summary. All fields are editable VimInputs with auto-save on `Esc`. `j`/`k` navigate between fields; `h` returns to task list. All changes are persisted via `GtdApp.on_task_split_pane_field_saved`.
+- **Snooze menu `z`:** Added `j`/`k` navigation and a custom text input accepting `+Nh`/`+Nd` shorthands and `parse_date_input` expressions (e.g. `tomorrow`, `2026-04-01` → 9 AM that day).
 
 ---
 
