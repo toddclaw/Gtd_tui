@@ -1365,3 +1365,218 @@ def test_add_task_to_folder_sets_created_at():
 
     tasks = add_task_to_folder([], "myfolder", "Widget")
     assert tasks[0].created_at is not None
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-34: Unified Today view reordering (today_position)
+# ---------------------------------------------------------------------------
+
+
+def test_today_tasks_legacy_fallback_when_positions_unset():
+    """Without today_position, today-home tasks appear before dated_other."""
+
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "Home task")  # folder_id="today"
+    other = Task(title="Other task", folder_id="work", scheduled_date=ref, position=0)
+    tasks.append(other)
+    # No today_position set → legacy order
+    result = today_tasks(tasks, as_of=ref)
+    assert result[0].title == "Home task"
+    assert result[1].title == "Other task"
+
+
+def test_today_tasks_uses_today_position_when_all_set():
+    """When all tasks have today_position, they are sorted by it regardless of folder."""
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "Home task")
+    tasks[0].today_position = 1
+    other = Task(title="Other task", folder_id="work", scheduled_date=ref, position=0)
+    other.today_position = 0
+    tasks.append(other)
+    result = today_tasks(tasks, as_of=ref)
+    assert result[0].title == "Other task"
+    assert result[1].title == "Home task"
+
+
+def test_assign_today_positions_assigns_to_unpositioned_tasks():
+    from gtd_tui.gtd.operations import assign_today_positions
+
+    tasks = add_task([], "A")
+    tasks = add_task(tasks, "B")
+    # Ensure no today_position initially
+    for t in tasks:
+        t.today_position = None
+    changed = assign_today_positions(tasks)
+    assert changed is True
+    visible = today_tasks(tasks)
+    assert all(t.today_position is not None for t in visible)
+
+
+def test_assign_today_positions_preserves_existing_order():
+    from gtd_tui.gtd.operations import assign_today_positions
+
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "A")
+    tasks = add_task(tasks, "B")
+    # Assign positions, then check order matches legacy order
+    assign_today_positions(tasks, as_of=ref)
+    result = today_tasks(tasks, as_of=ref)
+    titles = [t.title for t in result]
+    # Legacy order: newest added (B) is position 0 (top), A is position 1
+    assert titles == ["B", "A"]
+
+
+def test_assign_today_positions_returns_false_when_nothing_to_do():
+    from gtd_tui.gtd.operations import assign_today_positions
+
+    tasks = add_task([], "A")
+    tasks[0].today_position = 5
+    changed = assign_today_positions(tasks)
+    assert changed is False
+
+
+def test_assign_today_positions_appends_new_after_existing():
+    from gtd_tui.gtd.operations import assign_today_positions
+
+    tasks = add_task([], "A")
+    a = tasks[0]
+    a.today_position = 10
+    # Add a new task B — it is inserted at the top (position 0), no today_position yet
+    tasks = add_task(tasks, "B")
+    b = next(t for t in tasks if t.title == "B")
+    assert b.today_position is None  # newly created, not yet assigned
+    assert a.today_position == 10  # A already has a position
+
+    changed = assign_today_positions(tasks)
+    assert changed is True
+    # B should get position 11 (one after A's existing max of 10)
+    assert b.today_position == 11
+
+
+def test_move_today_task_down_today_home():
+    from gtd_tui.gtd.operations import assign_today_positions, move_today_task_down
+
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "A")
+    tasks = add_task(tasks, "B")
+    assign_today_positions(tasks, as_of=ref)
+    # B is at top (position 0), A is below (position 1)
+    b = next(t for t in tasks if t.title == "B")
+    move_today_task_down(tasks, b.id, as_of=ref)
+    result = today_tasks(tasks, as_of=ref)
+    assert result[0].title == "A"
+    assert result[1].title == "B"
+
+
+def test_move_today_task_up_today_home():
+    from gtd_tui.gtd.operations import assign_today_positions, move_today_task_up
+
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "A")
+    tasks = add_task(tasks, "B")
+    assign_today_positions(tasks, as_of=ref)
+    # A is at position 1 (bottom), move it up
+    a = next(t for t in tasks if t.title == "A")
+    move_today_task_up(tasks, a.id, as_of=ref)
+    result = today_tasks(tasks, as_of=ref)
+    assert result[0].title == "A"
+    assert result[1].title == "B"
+
+
+def test_move_today_task_down_across_boundary():
+    """A today-home task can be moved below a dated_other task."""
+    from gtd_tui.gtd.operations import assign_today_positions, move_today_task_down
+
+    ref = date(2026, 4, 10)
+    home = Task(title="Home", folder_id="today", position=0)
+    other = Task(title="Other", folder_id="work", scheduled_date=ref, position=0)
+    tasks = [home, other]
+    assign_today_positions(tasks, as_of=ref)
+    # Legacy order: home first, then other
+    result_before = today_tasks(tasks, as_of=ref)
+    assert result_before[0].title == "Home"
+    move_today_task_down(tasks, home.id, as_of=ref)
+    result_after = today_tasks(tasks, as_of=ref)
+    assert result_after[0].title == "Other"
+    assert result_after[1].title == "Home"
+
+
+def test_move_today_task_down_noop_at_bottom():
+    from gtd_tui.gtd.operations import move_today_task_down
+
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "Only")
+    tasks[0].today_position = 0
+    before_pos = tasks[0].today_position
+    move_today_task_down(tasks, tasks[0].id, as_of=ref)
+    assert tasks[0].today_position == before_pos
+
+
+def test_move_today_task_up_noop_at_top():
+    from gtd_tui.gtd.operations import move_today_task_up
+
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "Only")
+    tasks[0].today_position = 0
+    before_pos = tasks[0].today_position
+    move_today_task_up(tasks, tasks[0].id, as_of=ref)
+    assert tasks[0].today_position == before_pos
+
+
+def test_reorder_today_task_moves_task_after_target():
+    from gtd_tui.gtd.operations import assign_today_positions, reorder_today_task
+
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "C")
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    assign_today_positions(tasks, as_of=ref)
+    # Order is A(0), B(1), C(2) — move A to after C
+    a = next(t for t in tasks if t.title == "A")
+    c = next(t for t in tasks if t.title == "C")
+    reorder_today_task(tasks, a.id, c.id, after=True, as_of=ref)
+    result = today_tasks(tasks, as_of=ref)
+    assert [t.title for t in result] == ["B", "C", "A"]
+
+
+def test_reorder_today_task_moves_task_before_target():
+    from gtd_tui.gtd.operations import assign_today_positions, reorder_today_task
+
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "C")
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    assign_today_positions(tasks, as_of=ref)
+    # Order is A(0), B(1), C(2) — move C to before A
+    a = next(t for t in tasks if t.title == "A")
+    c = next(t for t in tasks if t.title == "C")
+    reorder_today_task(tasks, c.id, a.id, after=False, as_of=ref)
+    result = today_tasks(tasks, as_of=ref)
+    assert [t.title for t in result] == ["C", "A", "B"]
+
+
+def test_reorder_today_task_noop_when_same_task():
+    from gtd_tui.gtd.operations import reorder_today_task
+
+    ref = date(2026, 4, 10)
+    tasks = add_task([], "A")
+    tasks[0].today_position = 0
+    a_id = tasks[0].id
+    reorder_today_task(tasks, a_id, a_id, after=True, as_of=ref)
+    assert tasks[0].today_position == 0
+
+
+def test_reorder_today_task_works_across_folders():
+    """Dated_other tasks can be repositioned relative to today-home tasks."""
+    from gtd_tui.gtd.operations import assign_today_positions, reorder_today_task
+
+    ref = date(2026, 4, 10)
+    home = Task(title="Home", folder_id="today", position=0)
+    other = Task(title="Other", folder_id="work", scheduled_date=ref, position=0)
+    tasks = [home, other]
+    assign_today_positions(tasks, as_of=ref)
+    # Move Other before Home
+    reorder_today_task(tasks, other.id, home.id, after=False, as_of=ref)
+    result = today_tasks(tasks, as_of=ref)
+    assert result[0].title == "Other"
+    assert result[1].title == "Home"

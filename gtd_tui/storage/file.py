@@ -65,6 +65,7 @@ def _task_to_dict(task: Task) -> dict[str, Any]:
         ),
         "created_at": task.created_at.isoformat() if task.created_at else None,
         "is_deleted": task.is_deleted,
+        "today_position": task.today_position,
     }
 
 
@@ -101,6 +102,7 @@ def _task_from_dict(data: dict[str, Any]) -> Task:
             else None
         ),
         is_deleted=data.get("is_deleted", False),
+        today_position=data.get("today_position"),
     )
 
 

@@ -51,6 +51,7 @@ class Task:
     created_at: Optional[datetime] = None
 
     is_deleted: bool = False
+    today_position: int | None = None
 
     @property
     def is_complete(self) -> bool:

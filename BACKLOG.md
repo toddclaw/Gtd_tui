@@ -910,3 +910,30 @@ file size manageable.
 - [x] Old `data.json` files without undo history load without error (empty undo stack)
 - [x] Encrypted databases store undo history encrypted alongside task data
 - [x] Unit tests cover save/load round-trip of the undo stack; integration test verifies cross-session undo
+
+---
+
+### ~~BACKLOG-42 — Unified Today view reordering~~ ✅ DONE
+
+**Story points:** 8
+
+**Description:**
+All tasks visible in the Today view — both `today_home` tasks (whose permanent home is the
+Today folder) and `dated_other` tasks (from other folders that surface because their
+`scheduled_date ≤ today`) — should be freely reorderable by the user.
+
+Previously only `today_home` tasks could be reordered with `J`/`K`; the "Also Due" section
+was read-only. This story introduces a `today_position` field that stores a unified Today
+display order independently of each task's per-folder `position`.
+
+**Acceptance criteria:**
+- [x] New `today_position: int | None` field on `Task`; persisted in JSON; backward-compatible (None falls back to legacy sort)
+- [x] `assign_today_positions()` assigns sequential positions to all Today-visible tasks that lack one; called on launch and on every refresh while in Today view
+- [x] `J` / `K` swap `today_position` across all Today-visible tasks (including `dated_other` tasks from other folders)
+- [x] `y` in Today view stores the selected task ID in an internal register (`_today_register`)
+- [x] `p` / `P` paste (reposition) the registered task after / before the currently selected task in Today order
+- [x] Register is cleared when navigating away from Today view
+- [x] "── Also Due ──" separator removed; non-today-folder tasks show a `[FolderName]` prefix instead
+- [x] Visual block `J`/`K` works correctly for mixed today/other selections in Today view
+- [x] Unit tests cover `today_tasks()` sort logic, `assign_today_positions()`, `move_today_task_down/up()`, and `reorder_today_task()`
+- [x] Integration tests cover `J`/`K` on `dated_other` tasks and `y`/`p`/`P` repositioning

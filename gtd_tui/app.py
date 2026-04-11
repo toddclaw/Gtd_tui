@@ -23,6 +23,7 @@ from gtd_tui.gtd.operations import (
     add_task,
     add_task_to_folder,
     add_waiting_on_task,
+    assign_today_positions,
     clear_deadline,
     complete_task,
     deadline_status,
@@ -48,9 +49,12 @@ from gtd_tui.gtd.operations import (
     move_task_up,
     move_to_today,
     move_to_waiting_on,
+    move_today_task_down,
+    move_today_task_up,
     parse_repeat_input,
     purge_logbook_task,
     rename_folder,
+    reorder_today_task,
     schedule_task,
     search_tasks,
     set_deadline,
@@ -114,7 +118,8 @@ class HelpScreen(ModalScreen[None]):
   J / K        Move selected task down / up
   w            Move task to Waiting On  (Today view)
   t            Move to Today (Waiting On / Inbox) or schedule for today (user folders)
-  y            Yank (copy) task title and notes to clipboard
+  y            Yank (copy) task title and notes to clipboard; stores task in Today register
+  p / P        Paste (reposition) yanked task after / before cursor  (Today view only)
   u            Undo last action
   Ctrl+R       Redo last undone action
   /            Global search
@@ -824,6 +829,8 @@ class GtdApp(App[None]):
         self._last_search_query: str = ""
         self._search_match_ids: list[str] = []
         self._search_match_idx: int = 0
+        # Today-view yank register: task ID stored by 'y' for p/P repositioning
+        self._today_register: str | None = None
 
     @property
     def _sidebar_view_ids(self) -> list[str]:
@@ -892,6 +899,8 @@ class GtdApp(App[None]):
         old_len = len(self._all_tasks)
         self._all_tasks = spawn_repeating_tasks(self._all_tasks)
         if len(self._all_tasks) != old_len:
+            self._save()
+        if assign_today_positions(self._all_tasks):
             self._save()
         self._rebuild_sidebar()
         self._refresh_list()
@@ -1015,6 +1024,11 @@ class GtdApp(App[None]):
         list_view = self.query_one("#task-list", ListView)
         prev_index = list_view.index  # capture before clear resets it
 
+        # Ensure every Today-visible task has a today_position before rendering.
+        if self._current_view == "today":
+            if assign_today_positions(self._all_tasks):
+                self._save()
+
         list_view.clear()
         self._list_entries = []
         self._placeholder_list_idx = None
@@ -1052,42 +1066,31 @@ class GtdApp(App[None]):
 
     def _render_today_view(self, list_view: ListView) -> None:
         all_today = today_tasks(self._all_tasks)
-        # Split into today-folder tasks (sortable/reorderable) and tasks from
-        # other folders that surface here because they have no scheduled date.
-        today_only = [t for t in all_today if t.folder_id == "today"]
-        other = [t for t in all_today if t.folder_id != "today"]
-
         self.query_one("#header", Label).update(f"Today ({len(all_today)})")
 
-        # Placeholder row only applies in the today-folder section.
         ph_at: int | None = None
         if self._show_placeholder:
-            ph_at = self._placeholder_insert_idx(today_only)
+            ph_at = self._placeholder_insert_idx(all_today)
 
-        for i, task in enumerate(today_only):
+        for i, task in enumerate(all_today):
             if ph_at == i:
                 self._placeholder_list_idx = len(self._list_entries)
                 self._list_entries.append(None)
                 list_view.append(ListItem(Label(" "), classes="placeholder"))
             self._list_entries.append(task)
-            list_view.append(ListItem(Label(self._task_label(task))))
+            label = self._task_label(task)
+            if task.folder_id != "today":
+                if task.folder_id == "waiting_on":
+                    label = f"[W] {label}"
+                else:
+                    folder_label = self._view_label(task.folder_id)
+                    label = f"[{folder_label}] {label}"
+            list_view.append(ListItem(Label(label)))
 
-        if ph_at == len(today_only):
+        if ph_at == len(all_today):
             self._placeholder_list_idx = len(self._list_entries)
             self._list_entries.append(None)
             list_view.append(ListItem(Label(" "), classes="placeholder"))
-
-        if other:
-            self._list_entries.append(None)
-            list_view.append(ListItem(Label("── Also Due ──")))
-            for task in other:
-                self._list_entries.append(task)
-                if task.folder_id == "waiting_on":
-                    label = f"[W] {self._task_label(task)}"
-                else:
-                    folder_label = self._view_label(task.folder_id)
-                    label = f"[{folder_label}] {self._task_label(task)}"
-                list_view.append(ListItem(Label(label)))
 
     def _render_upcoming_view(self, list_view: ListView) -> None:
         tasks = upcoming_tasks(self._all_tasks)
@@ -1274,7 +1277,8 @@ class GtdApp(App[None]):
     def _yank_task(self) -> None:
         """Copy the selected task(s) title and notes to the clipboard.
 
-        In NORMAL mode: copies the single selected task.
+        In NORMAL mode: copies the single selected task.  When in Today view,
+        also stores the task ID in _today_register for p/P repositioning.
         In VISUAL mode: copies all selected tasks separated by blank lines,
         then exits VISUAL mode.
         """
@@ -1290,11 +1294,36 @@ class GtdApp(App[None]):
             if task is None:
                 return
             text = self._task_to_yank_text(task)
+            if self._current_view == "today":
+                self._today_register = task.id
         try:
             pyperclip.copy(text)
             self._update_status("(yanked to clipboard)")
         except pyperclip.PyperclipException:
             self._update_status("(clipboard not available)")
+
+    def _paste_today_task(self, after: bool) -> None:
+        """Reposition the yanked task (stored in _today_register) in Today order.
+
+        Moves the registered task to appear after (after=True) or before
+        (after=False) the currently selected task, then clears the register.
+        No-op when there is no register, no selection, or both are the same task.
+        """
+        if self._today_register is None:
+            return
+        target = self._get_selected_task()
+        if target is None:
+            return
+        if target.id == self._today_register:
+            self._today_register = None
+            return
+        self._push_undo()
+        self._all_tasks = reorder_today_task(
+            self._all_tasks, self._today_register, target.id, after=after
+        )
+        self._today_register = None
+        self._save()
+        self._refresh_list(select_task_id=target.id)
 
     # ------------------------------------------------------------------ #
     # Key handling                                                         #
@@ -1552,6 +1581,14 @@ class GtdApp(App[None]):
         elif event.key == "y":
             event.prevent_default()
             self._yank_task()
+        elif event.key == "p":
+            event.prevent_default()
+            if self._current_view == "today" and self._today_register is not None:
+                self._paste_today_task(after=True)
+        elif event.key == "P":
+            event.prevent_default()
+            if self._current_view == "today" and self._today_register is not None:
+                self._paste_today_task(after=False)
         elif event.key == "slash":
             event.prevent_default()
             self._open_search()
@@ -1581,6 +1618,9 @@ class GtdApp(App[None]):
         if new_view in ("__new_folder__", self._current_view):
             return
         self._current_view = new_view
+        # Clear Today yank register when navigating away from Today view
+        if new_view != "today":
+            self._today_register = None
         self._refresh_list()
         self._update_status()
 
@@ -2358,8 +2398,16 @@ class GtdApp(App[None]):
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
-        for task in sorted(tasks, key=lambda t: t.position, reverse=True):
-            self._all_tasks = move_task_down(self._all_tasks, task.id)
+        if self._current_view == "today":
+            for task in sorted(
+                tasks,
+                key=lambda t: t.today_position if t.today_position is not None else 0,
+                reverse=True,
+            ):
+                self._all_tasks = move_today_task_down(self._all_tasks, task.id)
+        else:
+            for task in sorted(tasks, key=lambda t: t.position, reverse=True):
+                self._all_tasks = move_task_down(self._all_tasks, task.id)
         self._save()
         self._refresh_list()
         self.call_after_refresh(
@@ -2379,8 +2427,15 @@ class GtdApp(App[None]):
         anchor_id = _anchor_entry.id if _anchor_entry is not None else None
         selected_ids = {t.id for t in tasks}
         self._push_undo()
-        for task in sorted(tasks, key=lambda t: t.position):
-            self._all_tasks = move_task_up(self._all_tasks, task.id)
+        if self._current_view == "today":
+            for task in sorted(
+                tasks,
+                key=lambda t: t.today_position if t.today_position is not None else 0,
+            ):
+                self._all_tasks = move_today_task_up(self._all_tasks, task.id)
+        else:
+            for task in sorted(tasks, key=lambda t: t.position):
+                self._all_tasks = move_task_up(self._all_tasks, task.id)
         self._save()
         self._refresh_list()
         self.call_after_refresh(
@@ -2651,7 +2706,10 @@ class GtdApp(App[None]):
         if not self._can_reorder(task):
             return
         self._push_undo()
-        self._all_tasks = move_task_up(self._all_tasks, task.id)
+        if self._current_view == "today":
+            self._all_tasks = move_today_task_up(self._all_tasks, task.id)
+        else:
+            self._all_tasks = move_task_up(self._all_tasks, task.id)
         self._save()
         self._refresh_list(select_task_id=task.id)
 
@@ -2662,7 +2720,10 @@ class GtdApp(App[None]):
         if not self._can_reorder(task):
             return
         self._push_undo()
-        self._all_tasks = move_task_down(self._all_tasks, task.id)
+        if self._current_view == "today":
+            self._all_tasks = move_today_task_down(self._all_tasks, task.id)
+        else:
+            self._all_tasks = move_task_down(self._all_tasks, task.id)
         self._save()
         self._refresh_list(select_task_id=task.id)
 
@@ -2670,10 +2731,6 @@ class GtdApp(App[None]):
         """Return True when J/K reordering makes sense for the selected task."""
         # Upcoming is date-sorted — no manual reordering.
         if self._current_view == "upcoming":
-            return False
-        # In Today view, only today-folder tasks are positionally ordered;
-        # tasks in the "Also Due" section belong to other folders.
-        if self._current_view == "today" and task.folder_id != "today":
             return False
         return True
 

@@ -1217,3 +1217,188 @@ async def test_spawn_repeating_tasks_fires_on_launch(tmp_path: Path) -> None:
             and t.repeat_rule is None
         ]
         assert len(today_copies) == 1
+
+
+# ---------------------------------------------------------------------------
+# BACKLOG-34: Unified Today view reordering
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_J_moves_today_home_task_down(tmp_path: Path) -> None:
+    """J swaps a today-home task with the one below it via today_position."""
+
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "A")
+    tasks = add_task(tasks, "B")
+    save_data(tasks, [], data_file=data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # After mount, today_positions are assigned; B is at top (position 0), A below
+        list_view = app.query_one("#task-list", ListView)
+        list_view.index = 0  # select B (top)
+        await pilot.pause()
+        await pilot.press("J")
+        await pilot.pause()
+        from gtd_tui.gtd.operations import today_tasks
+
+        ordered = today_tasks(app._all_tasks)
+        assert ordered[0].title == "A"
+        assert ordered[1].title == "B"
+
+
+@pytest.mark.asyncio
+async def test_K_moves_today_home_task_up(tmp_path: Path) -> None:
+    """K swaps a today-home task with the one above it via today_position."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "A")
+    tasks = add_task(tasks, "B")
+    save_data(tasks, [], data_file=data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        # B is at index 0 (top), A is at index 1
+        list_view = app.query_one("#task-list", ListView)
+        list_view.index = 1  # select A (bottom)
+        await pilot.pause()
+        await pilot.press("K")
+        await pilot.pause()
+        from gtd_tui.gtd.operations import today_tasks
+
+        ordered = today_tasks(app._all_tasks)
+        assert ordered[0].title == "A"
+        assert ordered[1].title == "B"
+
+
+@pytest.mark.asyncio
+async def test_J_moves_dated_other_task_in_today(tmp_path: Path) -> None:
+    """J works on a dated_other task (from a non-today folder) in Today view."""
+    from datetime import date
+
+    from gtd_tui.gtd.task import Task as GtdTask
+
+    data_file = tmp_path / "data.json"
+    # Create a today-home task and a work-folder task scheduled for today
+    tasks = add_task([], "Home task")
+    work_task = GtdTask(
+        title="Work task",
+        folder_id="work",
+        scheduled_date=date.today(),
+        position=0,
+    )
+    tasks.append(work_task)
+    save_data(tasks, [], data_file=data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from gtd_tui.gtd.operations import today_tasks
+
+        before = today_tasks(app._all_tasks)
+        # Select the first task and move it down
+        list_view = app.query_one("#task-list", ListView)
+        list_view.index = 0
+        await pilot.pause()
+        first_id = before[0].id
+        await pilot.press("J")
+        await pilot.pause()
+        after = today_tasks(app._all_tasks)
+        # The first task should now be at index 1
+        assert after[1].id == first_id
+
+
+@pytest.mark.asyncio
+async def test_yank_paste_repositions_task_in_today(tmp_path: Path) -> None:
+    """y then p (paste after) repositions the yanked task in Today view."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "C")
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    save_data(tasks, [], data_file=data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from gtd_tui.gtd.operations import today_tasks
+
+        # Order after mount: A(0), B(1), C(2)
+        ordered = today_tasks(app._all_tasks)
+        assert [t.title for t in ordered] == ["A", "B", "C"]
+
+        list_view = app.query_one("#task-list", ListView)
+        # Yank A (index 0)
+        list_view.index = 0
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+        assert app._today_register == ordered[0].id
+
+        # Move cursor to C (index 2) and paste A after it
+        list_view.index = 2
+        await pilot.pause()
+        await pilot.press("p")
+        await pilot.pause()
+        result = today_tasks(app._all_tasks)
+        assert [t.title for t in result] == ["B", "C", "A"]
+
+
+@pytest.mark.asyncio
+async def test_yank_paste_before_repositions_task_in_today(tmp_path: Path) -> None:
+    """y then P (paste before) repositions the yanked task in Today view."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "C")
+    tasks = add_task(tasks, "B")
+    tasks = add_task(tasks, "A")
+    save_data(tasks, [], data_file=data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        from gtd_tui.gtd.operations import today_tasks
+
+        ordered = today_tasks(app._all_tasks)
+        assert [t.title for t in ordered] == ["A", "B", "C"]
+
+        list_view = app.query_one("#task-list", ListView)
+        # Yank C (index 2)
+        list_view.index = 2
+        await pilot.pause()
+        await pilot.press("y")
+        await pilot.pause()
+        c_id = ordered[2].id
+        assert app._today_register == c_id
+
+        # Move cursor to A (index 0) and paste C before it
+        list_view.index = 0
+        await pilot.pause()
+        await pilot.press("P")
+        await pilot.pause()
+        result = today_tasks(app._all_tasks)
+        assert [t.title for t in result] == ["C", "A", "B"]
+
+
+@pytest.mark.asyncio
+async def test_today_register_cleared_on_view_change(tmp_path: Path) -> None:
+    """Navigating away from Today view clears the _today_register."""
+    data_file = tmp_path / "data.json"
+    tasks = add_task([], "Task")
+    save_data(tasks, [], data_file=data_file)
+
+    app = GtdApp(data_file=data_file)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        list_view = app.query_one("#task-list", ListView)
+        list_view.index = 0
+        await pilot.pause()
+        # Yank to populate register
+        await pilot.press("y")
+        await pilot.pause()
+        assert app._today_register is not None
+        # Navigate to Inbox (sidebar index 0)
+        sidebar = app.query_one("#sidebar", ListView)
+        sidebar.index = 0
+        await pilot.pause()
+        assert app._today_register is None

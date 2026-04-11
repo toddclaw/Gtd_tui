@@ -384,13 +384,11 @@ async def test_J_moves_selected_block_down(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("J")  # move block down
         await pilot.pause()
-        active = [
-            t
-            for t in pilot.app._all_tasks
-            if t.folder_id == "today" and t.completed_at is None
-        ]
-        active_sorted = sorted(active, key=lambda t: t.position)
-        titles = [t.title for t in active_sorted]
+        # In Today view, order is determined by today_position — use today_tasks()
+        from gtd_tui.gtd.operations import today_tasks
+
+        ordered = today_tasks(pilot.app._all_tasks)
+        titles = [t.title for t in ordered]
         assert titles == ["A", "D", "B", "C"]
         assert pilot.app._visual_mode is True  # stays in visual mode
 
@@ -404,13 +402,10 @@ async def test_K_moves_selected_block_up(tmp_path: Path) -> None:
         await pilot.pause()
         await pilot.press("K")  # move block up
         await pilot.pause()
-        active = [
-            t
-            for t in pilot.app._all_tasks
-            if t.folder_id == "today" and t.completed_at is None
-        ]
-        active_sorted = sorted(active, key=lambda t: t.position)
-        titles = [t.title for t in active_sorted]
+        from gtd_tui.gtd.operations import today_tasks
+
+        ordered = today_tasks(pilot.app._all_tasks)
+        titles = [t.title for t in ordered]
         assert titles == ["B", "C", "A", "D"]
         assert pilot.app._visual_mode is True
 

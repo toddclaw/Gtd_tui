@@ -238,7 +238,9 @@ def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
        on or before today (explicitly scheduled to surface today/overdue).
        Undated tasks in other folders do NOT appear here.
 
-    Sort order: 'today'-folder tasks first (by position), then dated tasks
+    Sort order: when all visible tasks have a today_position assigned, they are
+    sorted by that value (unified manual order).  Otherwise falls back to the
+    legacy sort: 'today'-folder tasks first (by position), then dated tasks
     from other folders by (scheduled_date, folder_id, position).
     """
     ref = as_of or date.today()
@@ -253,9 +255,103 @@ def today_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
         else:
             if t.scheduled_date is not None and t.scheduled_date <= ref:
                 dated_other.append(t)
+    all_visible = today_home + dated_other
+    if all_visible and all(t.today_position is not None for t in all_visible):
+        return sorted(all_visible, key=lambda t: t.today_position or 0)
+    # Legacy fallback: today-home by position, dated_other by date/folder/position
     today_home.sort(key=lambda t: t.position)
     dated_other.sort(key=lambda t: (t.scheduled_date, t.folder_id, t.position))
     return today_home + dated_other
+
+
+def assign_today_positions(tasks: list[Task], as_of: date | None = None) -> bool:
+    """Assign today_position to any Today-visible task that lacks one.
+
+    Tasks that already have a today_position keep their value.  New tasks are
+    appended after the current maximum, preserving the existing display order.
+
+    Returns True if any positions were changed (caller may want to persist).
+    """
+    ref = as_of or date.today()
+    visible = today_tasks(tasks, ref)
+    max_pos = max(
+        (t.today_position for t in visible if t.today_position is not None),
+        default=-1,
+    )
+    changed = False
+    for task in visible:
+        if task.today_position is None:
+            max_pos += 1
+            task.today_position = max_pos
+            changed = True
+    return changed
+
+
+def move_today_task_down(
+    tasks: list[Task], task_id: str, as_of: date | None = None
+) -> list[Task]:
+    """Move a task one position down in the unified Today view order.
+
+    Swaps today_position with the next task in Today order.
+    No-op if the task is last or not found in Today.
+    """
+    ref = as_of or date.today()
+    visible = today_tasks(tasks, ref)
+    idx = next((i for i, t in enumerate(visible) if t.id == task_id), None)
+    if idx is None or idx == len(visible) - 1:
+        return tasks
+    visible[idx].today_position, visible[idx + 1].today_position = (
+        visible[idx + 1].today_position,
+        visible[idx].today_position,
+    )
+    return tasks
+
+
+def move_today_task_up(
+    tasks: list[Task], task_id: str, as_of: date | None = None
+) -> list[Task]:
+    """Move a task one position up in the unified Today view order.
+
+    Swaps today_position with the previous task in Today order.
+    No-op if the task is first or not found in Today.
+    """
+    ref = as_of or date.today()
+    visible = today_tasks(tasks, ref)
+    idx = next((i for i, t in enumerate(visible) if t.id == task_id), None)
+    if idx is None or idx == 0:
+        return tasks
+    visible[idx].today_position, visible[idx - 1].today_position = (
+        visible[idx - 1].today_position,
+        visible[idx].today_position,
+    )
+    return tasks
+
+
+def reorder_today_task(
+    tasks: list[Task],
+    task_id: str,
+    target_task_id: str,
+    after: bool = True,
+    as_of: date | None = None,
+) -> list[Task]:
+    """Move task_id to appear after (or before) target_task_id in Today order.
+
+    Renumbers today_position sequentially for all Today-visible tasks.
+    No-op if either task is not found in Today, or both are the same task.
+    """
+    ref = as_of or date.today()
+    visible = list(today_tasks(tasks, ref))
+    src = next((t for t in visible if t.id == task_id), None)
+    tgt = next((t for t in visible if t.id == target_task_id), None)
+    if src is None or tgt is None or src is tgt:
+        return tasks
+    visible.remove(src)
+    tgt_idx = visible.index(tgt)
+    insert_at = tgt_idx + 1 if after else tgt_idx
+    visible.insert(insert_at, src)
+    for i, task in enumerate(visible):
+        task.today_position = i
+    return tasks
 
 
 def upcoming_tasks(tasks: list[Task], as_of: date | None = None) -> list[Task]:
